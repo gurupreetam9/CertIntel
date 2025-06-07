@@ -14,8 +14,17 @@ import tempfile
 from pdf2image import convert_from_bytes, pdfinfo_from_bytes
 from pdf2image.exceptions import PDFInfoNotInstalledError, PDFPageCountError, PDFSyntaxError, PDFPopplerTimeoutError
 
+# --- Initial Setup ---
+# Configure logging BEFORE creating the Flask app instance for consistent logger
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+app_logger = logging.getLogger(__name__) # Use this logger throughout
+app_logger.info("Flask app.py: Script execution started.")
+
+
 # Load environment variables from .env file
 load_dotenv()
+app_logger.info(f"Flask app.py: .env loaded: {'Yes' if os.getenv('MONGODB_URI') else 'No (or MONGODB_URI not set)'}")
+
 
 # Import the refactored processing function
 from certificate_processor import extract_and_recommend_courses_from_image_data
@@ -23,9 +32,8 @@ from certificate_processor import extract_and_recommend_courses_from_image_data
 app = Flask(__name__)
 CORS(app) # Enable CORS for all routes
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-app.logger.setLevel(logging.INFO)
+# Use the app's logger after it's created
+app.logger.info("Flask app instance created.")
 
 
 # --- MongoDB Setup ---
@@ -42,6 +50,7 @@ course_data_collection = None
 
 try:
     if MONGODB_URI:
+        app.logger.info(f"Attempting to connect to MongoDB with URI (first part): {MONGODB_URI.split('@')[0] if '@' in MONGODB_URI else 'URI_FORMAT_UNEXPECTED'}")
         mongo_client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000) 
         mongo_client.admin.command('ismaster') 
         db = mongo_client[DB_NAME]
@@ -57,11 +66,18 @@ except Exception as e:
     fs_images = None
     course_data_collection = None
 
+@app.route('/', methods=['GET'])
+def health_check():
+    app.logger.info("Flask /: Health check endpoint hit.")
+    return jsonify({"status": "Flask server is running", "message": "Welcome to ImageVerse Flask API!"}), 200
+
 
 @app.route('/api/process-certificates', methods=['POST'])
 def process_certificates_from_db():
+    req_id_cert = datetime.now().strftime('%Y%m%d%H%M%S%f')
+    app.logger.info(f"Flask /api/process-certificates (Req ID: {req_id_cert}): Received request.")
     if mongo_client is None or db is None or fs_images is None or course_data_collection is None:
-        app.logger.error("MongoDB connection or course_data collection not available for /api/process-certificates.")
+        app.logger.error(f"Flask (Req ID: {req_id_cert}): MongoDB connection or course_data collection not available for /api/process-certificates.")
         return jsonify({"error": "Database connection or required collection is not available. Check server logs."}), 503
 
     data = request.get_json()
@@ -69,10 +85,10 @@ def process_certificates_from_db():
     additional_manual_courses = data.get("additionalManualCourses", []) 
 
     if not user_id:
-        app.logger.warning("User ID not provided in request to /api/process-certificates.")
+        app.logger.warning(f"Flask (Req ID: {req_id_cert}): User ID not provided in request to /api/process-certificates.")
         return jsonify({"error": "User ID (userId) not provided"}), 400
 
-    app.logger.info(f"Processing certificates for userId: {user_id}. Manual courses: {additional_manual_courses}")
+    app.logger.info(f"Flask (Req ID: {req_id_cert}): Processing certificates for userId: {user_id}. Manual courses: {additional_manual_courses}")
 
     try:
         user_image_files_cursor = db.images.files.find({"metadata.userId": user_id})
@@ -83,7 +99,7 @@ def process_certificates_from_db():
             original_filename = file_doc.get("metadata", {}).get("originalName", file_doc["filename"])
             content_type = file_doc.get("contentType", "application/octet-stream")
             
-            app.logger.info(f"Fetching file from GridFS: ID={file_id}, Name={original_filename}, Type={content_type}")
+            app.logger.info(f"Flask (Req ID: {req_id_cert}): Fetching file from GridFS: ID={file_id}, Name={original_filename}, Type={content_type}")
 
             grid_out = fs_images.get(file_id)
             image_bytes = grid_out.read()
@@ -96,23 +112,23 @@ def process_certificates_from_db():
                 "file_id": str(file_id) 
             })
         
-        app.logger.info(f"Found {len(image_data_for_processing)} certificate images in GridFS for user {user_id}.")
+        app.logger.info(f"Flask (Req ID: {req_id_cert}): Found {len(image_data_for_processing)} certificate images in GridFS for user {user_id}.")
 
         cache_population_docs = []
         try:
             cache_population_docs = list(course_data_collection.find({}).sort("processedAt", DESCENDING))
-            app.logger.info(f"Fetched {len(cache_population_docs)} documents from course_data to populate recommendation cache.")
+            app.logger.info(f"Flask (Req ID: {req_id_cert}): Fetched {len(cache_population_docs)} documents from course_data to populate recommendation cache.")
         except Exception as e:
-            app.logger.error(f"Error fetching documents for cache population from course_data: {e}")
+            app.logger.error(f"Flask (Req ID: {req_id_cert}): Error fetching documents for cache population from course_data: {e}")
         
         latest_previous_doc_for_user = None
         try:
             cursor = course_data_collection.find({"userId": user_id}).sort("processedAt", DESCENDING).limit(1)
             latest_previous_doc_for_user = next(cursor, None)
             if latest_previous_doc_for_user:
-                app.logger.info(f"Fetched latest course_data record for user {user_id} for duplicate check.")
+                app.logger.info(f"Flask (Req ID: {req_id_cert}): Fetched latest course_data record for user {user_id} for duplicate check.")
         except Exception as e:
-            app.logger.error(f"Error fetching latest course_data for user {user_id}: {e}")
+            app.logger.error(f"Flask (Req ID: {req_id_cert}): Error fetching latest course_data for user {user_id}: {e}")
 
 
         if not image_data_for_processing and not additional_manual_courses:
@@ -128,7 +144,7 @@ def process_certificates_from_db():
             additional_manual_courses=additional_manual_courses
         )
         
-        app.logger.info(f"Successfully processed certificates for user {user_id}.")
+        app.logger.info(f"Flask (Req ID: {req_id_cert}): Successfully processed certificates for user {user_id}.")
 
         should_store_new_result = True
         if latest_previous_doc_for_user:
@@ -144,7 +160,7 @@ def process_certificates_from_db():
 
             if prev_extracted == curr_extracted and prev_recs_str == curr_recs_str:
                 should_store_new_result = False
-                app.logger.info(f"Processing result for user {user_id} is identical to the latest stored. Skipping storage.")
+                app.logger.info(f"Flask (Req ID: {req_id_cert}): Processing result for user {user_id} is identical to the latest stored. Skipping storage.")
         
         if should_store_new_result and \
            (processing_result.get("extracted_courses") or processing_result.get("recommendations")):
@@ -155,14 +171,14 @@ def process_certificates_from_db():
                     **processing_result 
                 }
                 insert_result = course_data_collection.insert_one(data_to_store)
-                app.logger.info(f"Stored new processing result for user {user_id} in course_data. Inserted ID: {insert_result.inserted_id}")
+                app.logger.info(f"Flask (Req ID: {req_id_cert}): Stored new processing result for user {user_id} in course_data. Inserted ID: {insert_result.inserted_id}")
             except Exception as e:
-                app.logger.error(f"Error storing result to course_data for user {user_id}: {e}")
+                app.logger.error(f"Flask (Req ID: {req_id_cert}): Error storing result to course_data for user {user_id}: {e}")
         
         return jsonify(processing_result)
 
     except Exception as e:
-        app.logger.error(f"Error during certificate processing for user {user_id}: {str(e)}", exc_info=True)
+        app.logger.error(f"Flask (Req ID: {req_id_cert}): Error during certificate processing for user {user_id}: {str(e)}", exc_info=True)
         return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
 
 @app.route('/api/convert-pdf-to-images', methods=['POST'])
@@ -176,12 +192,14 @@ def convert_pdf_to_images_route():
         return jsonify({"error": "Database connection or GridFS not available. Check server logs."}), 503
 
     if 'pdf_file' not in request.files:
-        app.logger.warning(f"Flask (Req ID: {req_id}): No 'pdf_file' part in the request.")
+        app.logger.warning(f"Flask (Req ID: {req_id}): No 'pdf_file' part in the request. Files: {list(request.files.keys())}")
         return jsonify({"error": "No PDF file part in the request."}), 400
 
     pdf_file_storage = request.files['pdf_file']
     user_id = request.form.get('userId')
     original_pdf_name = request.form.get('originalName', pdf_file_storage.filename) 
+    app.logger.info(f"Flask (Req ID: {req_id}): Received form fields - userId: '{user_id}', originalName: '{original_pdf_name}'")
+
 
     if not user_id:
         app.logger.warning(f"Flask (Req ID: {req_id}): Missing 'userId' in form data.")
@@ -198,6 +216,7 @@ def convert_pdf_to_images_route():
         
         # Poppler self-check using pdfinfo_from_bytes
         try:
+            app.logger.info(f"Flask (Req ID: {req_id}): Attempting Poppler self-check (pdfinfo_from_bytes)...")
             pdfinfo = pdfinfo_from_bytes(pdf_bytes, userpw=None, poppler_path=None)
             app.logger.info(f"Flask (Req ID: {req_id}): Poppler self-check (pdfinfo) successful. PDF Info: {pdfinfo}")
         except PDFInfoNotInstalledError:
@@ -268,9 +287,10 @@ def convert_pdf_to_images_route():
 
 
 if __name__ == '__main__':
-    app.logger.info("Flask application starting...")
+    app.logger.info("Flask application starting with __name__ == '__main__'")
     app.logger.info("Ensure 'poppler-utils' (or equivalent Poppler binaries) are installed and accessible in the system PATH.")
-    app.logger.info(f"MongoDB URI configured: {'Yes' if MONGODB_URI else 'No'}")
-    app.logger.info(f"MongoDB DB Name: {DB_NAME}")
+    app.logger.info(f"Effective MONGODB_URI configured: {'Yes' if MONGODB_URI else 'No'}") # Log effective URI status
+    app.logger.info(f"Effective MONGODB_DB_NAME: {DB_NAME}")
+    app.logger.info("Flask app will attempt to run on host=0.0.0.0, port from env or 5000.")
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)), debug=True)
 
