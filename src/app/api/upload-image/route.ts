@@ -68,12 +68,13 @@ export async function POST(request: NextRequest) {
       console.log(`API /api/upload-image (Req ID: ${reqId}): Attempting DB connection...`);
       dbConnection = await connectToDb();
       if (!dbConnection || !dbConnection.bucket || !dbConnection.db) {
-        throw new Error('Server error: Database or GridFS bucket not initialized.');
+        console.error(`API /api/upload-image (Req ID: ${reqId}): DB Connection Error - connectToDb returned invalid structure.`);
+        throw new Error('Server error: Database or GridFS bucket not initialized after connectToDb call.');
       }
       console.log(`API /api/upload-image (Req ID: ${reqId}): DB connected, GridFS bucket obtained.`);
     } catch (dbError: any) {
       console.error(`API /api/upload-image (Req ID: ${reqId}): DB Connection Error.`, { message: dbError.message, stack: dbError.stack });
-      return NextResponse.json([{ message: `Database connection failed (Req ID: ${reqId}): ${dbError.message}`, error: 'DB_CONNECTION_ERROR' }], { status: 503 });
+      throw new Error(`Database connection failed (Req ID: ${reqId}): ${dbError.message}`);
     }
     
     const { bucket } = dbConnection;
@@ -85,28 +86,33 @@ export async function POST(request: NextRequest) {
       const parsedForm = await parseForm(request);
       fields = parsedForm.fields;
       files = parsedForm.files;
-      console.log(`API /api/upload-image (Req ID: ${reqId}): Form data parsed. Fields: ${Object.keys(fields).join(', ')}. Files: ${files.file ? files.file[0].originalFilename : 'No file field'}`);
+      console.log(`API /api/upload-image (Req ID: ${reqId}): Form data parsed. Fields: ${Object.keys(fields).join(', ')}. Files: ${files.file ? (files.file[0] as formidable.File).originalFilename : 'No file field'}`);
     } catch (formError: any) {
       console.error(`API /api/upload-image (Req ID: ${reqId}): Form Parsing Error.`, { message: formError.message, stack: formError.stack });
-      return NextResponse.json([{ message: `Failed to parse form data (Req ID: ${reqId}): ${formError.message}`, error: 'FORM_PARSING_ERROR' }], { status: 400 });
+      throw new Error(`Failed to parse form data (Req ID: ${reqId}): ${formError.message}`);
     }
 
-    const userId = fields.userId?.[0] as string;
-    const originalNameFromField = fields.originalName?.[0] as string; // Use this as the base original name
-    const clientContentType = fields.contentType?.[0] as string;
+    const userIdField = fields.userId;
+    const originalNameField = fields.originalName;
+    const contentTypeField = fields.contentType;
+
+    const userId = Array.isArray(userIdField) ? userIdField[0] : userIdField;
+    const originalNameFromField = Array.isArray(originalNameField) ? originalNameField[0] : originalNameField;
+    const clientContentType = Array.isArray(contentTypeField) ? contentTypeField[0] : contentTypeField;
+
 
     if (!userId || !originalNameFromField) {
       console.warn(`API /api/upload-image (Req ID: ${reqId}): Missing userId or originalName. UserID: ${userId}, OriginalName: ${originalNameFromField}`);
-      return NextResponse.json([{ message: 'Missing userId or originalName in form data.' }], { status: 400 });
+      throw new Error('Missing userId or originalName in form data.');
     }
 
     const fileArray = files.file;
     if (!fileArray || fileArray.length === 0) {
       console.warn(`API /api/upload-image (Req ID: ${reqId}): No file uploaded in 'file' field.`);
-      return NextResponse.json([{ message: 'No file uploaded.' }], { status: 400 });
+      throw new Error('No file uploaded.');
     }
-    const uploadedFile = fileArray[0];
-    const actualOriginalName = uploadedFile.originalFilename || originalNameFromField; // Prefer formidable's filename if available
+    const uploadedFile = fileArray[0] as formidable.File; 
+    const actualOriginalName = uploadedFile.originalFilename || originalNameFromField; 
 
     const results: { originalName: string; fileId: string; filename: string; pageNumber?: number }[] = [];
     const fileType = uploadedFile.mimetype || clientContentType;
@@ -117,21 +123,23 @@ export async function POST(request: NextRequest) {
       try {
         const pdfBuffer = fs.readFileSync(uploadedFile.filepath);
         console.log(`API /api/upload-image (Req ID: ${reqId}): PDF buffer read (size: ${pdfBuffer.length}). Loading document...`);
+        // Ensure isEvalSupported is explicitly false for Node.js environments for pdfjs-dist v3+
         pdfDocument = await pdfjsLib.getDocument({ data: pdfBuffer, useWorkerFetch: false, isEvalSupported: false }).promise;
         console.log(`API /api/upload-image (Req ID: ${reqId}): PDF document loaded with ${pdfDocument.numPages} pages.`);
       } catch (pdfLoadError: any) {
-        console.error(`API /api/upload-image (Req ID: ${reqId}): Error loading PDF document "${actualOriginalName}".`, { message: pdfLoadError.message, stack: pdfLoadError.stack });
-        throw new Error(`Failed to load PDF "${actualOriginalName}": ${pdfLoadError.message}`);
+        console.error(`API /api/upload-image (Req ID: ${reqId}): Error loading PDF document "${actualOriginalName}".`, { message: pdfLoadError.message, name: pdfLoadError.name, stack: pdfLoadError.stack?.substring(0, 500) });
+        throw new Error(`Failed to load PDF "${actualOriginalName}" (Req ID: ${reqId}): ${pdfLoadError.message}`);
       }
+
+      const canvasFactory = new NodeCanvasFactory(); 
 
       for (let i = 1; i <= pdfDocument.numPages; i++) {
         console.log(`API /api/upload-image (Req ID: ${reqId}): Processing page ${i} of ${pdfDocument.numPages} for PDF "${actualOriginalName}".`);
         let page;
-        const canvasFactory = new NodeCanvasFactory();
-        let canvasAndContext: any;
+        let canvasAndContext: any; 
         try {
           page = await pdfDocument.getPage(i);
-          const viewport = page.getViewport({ scale: 1.5 });
+          const viewport = page.getViewport({ scale: 1.5 }); 
           canvasAndContext = canvasFactory.create(viewport.width, viewport.height);
 
           const renderContext = {
@@ -143,9 +151,9 @@ export async function POST(request: NextRequest) {
           console.log(`API /api/upload-image (Req ID: ${reqId}): Rendering page ${i}...`);
           await page.render(renderContext).promise;
           console.log(`API /api/upload-image (Req ID: ${reqId}): Page ${i} rendered. Converting to buffer...`);
-          const imageBuffer = canvasAndContext.canvas.toBuffer('image/png');
+          const imageBuffer = canvasAndContext.canvas.toBuffer('image/png'); 
           
-          const pageFilename = `${userId}_${Date.now()}_${actualOriginalName.replace(/\.pdf$/i, '').replace(/\s+/g, '_')}_page_${i}.png`;
+          const pageFilename = `${userId}_${Date.now()}_${actualOriginalName.replace(/\.pdf$/i, '').replace(/[^a-zA-Z0-9_.-]/g, '_')}_page_${i}.png`;
           const metadata = {
             originalName: `${actualOriginalName} (Page ${i})`,
             userId,
@@ -161,9 +169,9 @@ export async function POST(request: NextRequest) {
 
           await new Promise<void>((resolveStream, rejectStream) => {
             readable.pipe(uploadStream)
-              .on('error', (err) => {
+              .on('error', (err: MongoError) => { 
                 console.error(`GridFS Stream Error for PDF page ${pageFilename} (Req ID: ${reqId}):`, err);
-                rejectStream(new Error(`GridFS upload error for ${pageFilename}: ${err.message}`));
+                rejectStream(new Error(`GridFS upload error for ${pageFilename} (Req ID: ${reqId}): ${err.message}`));
               })
               .on('finish', () => {
                 console.log(`GridFS Upload finished for PDF page: ${pageFilename}, ID: ${uploadStream.id} (Req ID: ${reqId})`);
@@ -172,13 +180,11 @@ export async function POST(request: NextRequest) {
               });
           });
         } catch (pageProcessingError: any) {
-          console.error(`API /api/upload-image (Req ID: ${reqId}): Error processing page ${i} of PDF "${actualOriginalName}".`, { message: pageProcessingError.message, stack: pageProcessingError.stack });
-          // Optionally, decide if you want to continue with other pages or fail the whole upload
-          // For now, let's throw to indicate the PDF processing had an issue.
-          throw new Error(`Failed to process page ${i} of PDF "${actualOriginalName}": ${pageProcessingError.message}`);
+          console.error(`API /api/upload-image (Req ID: ${reqId}): Error processing page ${i} of PDF "${actualOriginalName}".`, { message: pageProcessingError.message, name: pageProcessingError.name, stack: pageProcessingError.stack?.substring(0,500) });
+          throw new Error(`Failed to process page ${i} of PDF "${actualOriginalName}" (Req ID: ${reqId}): ${pageProcessingError.message}`);
         } finally {
-          if (page) page.cleanup();
-          if (canvasAndContext) canvasFactory.destroy(canvasAndContext);
+          if (page) page.cleanup(); 
+          if (canvasAndContext) canvasFactory.destroy(canvasAndContext); 
           console.log(`API /api/upload-image (Req ID: ${reqId}): Cleaned up resources for page ${i}.`);
         }
       }
@@ -186,7 +192,7 @@ export async function POST(request: NextRequest) {
 
     } else if (fileType && fileType.startsWith('image/')) {
       console.log(`API /api/upload-image (Req ID: ${reqId}): Processing Image: ${actualOriginalName}`);
-      const imageFilename = `${userId}_${Date.now()}_${actualOriginalName.replace(/\s+/g, '_')}`;
+      const imageFilename = `${userId}_${Date.now()}_${actualOriginalName.replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
       const metadata = {
         originalName: actualOriginalName,
         userId,
@@ -200,9 +206,9 @@ export async function POST(request: NextRequest) {
 
       await new Promise<void>((resolveStream, rejectStream) => {
         readable.pipe(uploadStream)
-          .on('error', (err) => {
+          .on('error', (err: MongoError) => { 
             console.error(`GridFS Stream Error for image ${imageFilename} (Req ID: ${reqId}):`, err);
-            rejectStream(new Error(`GridFS upload error for ${imageFilename}: ${err.message}`));
+            rejectStream(new Error(`GridFS upload error for ${imageFilename} (Req ID: ${reqId}): ${err.message}`));
           })
           .on('finish', () => {
             console.log(`GridFS Upload finished for image: ${imageFilename}, ID: ${uploadStream.id} (Req ID: ${reqId})`);
@@ -212,7 +218,7 @@ export async function POST(request: NextRequest) {
       });
     } else {
       console.warn(`API /api/upload-image (Req ID: ${reqId}): Unsupported file type: ${fileType} for file ${actualOriginalName}`);
-      return NextResponse.json([{ message: `Unsupported file type: ${fileType}. Please upload an image or PDF.` }], { status: 415 });
+      throw new Error(`Unsupported file type: ${fileType}. Please upload an image or PDF.`);
     }
 
     if (uploadedFile.filepath && fs.existsSync(uploadedFile.filepath)) {
@@ -228,20 +234,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(results, { status: 201 });
 
   } catch (error: any) {
-    // This is the outermost catch block. It should always return JSON.
     console.error(`API /api/upload-image (Req ID: ${reqId}): CRITICAL UNHANDLED ERROR IN POST HANDLER.`, {
         errorMessage: error.message,
         errorType: error.constructor?.name,
-        errorStack: error.stack?.substring(0, 700), // Log more of the stack
+        errorStack: error.stack?.substring(0, 700), 
         reqId,
     });
     
-    // Ensure a serializable payload
     const responseMessage = error.message || 'An unexpected critical error occurred during file upload.';
     const errorKey = error.name === 'Error' ? 'UPLOAD_PROCESSING_ERROR' : (error.name || 'UNKNOWN_SERVER_ERROR');
 
     return NextResponse.json(
-      [{ message: `Server Error (Req ID: ${reqId}): ${responseMessage}`, error: errorKey }],
+      [{ message: `Server Error (Req ID: ${reqId}): ${responseMessage}`, error: errorKey, name: error.name, stack: error.stack?.substring(0,300) }],
       { status: 500 }
     );
   }
@@ -253,5 +257,3 @@ export const config = {
     bodyParser: false,
   },
 };
-
-    
