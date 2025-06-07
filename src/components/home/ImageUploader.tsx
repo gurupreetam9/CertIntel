@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { AlertCircle, Camera, CheckCircle, FileUp, ImagePlus, Loader2, Trash2, UploadCloud } from 'lucide-react';
+import { AlertCircle, Bot, Camera, CheckCircle, FileUp, ImagePlus, Loader2, Trash2, UploadCloud } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -20,6 +20,7 @@ interface UploadedFile {
   status: 'pending' | 'uploading' | 'success' | 'error';
   error?: string;
   fileId?: string; // MongoDB GridFS File ID
+  isGeneratingDescription?: boolean; // New state for AI button loading
 }
 
 interface ImageUploaderProps {
@@ -47,7 +48,7 @@ async function getDescriptionFromCustomAI(photoDataUri: string): Promise<{ descr
   if (!aiServerBaseUrl) {
     const errorMsg = 'ImageUploader: NEXT_PUBLIC_FLASK_SERVER_URL is not set. Cannot call custom AI.';
     console.error(errorMsg);
-    throw new Error('Custom AI server URL is not configured.');
+    throw new Error('Custom AI server URL is not configured. Please set NEXT_PUBLIC_FLASK_SERVER_URL in .env.local');
   }
   const aiEndpoint = `${aiServerBaseUrl}/describe-image`;
 
@@ -68,14 +69,15 @@ async function getDescriptionFromCustomAI(photoDataUri: string): Promise<{ descr
       } catch (textError) {
         console.warn("ImageUploader: Could not parse error response body from AI server as text.", textError);
       }
-      console.error(`ImageUploader: Custom AI server request failed with status ${response.status}: ${errorBodyText}`);
-      throw new Error(`Custom AI server failed: ${response.statusText} - ${errorBodyText.substring(0, 200)}`);
+      const fullErrorMessage = `Custom AI server request failed with status ${response.status}: ${errorBodyText.substring(0, 200)}`;
+      console.error(`ImageUploader: ${fullErrorMessage}`);
+      throw new Error(fullErrorMessage);
     }
 
     const result = await response.json();
     console.log('ImageUploader: Custom AI server response:', result);
     if (!result.description) {
-       throw new Error('Custom AI server response did not include a description.');
+       throw new Error('Custom AI server response did not include a "description" field.');
     }
     return result;
   } catch (error: any) {
@@ -109,9 +111,10 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
           previewUrl: URL.createObjectURL(file),
           progress: 0,
           status: 'pending',
+          isGeneratingDescription: false,
         }));
       setSelectedFiles(prev => [...prev, ...newFiles]);
-      if(event.target) event.target.value = "";
+      if(event.target) event.target.value = ""; 
     }
   };
 
@@ -136,6 +139,34 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     });
   };
 
+  const handleGenerateDescription = async (targetFile: UploadedFile) => {
+    console.log(`ImageUploader: Attempting to generate AI description for ${targetFile.file.name}`);
+    setSelectedFiles(prev => prev.map(f => f.file.name === targetFile.file.name ? { ...f, isGeneratingDescription: true } : f));
+
+    try {
+      const photoDataUri = await fileToDataUri(targetFile.file);
+      const descriptionResult = await getDescriptionFromCustomAI(photoDataUri);
+      console.log(`ImageUploader: Custom AI Description for ${targetFile.file.name}: ${descriptionResult.description}`);
+      toast({
+        title: `AI Description: ${targetFile.file.name}`,
+        description: descriptionResult.description.substring(0, 200) + (descriptionResult.description.length > 200 ? '...' : ''),
+        duration: 7000,
+      });
+    } catch (customAiError: any) {
+      console.error(`ImageUploader: Custom AI description failed for ${targetFile.file.name}:`, customAiError);
+      toast({
+        title: 'AI Description Failed',
+        description: `Could not get description for ${targetFile.file.name}. ${(customAiError.message || 'Unknown custom AI error')}`,
+        variant: 'destructive',
+        duration: 7000,
+      });
+    } finally {
+      setSelectedFiles(prev => prev.map(f => f.file.name === targetFile.file.name ? { ...f, isGeneratingDescription: false } : f));
+      console.log(`ImageUploader: Finished AI description attempt for ${targetFile.file.name}`);
+    }
+  };
+
+
   const handleUpload = async () => {
     if (!userId) {
       toast({ title: 'Authentication Error', description: 'User not authenticated. Please log in.', variant: 'destructive' });
@@ -150,13 +181,13 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
       return;
     }
 
-    console.log(`ImageUploader: handleUpload called for MongoDB. Current isUploading before starting: ${isUploading}. Attempting to upload ${filesToUpload.length} files.`);
+    console.log(`ImageUploader: handleUpload called. Current isUploading before starting: ${isUploading}. Attempting to upload ${filesToUpload.length} files.`);
     setIsUploading(true);
     console.log('ImageUploader: isUploading state has been set to true.');
 
     const uploadPromises = filesToUpload.map(async (uploadedFile) => {
       setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'uploading', progress: 50, error: undefined } : f));
-      console.log(`ImageUploader: Starting individual upload to MongoDB for: ${uploadedFile.file.name}`);
+      console.log(`ImageUploader: Starting individual upload for: ${uploadedFile.file.name}`);
 
       try {
         const photoDataUri = await fileToDataUri(uploadedFile.file);
@@ -172,8 +203,9 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
             contentType: uploadedFile.file.type,
           }),
         });
-
-        const responseBody = await response.json().catch(() => {
+        
+        const responseBody = await response.json().catch((err) => {
+            console.error(`ImageUploader: Failed to parse JSON response for ${uploadedFile.file.name}. Status: ${response.status}. Error:`, err);
             return { message: `Server returned non-JSON response (Status: ${response.status}). Check server logs.`, error: 'Invalid server response' };
         });
 
@@ -184,67 +216,49 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
         }
 
         const result = responseBody;
-        console.log(`ImageUploader: MongoDB upload successful for: ${uploadedFile.file.name}. File ID: ${result.fileId}`);
+        console.log(`ImageUploader: Upload successful for: ${uploadedFile.file.name}. File ID: ${result.fileId}`);
         setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'success', progress: 100, fileId: result.fileId } : f));
-
-        try {
-          console.log(`ImageUploader: Calling getDescriptionFromCustomAI for ${uploadedFile.file.name}`);
-          const descriptionResult = await getDescriptionFromCustomAI(photoDataUri);
-          console.log(`ImageUploader: Custom AI Description for ${uploadedFile.file.name}: ${descriptionResult.description}`);
-          toast({
-            title: `AI: ${uploadedFile.file.name}`,
-            description: descriptionResult.description.substring(0, 200) + (descriptionResult.description.length > 200 ? '...' : ''),
-            duration: 7000,
-          });
-        } catch (customAiError: any) {
-          console.error(`ImageUploader: Custom AI description failed for ${uploadedFile.file.name}:`, customAiError);
-          toast({
-            title: 'Custom AI Call Failed',
-            description: `Could not get description for ${uploadedFile.file.name}. ${(customAiError.message || 'Unknown custom AI error')}`,
-            variant: 'destructive',
-            duration: 7000,
-          });
-        }
-
+        
         return { originalName: uploadedFile.file.name, fileId: result.fileId };
+
       } catch (error: any) {
-        console.error(`ImageUploader: Individual MongoDB upload error for file: ${uploadedFile.file.name}. Error:`, error.message, error);
-        const errorMessage = error.message || 'Upload to MongoDB failed';
+        console.error(`ImageUploader: Individual upload error for file: ${uploadedFile.file.name}. Error:`, error.message, error);
+        const errorMessage = error.message || 'Upload failed';
         setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'error', error: errorMessage, progress: 0 } : f));
-        return null;
+        return null; 
       }
     });
 
     try {
-      console.log('ImageUploader: Waiting for all MongoDB upload promises to settle...');
+      console.log('ImageUploader: Waiting for all upload promises to settle...');
       const results = await Promise.all(uploadPromises);
-      console.log('ImageUploader: All MongoDB upload promises settled. Results:', JSON.stringify(results));
+      console.log('ImageUploader: All upload promises settled. Results:', JSON.stringify(results));
 
       const successfulUploads = results.filter(r => r !== null && r.fileId) as {originalName: string; fileId: string}[];
       const failedInThisBatchCount = filesToUpload.length - successfulUploads.length;
 
-      console.log(`ImageUploader: Successful MongoDB uploads in this batch: ${successfulUploads.length}, Failed in this batch: ${failedInThisBatchCount}`);
+      console.log(`ImageUploader: Successful uploads in this batch: ${successfulUploads.length}, Failed in this batch: ${failedInThisBatchCount}`);
 
       if (successfulUploads.length > 0) {
-        console.log('ImageUploader: Calling onUploadComplete with successful MongoDB uploads:', successfulUploads);
+        console.log('ImageUploader: Calling onUploadComplete with successful uploads:', successfulUploads);
         onUploadComplete(successfulUploads);
       }
 
-      if (filesToUpload.length > 0) {
+      if (filesToUpload.length > 0) { // Only show toast if there were attempts
         if (successfulUploads.length > 0 && failedInThisBatchCount === 0) {
-          toast({ title: 'Upload Complete', description: `${successfulUploads.length} image(s) uploaded to database successfully.` });
+          toast({ title: 'Upload Complete', description: `${successfulUploads.length} image(s) uploaded successfully.` });
         } else if (successfulUploads.length > 0 && failedInThisBatchCount > 0) {
-          toast({ title: 'Partial Upload', description: `${successfulUploads.length} image(s) uploaded to database. ${failedInThisBatchCount} failed. Check file errors.`, variant: 'default' });
+          toast({ title: 'Partial Upload', description: `${successfulUploads.length} image(s) uploaded. ${failedInThisBatchCount} failed. Check file errors.`, variant: 'default' }); // 'default' might be better than 'warning' if there's no specific warning variant
         } else if (failedInThisBatchCount > 0 && successfulUploads.length === 0) {
            toast({ title: 'Upload Failed', description: `All ${failedInThisBatchCount} image(s) in this batch failed. Check file errors & server logs.`, variant: 'destructive' });
         }
       }
 
     } catch (allResultsError) {
-      console.error('ImageUploader: Unexpected error during MongoDB Promise.all settlement or results processing:', allResultsError);
+      console.error('ImageUploader: Unexpected error during Promise.all settlement or results processing:', allResultsError);
       toast({ title: 'Upload Processing Error', description: 'Unexpected error finalizing uploads. Some files may not have processed.', variant: 'destructive' });
     } finally {
-      console.log(`ImageUploader: Entering finally block of MongoDB handleUpload. Current isUploading before set: ${isUploading}`);
+      console.log(`ImageUploader: Entering finally block of handleUpload. Current isUploading before set: ${isUploading}`);
       setIsUploading(false);
       console.log('ImageUploader: isUploading state has been set to false.');
     }
@@ -319,10 +333,28 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
                     <Progress value={uploadedFile.progress} className="w-full h-2 mt-1" />
                   )}
                    {uploadedFile.status === 'uploading' && <p className="text-xs text-primary flex items-center"><Loader2 className="w-3 h-3 mr-1 animate-spin"/>Uploading to DB...</p>}
-                  {uploadedFile.status === 'success' && <p className="text-xs text-green-600 flex items-center"><CheckCircle className="w-3 h-3 mr-1"/>Uploaded to DB</p>}
+                  {uploadedFile.status === 'success' && (
+                    <>
+                      <p className="text-xs text-green-600 flex items-center"><CheckCircle className="w-3 h-3 mr-1"/>Uploaded to DB</p>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="mt-2"
+                        onClick={() => handleGenerateDescription(uploadedFile)}
+                        disabled={uploadedFile.isGeneratingDescription}
+                      >
+                        {uploadedFile.isGeneratingDescription ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Bot className="mr-2 h-4 w-4" />
+                        )}
+                        Get AI Description
+                      </Button>
+                    </>
+                  )}
                   {uploadedFile.status === 'error' && <p className="text-xs text-destructive flex items-center" title={uploadedFile.error}><AlertCircle className="w-3 h-3 mr-1"/>{uploadedFile.error}</p>}
                 </div>
-                {uploadedFile.status !== 'uploading' && (
+                {uploadedFile.status !== 'uploading' && !uploadedFile.isGeneratingDescription && (
                   <Button variant="ghost" size="icon" onClick={() => removeFile(uploadedFile.file.name)} className="shrink-0 text-muted-foreground hover:text-destructive">
                     <Trash2 className="h-4 w-4" />
                     <span className="sr-only">Remove {uploadedFile.file.name}</span>
