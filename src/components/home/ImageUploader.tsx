@@ -214,7 +214,8 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
 
 
         if (!response.ok) {
-          const errorMsg = responseBodyArray[0]?.error || responseBodyArray[0]?.message || `Server error: ${response.status}.`;
+          const serverErrorDetail = responseBodyArray[0];
+          const errorMsg = serverErrorDetail?.message || serverErrorDetail?.error || `Server error: ${response.status}.`;
           console.error(`ImageUploader: Upload failed for ${fileEntry.file.name}. Status: ${response.status}`, responseBodyArray);
           setSelectedFiles(prev => prev.map(f => f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified ? { ...f, status: 'error', error: errorMsg, progress: 0 } : f));
           continue; // Move to the next file
