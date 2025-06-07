@@ -19,7 +19,7 @@ interface UploadedFile {
   progress: number;
   status: 'pending' | 'uploading' | 'success' | 'error';
   error?: string;
-  fileId?: string;
+  fileId?: string; // MongoDB GridFS File ID
 }
 
 interface ImageUploaderProps {
@@ -45,32 +45,50 @@ async function fileToDataUri(file: File): Promise<string> {
 async function getDescriptionFromCustomAI(photoDataUri: string): Promise<{ description: string }> {
   const aiServerBaseUrl = process.env.NEXT_PUBLIC_FLASK_SERVER_URL;
   if (!aiServerBaseUrl) {
-    console.error('ImageUploader: NEXT_PUBLIC_FLASK_SERVER_URL is not set. Cannot call custom AI.');
+    const errorMsg = 'ImageUploader: NEXT_PUBLIC_FLASK_SERVER_URL is not set. Cannot call custom AI.';
+    console.error(errorMsg);
     throw new Error('Custom AI server URL is not configured.');
   }
   const aiEndpoint = `${aiServerBaseUrl}/describe-image`;
 
   console.log(`ImageUploader: Calling custom AI server at ${aiEndpoint} for description.`);
-  const response = await fetch(aiEndpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ photoDataUri }),
-  });
+  try {
+    const response = await fetch(aiEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ photoDataUri }),
+    });
 
-  if (!response.ok) {
-    const errorBody = await response.text();
-    console.error(`ImageUploader: Custom AI server request failed with status ${response.status}: ${errorBody}`);
-    throw new Error(`Custom AI server failed: ${response.statusText} - ${errorBody.substring(0, 100)}`);
-  }
+    if (!response.ok) {
+      let errorBodyText = "Could not retrieve error body from AI server.";
+      try {
+        errorBodyText = await response.text();
+      } catch (textError) {
+        console.warn("ImageUploader: Could not parse error response body from AI server as text.", textError);
+      }
+      console.error(`ImageUploader: Custom AI server request failed with status ${response.status}: ${errorBodyText}`);
+      throw new Error(`Custom AI server failed: ${response.statusText} - ${errorBodyText.substring(0, 200)}`);
+    }
 
-  const result = await response.json();
-  console.log('ImageUploader: Custom AI server response:', result);
-  if (!result.description) {
-     throw new Error('Custom AI server response did not include a description.');
+    const result = await response.json();
+    console.log('ImageUploader: Custom AI server response:', result);
+    if (!result.description) {
+       throw new Error('Custom AI server response did not include a description.');
+    }
+    return result;
+  } catch (error: any) {
+    console.error('ImageUploader: Error during fetch to custom AI server:', error);
+    let detailedMessage = 'Failed to get description from custom AI server.';
+    if (error.message) {
+      detailedMessage += ` Details: ${error.message}`;
+    }
+    if (error instanceof TypeError && error.message.toLowerCase().includes('failed to fetch')) {
+        detailedMessage += ` This often means the AI server at "${aiEndpoint}" is not running, not reachable, or there's a CORS issue. Please check your AI server logs, ensure it's running, and that CORS is configured correctly if it's on a different origin/port.`;
+    }
+    throw new Error(detailedMessage);
   }
-  return result;
 }
 
 export default function ImageUploader({ onUploadComplete, closeModal }: ImageUploaderProps) {
@@ -93,7 +111,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
           status: 'pending',
         }));
       setSelectedFiles(prev => [...prev, ...newFiles]);
-      if(event.target) event.target.value = ""; 
+      if(event.target) event.target.value = "";
     }
   };
 
@@ -124,14 +142,14 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
       console.log('ImageUploader: Upload skipped, no user ID.');
       return;
     }
-    
+
     const filesToUpload = selectedFiles.filter(f => f.status === 'pending' || f.status === 'error');
     if (filesToUpload.length === 0) {
       console.log('ImageUploader: No files in pending/error state to upload.');
       toast({ title: 'No New Files', description: 'No new files or files with errors to attempt uploading.'});
       return;
     }
-    
+
     console.log(`ImageUploader: handleUpload called for MongoDB. Current isUploading before starting: ${isUploading}. Attempting to upload ${filesToUpload.length} files.`);
     setIsUploading(true);
     console.log('ImageUploader: isUploading state has been set to true.');
@@ -139,10 +157,10 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     const uploadPromises = filesToUpload.map(async (uploadedFile) => {
       setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'uploading', progress: 50, error: undefined } : f));
       console.log(`ImageUploader: Starting individual upload to MongoDB for: ${uploadedFile.file.name}`);
-      
+
       try {
         const photoDataUri = await fileToDataUri(uploadedFile.file);
-        
+
         console.log(`ImageUploader: Sending ${uploadedFile.file.name} to /api/upload-image`);
         const response = await fetch('/api/upload-image', {
           method: 'POST',
@@ -156,7 +174,6 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
         });
 
         const responseBody = await response.json().catch(() => {
-             // If response.json() fails, it means the body wasn't valid JSON (e.g. HTML error page)
             return { message: `Server returned non-JSON response (Status: ${response.status}). Check server logs.`, error: 'Invalid server response' };
         });
 
@@ -166,10 +183,10 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
           throw new Error(errorMessage);
         }
 
-        const result = responseBody; // Already parsed
+        const result = responseBody;
         console.log(`ImageUploader: MongoDB upload successful for: ${uploadedFile.file.name}. File ID: ${result.fileId}`);
         setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'success', progress: 100, fileId: result.fileId } : f));
-        
+
         try {
           console.log(`ImageUploader: Calling getDescriptionFromCustomAI for ${uploadedFile.file.name}`);
           const descriptionResult = await getDescriptionFromCustomAI(photoDataUri);
@@ -177,12 +194,12 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
           toast({
             title: `AI: ${uploadedFile.file.name}`,
             description: descriptionResult.description.substring(0, 200) + (descriptionResult.description.length > 200 ? '...' : ''),
-            duration: 7000, 
+            duration: 7000,
           });
         } catch (customAiError: any) {
           console.error(`ImageUploader: Custom AI description failed for ${uploadedFile.file.name}:`, customAiError);
           toast({
-            title: 'Custom AI Failed',
+            title: 'Custom AI Call Failed',
             description: `Could not get description for ${uploadedFile.file.name}. ${(customAiError.message || 'Unknown custom AI error')}`,
             variant: 'destructive',
             duration: 7000,
@@ -201,8 +218,8 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     try {
       console.log('ImageUploader: Waiting for all MongoDB upload promises to settle...');
       const results = await Promise.all(uploadPromises);
-      console.log('ImageUploader: All MongoDB upload promises settled. Results:', JSON.stringify(results)); 
-      
+      console.log('ImageUploader: All MongoDB upload promises settled. Results:', JSON.stringify(results));
+
       const successfulUploads = results.filter(r => r !== null && r.fileId) as {originalName: string; fileId: string}[];
       const failedInThisBatchCount = filesToUpload.length - successfulUploads.length;
 
@@ -213,7 +230,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
         onUploadComplete(successfulUploads);
       }
 
-      if (filesToUpload.length > 0) { 
+      if (filesToUpload.length > 0) {
         if (successfulUploads.length > 0 && failedInThisBatchCount === 0) {
           toast({ title: 'Upload Complete', description: `${successfulUploads.length} image(s) uploaded to database successfully.` });
         } else if (successfulUploads.length > 0 && failedInThisBatchCount > 0) {
