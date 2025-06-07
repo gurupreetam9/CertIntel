@@ -1,3 +1,4 @@
+
 'use client';
 
 import { Plus } from 'lucide-react';
@@ -5,7 +6,11 @@ import { Button } from '@/components/ui/button';
 import UploadModal from './UploadModal';
 import { useAuth } from '@/hooks/useAuth';
 
-export default function UploadFAB() {
+interface UploadFABProps {
+  onUploadSuccess: () => void; // Callback to refresh image grid
+}
+
+export default function UploadFAB({ onUploadSuccess }: UploadFABProps) {
   const { user } = useAuth();
 
   if (!user) return null;
@@ -23,6 +28,7 @@ export default function UploadFAB() {
           <Plus className="h-7 w-7" />
         </Button>
       }
+      onUploadProcessed={onUploadSuccess} // Pass the callback down
     />
   );
 }

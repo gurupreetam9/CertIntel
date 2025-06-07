@@ -15,11 +15,12 @@ import { Button } from '@/components/ui/button';
 import ImageUploader from './ImageUploader';
 import { useState } from 'react';
 import type { User } from 'firebase/auth';
-import { useToast } from '@/hooks/use-toast';
+// useToast removed as it's not used here directly anymore for generic upload completion
 
 interface UploadModalProps {
   trigger: React.ReactNode;
-  user: User | null; 
+  user: User | null;
+  onUploadProcessed: () => void; // Renamed for clarity, this will trigger grid refresh
 }
 
 // This is the type of data ImageUploader's onUploadComplete will provide
@@ -28,31 +29,23 @@ interface UploadedImageDetailsToMongoDB {
   fileId: string; // MongoDB GridFS File ID
 }
 
-export default function UploadModal({ trigger, user }: UploadModalProps) {
+export default function UploadModal({ trigger, user, onUploadProcessed }: UploadModalProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const { toast } = useToast();
+  // const { toast } = useToast(); // Removed if not used directly
 
-  // Updated to handle details from MongoDB upload
   const handleUploadComplete = async (uploadedFiles: UploadedImageDetailsToMongoDB[]) => {
-    if (!user || uploadedFiles.length === 0) {
-      if(uploadedFiles.length === 0 && user){
-        console.log("UploadModal: handleUploadComplete called with no successful files to MongoDB.");
-      }
-      return;
-    }
+    if (!user) return;
 
-    console.log('UploadModal: Images uploaded to MongoDB. Details:', uploadedFiles);
-    // For now, we just log. In the future, you might refresh an image list or perform other actions.
-    // The metadata is now largely stored within GridFS itself or alongside it by the upload API.
-    // The `/api/metadata` route might become obsolete or serve a different purpose for querying.
-
-    // toast({ 
-    //   title: 'Uploads Processed', 
-    //   description: `${uploadedFiles.length} image(s) processed with MongoDB.` 
-    // });
+    console.log('UploadModal: Images uploaded to MongoDB. Count:', uploadedFiles.length, 'Details:', uploadedFiles);
     
-    // You might want to close the modal after uploads or let the user close it.
-    // setIsOpen(false); 
+    if (uploadedFiles.length > 0) {
+      console.log('UploadModal: Calling onUploadProcessed to refresh image grid.');
+      onUploadProcessed(); // Call the passed-in function to refresh the grid
+    } else {
+      console.log("UploadModal: No files successfully uploaded in this batch, not refreshing grid.");
+    }
+    // Toast for completion is now handled within ImageUploader for batch summary
+    // setIsOpen(false); // Optionally close modal, or let user do it
   };
 
   return (
@@ -63,7 +56,6 @@ export default function UploadModal({ trigger, user }: UploadModalProps) {
           <DialogTitle className="font-headline text-2xl">Upload Images to Database</DialogTitle>
           <DialogDescription>
             Select images from your device to upload them directly to the database.
-            Please be aware of potential API body size limits for very large images.
           </DialogDescription>
         </DialogHeader>
         <div className="flex-grow overflow-y-auto pr-1 py-4">
@@ -78,5 +70,3 @@ export default function UploadModal({ trigger, user }: UploadModalProps) {
     </Dialog>
   );
 }
-
-    
