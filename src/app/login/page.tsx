@@ -1,3 +1,4 @@
+
 'use client';
 
 import Link from 'next/link';
@@ -66,6 +67,11 @@ export default function LoginPage() {
         description="Sign in to access your ImageVerse."
         submitButtonText="Login"
       />
+      <div className="mt-4 text-center text-sm">
+        <Link href="/forgot-password" passHref className="text-muted-foreground hover:text-primary hover:underline">
+            Forgot password?
+        </Link>
+      </div>
       <p className="mt-6 text-center text-sm text-muted-foreground">
         Don&apos;t have an account?{' '}
         <Link href="/register" className="font-medium text-primary hover:underline">
