@@ -23,66 +23,36 @@ interface UploadModalProps {
 }
 
 // This is the type of data ImageUploader's onUploadComplete will provide
-interface UploadedImageDetails {
+interface UploadedImageDetailsToMongoDB {
   originalName: string;
-  downloadURL: string;
-  storagePath: string; // Full path in Firebase storage
+  fileId: string; // MongoDB GridFS File ID
 }
 
 export default function UploadModal({ trigger, user }: UploadModalProps) {
   const [isOpen, setIsOpen] = useState(false);
   const { toast } = useToast();
 
-  const handleUploadComplete = async (uploadedFiles: UploadedImageDetails[]) => {
+  // Updated to handle details from MongoDB upload
+  const handleUploadComplete = async (uploadedFiles: UploadedImageDetailsToMongoDB[]) => {
     if (!user || uploadedFiles.length === 0) {
       if(uploadedFiles.length === 0 && user){
-        // This case might occur if all uploads failed within ImageUploader
-        // and onUploadComplete was called with an empty array.
-        // ImageUploader should ideally show toasts for individual failures.
-        console.log("handleUploadComplete called with no successful files.");
+        console.log("UploadModal: handleUploadComplete called with no successful files to MongoDB.");
       }
       return;
     }
 
-    const metadataToSave = uploadedFiles.map(file => ({
-      originalName: file.originalName,
-      storagePath: file.storagePath, // Use the correct storagePath
-      downloadURL: file.downloadURL,
-      userId: user.uid,
-      timestamp: new Date().toISOString(),
-    }));
-    
-    try {
-      const response = await fetch('/api/metadata', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          // Future: Add Authorization header with Firebase ID token for security
-          // 'Authorization': `Bearer ${await user.getIdToken()}` 
-        },
-        body: JSON.stringify(metadataToSave),
-      });
+    console.log('UploadModal: Images uploaded to MongoDB. Details:', uploadedFiles);
+    // For now, we just log. In the future, you might refresh an image list or perform other actions.
+    // The metadata is now largely stored within GridFS itself or alongside it by the upload API.
+    // The `/api/metadata` route might become obsolete or serve a different purpose for querying.
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to save metadata to server.');
-      }
-      // Toast for successful metadata save is now handled more granularly by ImageUploader's upload results.
-      // If all went well, ImageUploader already showed a success toast.
-      // We could add a specific one here if metadata saving is a distinct step for the user.
-      // For now, assume ImageUploader's feedback is sufficient.
-      // toast({ title: 'Metadata Saved', description: 'Image metadata successfully saved.' });
-      
-      // Potentially close modal or refresh list here
-      // setIsOpen(false); // Example: Close modal after successful metadata save for all files
-    } catch (error: any) {
-      console.error('Failed to save metadata:', error);
-      toast({
-        title: 'Metadata Save Failed',
-        description: error.message || 'Could not save image metadata after upload. Images are in storage, but metadata may be missing.',
-        variant: 'destructive',
-      });
-    }
+    // toast({ 
+    //   title: 'Uploads Processed', 
+    //   description: `${uploadedFiles.length} image(s) processed with MongoDB.` 
+    // });
+    
+    // You might want to close the modal after uploads or let the user close it.
+    // setIsOpen(false); 
   };
 
   return (
@@ -90,9 +60,10 @@ export default function UploadModal({ trigger, user }: UploadModalProps) {
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="sm:max-w-[625px] max-h-[90vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle className="font-headline text-2xl">Upload Images</DialogTitle>
+          <DialogTitle className="font-headline text-2xl">Upload Images to Database</DialogTitle>
           <DialogDescription>
-            Select images from your device. Basic crop and resize options will be available soon.
+            Select images from your device to upload them directly to the database.
+            Please be aware of potential API body size limits for very large images.
           </DialogDescription>
         </DialogHeader>
         <div className="flex-grow overflow-y-auto pr-1 py-4">
@@ -107,3 +78,5 @@ export default function UploadModal({ trigger, user }: UploadModalProps) {
     </Dialog>
   );
 }
+
+    

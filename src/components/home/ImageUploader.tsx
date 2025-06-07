@@ -7,26 +7,23 @@ import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'; // Removed CardDescription as it wasn't used
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AlertCircle, Camera, CheckCircle, FileUp, ImagePlus, Loader2, Trash2, UploadCloud } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { uploadFileToFirebase } from '@/lib/firebase/storage';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
-// Removed Genkit flow import: import { generateImageDescription, type GenerateImageDescriptionOutput } from '@/ai/flows/generate-image-description';
 
 interface UploadedFile {
   file: File;
   previewUrl: string;
-  progress: number;
+  progress: number; // Will be 0 or 100 for MongoDB uploads for simplicity
   status: 'pending' | 'uploading' | 'success' | 'error';
   error?: string;
-  downloadURL?: string;
-  storagePath?: string;
+  fileId?: string; // MongoDB GridFS file ID
 }
 
 interface ImageUploaderProps {
-  onUploadComplete: (uploadedFiles: { originalName: string; downloadURL: string; storagePath: string }[]) => void;
+  onUploadComplete: (uploadedFiles: { originalName: string; fileId: string }[]) => void;
   closeModal: () => void;
 }
 
@@ -45,14 +42,13 @@ async function fileToDataUri(file: File): Promise<string> {
   });
 }
 
-// New function to call your custom AI server
 async function getDescriptionFromCustomAI(photoDataUri: string): Promise<{ description: string }> {
   const aiServerBaseUrl = process.env.NEXT_PUBLIC_FLASK_SERVER_URL;
   if (!aiServerBaseUrl) {
     console.error('ImageUploader: NEXT_PUBLIC_FLASK_SERVER_URL is not set. Cannot call custom AI.');
     throw new Error('Custom AI server URL is not configured.');
   }
-  const aiEndpoint = `${aiServerBaseUrl}/describe-image`; // Example endpoint
+  const aiEndpoint = `${aiServerBaseUrl}/describe-image`;
 
   console.log(`ImageUploader: Calling custom AI server at ${aiEndpoint}`);
   const response = await fetch(aiEndpoint, {
@@ -77,11 +73,9 @@ async function getDescriptionFromCustomAI(photoDataUri: string): Promise<{ descr
   return result;
 }
 
-
 export default function ImageUploader({ onUploadComplete, closeModal }: ImageUploaderProps) {
   const [selectedFiles, setSelectedFiles] = useState<UploadedFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
-  // const [uploadSource, setUploadSource] = useState<'camera' | 'files' | null>(null); // uploadSource seems unused
   const { userId } = useAuth();
   const { toast } = useToast();
   const isMobile = useIsMobile();
@@ -104,7 +98,6 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
   };
 
   const triggerFileInput = (source: 'camera' | 'files') => {
-    // setUploadSource(source); // uploadSource seems unused
     if (fileInputRef.current) {
       if (isMobile && source === 'camera') {
         fileInputRef.current.setAttribute('capture', 'environment');
@@ -139,31 +132,42 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
       return;
     }
     
-    console.log(`ImageUploader: handleUpload called. Current isUploading before starting: ${isUploading}. Attempting to upload ${filesToUpload.length} files.`);
+    console.log(`ImageUploader: handleUpload called for MongoDB. Current isUploading before starting: ${isUploading}. Attempting to upload ${filesToUpload.length} files.`);
     setIsUploading(true);
     console.log('ImageUploader: isUploading state has been set to true.');
 
     const uploadPromises = filesToUpload.map(async (uploadedFile) => {
-      setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'uploading', progress: 0, error: undefined } : f));
-      console.log(`ImageUploader: Starting individual upload for: ${uploadedFile.file.name}`);
-      const filePath = `images/${userId}/${Date.now()}_${uploadedFile.file.name}`;
+      setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'uploading', progress: 50, error: undefined } : f)); // Progress set to 50 to show activity
+      console.log(`ImageUploader: Starting individual upload to MongoDB for: ${uploadedFile.file.name}`);
+      
       try {
-        const { downloadURL, filePath: returnedPath } = await uploadFileToFirebase(
-          uploadedFile.file,
-          filePath,
-          (progress) => {
-            setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, progress } : f));
-          }
-        );
-        console.log(`ImageUploader: Individual upload successful for: ${uploadedFile.file.name}. URL: ${downloadURL}`);
-        setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'success', progress: 100, downloadURL, storagePath: returnedPath } : f));
+        const photoDataUri = await fileToDataUri(uploadedFile.file);
+        
+        const response = await fetch('/api/upload-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            photoDataUri,
+            originalName: uploadedFile.file.name,
+            userId,
+            contentType: uploadedFile.file.type,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ message: 'Failed to upload and parse error from server.' }));
+          console.error(`ImageUploader: MongoDB upload failed for ${uploadedFile.file.name}. Status: ${response.status}`, errorData);
+          throw new Error(errorData.message || `Server error: ${response.status}`);
+        }
+
+        const result = await response.json();
+        console.log(`ImageUploader: MongoDB upload successful for: ${uploadedFile.file.name}. File ID: ${result.fileId}`);
+        setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'success', progress: 100, fileId: result.fileId } : f));
         
         // ---- Custom AI Description Generation ----
         try {
-          console.log(`ImageUploader: Converting ${uploadedFile.file.name} to data URI for Custom AI...`);
-          const dataUri = await fileToDataUri(uploadedFile.file);
           console.log(`ImageUploader: Calling getDescriptionFromCustomAI for ${uploadedFile.file.name}`);
-          const descriptionResult = await getDescriptionFromCustomAI(dataUri);
+          const descriptionResult = await getDescriptionFromCustomAI(photoDataUri);
           console.log(`ImageUploader: Custom AI Description for ${uploadedFile.file.name}: ${descriptionResult.description}`);
           toast({
             title: `Custom AI: ${uploadedFile.file.name}`,
@@ -181,47 +185,47 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
         }
         // ---- End Custom AI Description Generation ----
 
-        return { originalName: uploadedFile.file.name, downloadURL, storagePath: returnedPath };
+        return { originalName: uploadedFile.file.name, fileId: result.fileId };
       } catch (error: any) {
-        console.error(`ImageUploader: Individual upload error for file: ${uploadedFile.file.name}. Error object:`, error);
-        const errorMessage = error.friendlyMessage || error.message || 'Upload failed';
+        console.error(`ImageUploader: Individual MongoDB upload error for file: ${uploadedFile.file.name}. Error object:`, error);
+        const errorMessage = error.message || 'Upload to MongoDB failed';
         setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'error', error: errorMessage, progress: 0 } : f));
         return null;
       }
     });
 
     try {
-      console.log('ImageUploader: Waiting for all upload promises to settle...');
+      console.log('ImageUploader: Waiting for all MongoDB upload promises to settle...');
       const results = await Promise.all(uploadPromises);
-      console.log('ImageUploader: All upload promises settled. Results:', JSON.stringify(results)); 
+      console.log('ImageUploader: All MongoDB upload promises settled. Results:', JSON.stringify(results)); 
       
-      const successfulUploads = results.filter(r => r !== null && r.downloadURL && r.storagePath) as {originalName: string; downloadURL: string; storagePath: string}[];
+      const successfulUploads = results.filter(r => r !== null && r.fileId) as {originalName: string; fileId: string}[];
       const failedInThisBatchCount = filesToUpload.length - successfulUploads.length;
 
-      console.log(`ImageUploader: Successful uploads in this batch: ${successfulUploads.length}, Failed in this batch: ${failedInThisBatchCount}`);
+      console.log(`ImageUploader: Successful MongoDB uploads in this batch: ${successfulUploads.length}, Failed in this batch: ${failedInThisBatchCount}`);
 
       if (successfulUploads.length > 0) {
-        console.log('ImageUploader: Calling onUploadComplete with successful uploads:', successfulUploads);
+        console.log('ImageUploader: Calling onUploadComplete with successful MongoDB uploads:', successfulUploads);
         onUploadComplete(successfulUploads);
       }
 
       if (filesToUpload.length > 0) { 
         if (successfulUploads.length > 0 && failedInThisBatchCount === 0) {
-          toast({ title: 'Upload Complete', description: `${successfulUploads.length} image(s) uploaded successfully.` });
+          toast({ title: 'Upload Complete', description: `${successfulUploads.length} image(s) uploaded to database successfully.` });
         } else if (successfulUploads.length > 0 && failedInThisBatchCount > 0) {
-          toast({ title: 'Partial Upload', description: `${successfulUploads.length} image(s) uploaded. ${failedInThisBatchCount} failed. Check individual files for errors.`, variant: 'default' });
+          toast({ title: 'Partial Upload', description: `${successfulUploads.length} image(s) uploaded to database. ${failedInThisBatchCount} failed. Check individual files for errors.`, variant: 'default' });
         } else if (failedInThisBatchCount > 0 && successfulUploads.length === 0) {
-           toast({ title: 'Upload Failed', description: `All ${failedInThisBatchCount} image(s) attempted in this batch failed to upload. Check individual files for errors.`, variant: 'destructive' });
+           toast({ title: 'Upload Failed', description: `All ${failedInThisBatchCount} image(s) attempted in this batch failed to upload to database. Check individual files for errors.`, variant: 'destructive' });
         }
       } else {
         console.log('ImageUploader: No files were attempted in this batch for toast summary.');
       }
 
     } catch (allResultsError) {
-      console.error('ImageUploader: Unexpected error during Promise.all settlement or results processing:', allResultsError);
+      console.error('ImageUploader: Unexpected error during MongoDB Promise.all settlement or results processing:', allResultsError);
       toast({ title: 'Upload Processing Error', description: 'An unexpected error occurred while finalizing uploads. Some files may not have processed correctly.', variant: 'destructive' });
     } finally {
-      console.log(`ImageUploader: Entering finally block of handleUpload. Current isUploading before set: ${isUploading}`);
+      console.log(`ImageUploader: Entering finally block of MongoDB handleUpload. Current isUploading before set: ${isUploading}`);
       setIsUploading(false);
       console.log('ImageUploader: isUploading state has been set to false.');
     }
@@ -295,8 +299,8 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
                   {(uploadedFile.status === 'uploading' || (uploadedFile.status === 'success' && uploadedFile.progress < 100)) && (
                     <Progress value={uploadedFile.progress} className="w-full h-2 mt-1" />
                   )}
-                   {uploadedFile.status === 'uploading' && <p className="text-xs text-primary flex items-center"><Loader2 className="w-3 h-3 mr-1 animate-spin"/>Uploading...</p>}
-                  {uploadedFile.status === 'success' && <p className="text-xs text-green-600 flex items-center"><CheckCircle className="w-3 h-3 mr-1"/>Uploaded</p>}
+                   {uploadedFile.status === 'uploading' && <p className="text-xs text-primary flex items-center"><Loader2 className="w-3 h-3 mr-1 animate-spin"/>Uploading to DB...</p>}
+                  {uploadedFile.status === 'success' && <p className="text-xs text-green-600 flex items-center"><CheckCircle className="w-3 h-3 mr-1"/>Uploaded to DB</p>}
                   {uploadedFile.status === 'error' && <p className="text-xs text-destructive flex items-center" title={uploadedFile.error}><AlertCircle className="w-3 h-3 mr-1"/>{uploadedFile.error}</p>}
                 </div>
                 {uploadedFile.status !== 'uploading' && (
