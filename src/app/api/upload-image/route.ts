@@ -16,54 +16,55 @@ async function connectToDb() {
     console.error('API Error: MONGODB_URI is not set in environment variables.');
     throw new Error('MONGODB_URI is not set in environment variables.');
   }
-  // Check if the client exists and is connected
-  // Using client.topology.isConnected() is a way to check, though often just checking if db/bucket are defined is enough
-  // For simplicity, we can re-evaluate connection status based on whether `db` is defined.
-  // More robust checks might involve pinging the database if `client` exists.
-  if (db && client && client.db(DB_NAME)) { // A more direct check if client can access the db
+
+  if (db && client && client.db(DB_NAME)) {
     try {
-        await client.db(DB_NAME).command({ ping: 1 });
-        console.log('MongoDB: Already connected and responsive.');
-        return;
-    } catch (pingError) {
-        console.warn('MongoDB: Existing client lost connection or unresponsive, will attempt to reconnect.', pingError);
-        // Clean up old client if ping fails
-        if (client) {
-            await client.close().catch(closeErr => console.error('MongoDB: Error closing unresponsive client:', closeErr));
+      await client.db(DB_NAME).command({ ping: 1 });
+      console.log('MongoDB: Already connected and responsive.');
+      return;
+    } catch (pingError: any) {
+      console.warn('MongoDB: Existing client lost connection or unresponsive, will attempt to reconnect.', { message: pingError.message, stack: pingError.stack });
+      if (client) {
+        try {
+          await client.close();
+          console.log('MongoDB: Closed unresponsive client.');
+        } catch (closeErr: any) {
+          console.error('MongoDB: Error closing unresponsive client:', { message: closeErr.message, stack: closeErr.stack });
         }
-        client = undefined;
-        db = undefined;
-        bucket = undefined;
+      }
+      client = undefined;
+      db = undefined;
+      bucket = undefined;
     }
   }
 
   try {
-    console.log('MongoDB: Attempting to connect...');
+    console.log('MongoDB: Attempting to connect with new client...');
     client = new MongoClient(MONGODB_URI, {
       serverApi: {
         version: ServerApiVersion.v1,
         strict: true,
         deprecationErrors: true,
       },
-      // Optionally, you could try forcing TLS 1.2 if issues persist,
-      // though the driver usually negotiates this correctly with Atlas.
-      // tls: true, // This is typically default for srv URIs
-      // tlsVersion: 'TLSv1_2', // Example for Node.js crypto TLS options
     });
     await client.connect();
     db = client.db(DB_NAME);
     bucket = new GridFSBucket(db, { bucketName: 'images' });
-    console.log('MongoDB: Connected to MongoDB and GridFS bucket initialized.');
+    console.log('MongoDB: Successfully connected to MongoDB and GridFS bucket initialized.');
   } catch (error: any) {
-    console.error('MongoDB: Connection failed.', error);
+    console.error('MongoDB: Connection failed.', { errorMessage: error.message, errorType: error.constructor.name, stack: error.stack, fullError: error });
     if (client) {
-        await client.close().catch(closeErr => console.error('MongoDB: Error closing client after connection failure:', closeErr));
-        client = undefined;
-        db = undefined;
-        bucket = undefined;
+      try {
+        await client.close();
+        console.log('MongoDB: Closed client after connection failure.');
+      } catch (closeErr: any) {
+        console.error('MongoDB: Error closing client after connection failure:', { message: closeErr.message, stack: closeErr.stack });
+      }
+      client = undefined;
+      db = undefined;
+      bucket = undefined;
     }
-    // Rethrow the original error or a more specific one
-    throw new Error(`MongoDB connection error: ${error.message}`);
+    throw new Error(`MongoDB connection error: ${error.message || 'Failed to connect to database.'}`);
   }
 }
 
@@ -97,9 +98,10 @@ function dataURIToBuffer(dataURI: string): { buffer: Buffer; contentType: string
 
 
 export async function POST(request: NextRequest) {
+  console.log('API Route /api/upload-image: POST request received.');
   try {
-    await connectToDb(); // Ensure connection is established
-    if (!bucket || !db) { // Re-check after connectToDb
+    await connectToDb(); 
+    if (!bucket || !db) { 
       console.error('API Error: Database or GridFS bucket not initialized. connectToDb might have failed.');
       return NextResponse.json({ message: 'Server error: Database not initialized. Please check server logs.' }, { status: 500 });
     }
@@ -118,17 +120,17 @@ export async function POST(request: NextRequest) {
       buffer = parsedData.buffer;
       detectedContentType = parsedData.contentType;
     } catch (parseError: any) {
-      console.error('API Error: Failed to parse Data URI.', parseError);
+      console.error('API Error: Failed to parse Data URI.', { message: parseError.message, stack: parseError.stack });
       return NextResponse.json({ message: `Invalid image data format: ${parseError.message}`, error: parseError.message, details: parseError.stack }, { status: 400 });
     }
     
     const finalContentType = explicitContentType || detectedContentType || 'application/octet-stream';
-    const filename = `${userId}_${Date.now()}_${originalName.replace(/\s+/g, '_')}`; // Sanitize filename
+    const filename = `${userId}_${Date.now()}_${originalName.replace(/\s+/g, '_')}`; 
     
     console.log(`GridFS: Attempting to upload ${filename} with contentType ${finalContentType}`);
 
     return new Promise((resolve, reject) => {
-      const uploadStream = bucket!.openUploadStream(filename, { // bucket is checked above
+      const uploadStream = bucket!.openUploadStream(filename, { 
         contentType: finalContentType,
         metadata: {
           originalName,
@@ -142,8 +144,7 @@ export async function POST(request: NextRequest) {
       const readable = Readable.from(buffer);
       readable.pipe(uploadStream)
         .on('error', (error: MongoError) => { 
-          console.error('GridFS: Upload stream error:', error);
-          // Ensure a NextResponse is used with reject by resolving the promise with it
+          console.error('GridFS: Upload stream error:', { message: error.message, code: error.code, stack: error.stack, fullError: error });
           resolve(NextResponse.json({ message: 'Failed to upload image to GridFS.', error: error.message, code: error.code, details: error.stack }, { status: 500 }));
         })
         .on('finish', () => {
@@ -153,31 +154,21 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error: any) {
-    console.error('API Error: Unhandled error in POST /api/upload-image.', error);
+    console.error('API Error: Unhandled error in POST /api/upload-image.', { message: error.message, type: error.constructor.name, stack: error.stack });
     let errorMessage = 'An unexpected error occurred during image upload.';
     let statusCode = 500;
 
     if (error.message && error.message.includes('MONGODB_URI is not set')) {
         errorMessage = `Server configuration error: ${error.message}`;
     } else if (error.message && error.message.includes('MongoDB connection error')) {
-        errorMessage = `Server configuration error: ${error.message}`; // This will include the SSL error message
+        errorMessage = `Server configuration error: ${error.message}`; 
     } else if (error.message && error.message.includes('Invalid Data URI')) {
         errorMessage = `Bad request: ${error.message}`;
         statusCode = 400;
-    } else if (error.message) { // Catch all for other error messages
+    } else if (error.message) { 
         errorMessage = error.message;
     }
     
     return NextResponse.json({ message: errorMessage, error: error.message, details: error.stack }, { status: statusCode });
   }
 }
-
-// Optional: Add config to increase body size limit if you expect large data URIs
-// export const config = {
-//   api: {
-//     bodyParser: {
-//       sizeLimit: '10mb', // example: 10MB, adjust as needed
-//     },
-//   },
-// };
-
