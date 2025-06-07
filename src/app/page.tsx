@@ -3,7 +3,7 @@
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import ImageGrid from '@/components/home/ImageGrid';
-import type { UserImage } from '@/components/home/ImageGrid'; // Ensure UserImage is exported from ImageGrid or move to types
+import type { UserImage } from '@/components/home/ImageGrid';
 import UploadFAB from '@/components/home/UploadFAB';
 import AiFAB from '@/components/home/AiFAB';
 import { useEffect, useState, useCallback } from 'react';
@@ -14,7 +14,7 @@ function HomePageContent() {
   const [images, setImages] = useState<UserImage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0); // Key to trigger refresh
+  const [refreshKey, setRefreshKey] = useState(0);
   const { userId } = useAuth();
   const { toast } = useToast();
 
@@ -27,6 +27,7 @@ function HomePageContent() {
     if (!userId) {
       setIsLoading(false);
       setImages([]);
+      console.log("HomePageContent: fetchImages skipped, no userId.");
       return;
     }
 
@@ -38,25 +39,27 @@ function HomePageContent() {
       const response = await fetch(fetchUrl);
 
       if (!response.ok) {
-        let errorData = { message: `Error ${response.status}: Failed to load images from API.` };
+        let errorData = { message: `Error ${response.status}: Failed to load images from API.`, detail: `Status code ${response.status}` };
         try {
-          errorData = await response.json();
+          errorData = await response.json(); // API should send { message: "...", errorKey: "...", detail: "..." }
         } catch (jsonError) {
           console.error("HomePageContent: Could not parse error JSON from API:", jsonError);
         }
-        // Prepend "API Error: " to make the source clearer
-        throw new Error(`API Error: ${errorData.message || `Status ${response.status} while fetching images.`}`);
+        // Use the message from the API response if available, otherwise construct one.
+        const displayErrorMessage = errorData.message || `Failed to load images. Server responded with status ${response.status}.`;
+        console.error(`HomePageContent: API error while fetching images. Status: ${response.status}. API Message: ${errorData.message}. Detail: ${errorData.detail}`);
+        throw new Error(`API Error: ${displayErrorMessage}`);
       }
       const data: UserImage[] = await response.json();
       console.log("HomePageContent: Successfully fetched image data. Count:", data.length);
       setImages(data);
     } catch (err: any) {
-      console.error("HomePageContent: Error in fetchImages:", err);
-      const errorMessage = err.message || "Could not load your images.";
-      setError(errorMessage);
+      console.error("HomePageContent: Error in fetchImages catch block:", err);
+      const errorMessage = err.message || "Could not load your images due to an unexpected error.";
+      setError(errorMessage); // This error will be displayed in the UI by ImageGrid
       toast({
         title: "Error Loading Images",
-        description: errorMessage,
+        description: errorMessage, // err.message should now be "API Error: Database connection error." or similar
         variant: "destructive",
       });
       setImages([]);
@@ -64,12 +67,17 @@ function HomePageContent() {
       console.log("HomePageContent: fetchImages finished. Setting isLoading to false.");
       setIsLoading(false);
     }
-  }, [userId, toast, refreshKey]); // Added refreshKey to dependency array
+  }, [userId, toast, refreshKey]);
 
   useEffect(() => {
     console.log("HomePageContent: useEffect triggered for fetchImages. Current userId:", userId, "Current refreshKey:", refreshKey);
-    fetchImages();
-  }, [userId, fetchImages, refreshKey]); // fetchImages itself is memoized with refreshKey, so this also implicitly depends on it.
+    if (userId) { // Only fetch if userId is available
+        fetchImages();
+    } else {
+        setIsLoading(false); // Not loading if no user
+        setImages([]); // Clear images if no user
+    }
+  }, [userId, fetchImages, refreshKey]); // fetchImages is memoized, refreshKey triggers it.
 
   return (
     <div className="container mx-auto px-4 py-8 md:px-6 lg:px-8">
@@ -81,10 +89,10 @@ function HomePageContent() {
         images={images}
         isLoading={isLoading}
         error={error}
-        onImageDeleted={triggerRefresh} // Pass down the refresh trigger
+        onImageDeleted={triggerRefresh}
         currentUserId={userId}
       />
-      <UploadFAB onUploadSuccess={triggerRefresh} /> {/* Use triggerRefresh here */}
+      <UploadFAB onUploadSuccess={triggerRefresh} />
       <AiFAB />
     </div>
   );
