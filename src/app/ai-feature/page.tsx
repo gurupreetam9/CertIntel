@@ -12,11 +12,11 @@ function AiFeaturePageContent() {
     <div className="container mx-auto px-4 py-8 md:px-6 lg:px-8 flex flex-col h-[calc(100vh-var(--header-height,4rem))]">
       <div className="mb-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
-           <Link href="/" passHref legacyBehavior>
-            <Button variant="outline" size="icon" aria-label="Go back to Home">
+           <Button asChild variant="outline" size="icon" aria-label="Go back to Home">
+            <Link href="/">
               <ArrowLeft className="h-5 w-5" />
-            </Button>
-          </Link>
+            </Link>
+          </Button>
           <h1 className="text-3xl font-bold font-headline">AI Powered Feature</h1>
         </div>
       </div>
