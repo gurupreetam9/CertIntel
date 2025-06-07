@@ -37,7 +37,7 @@ if not MONGODB_URI:
 
 mongo_client = None
 db = None
-fs = None # GridFS for 'images' bucket
+fs_images = None # GridFS for 'images' bucket
 course_data_collection = None 
 
 try:
@@ -45,7 +45,7 @@ try:
         mongo_client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000) 
         mongo_client.admin.command('ismaster') 
         db = mongo_client[DB_NAME]
-        fs = GridFS(db, collection="images") 
+        fs_images = GridFS(db, collection="images") 
         course_data_collection = db["course_data"] 
         app.logger.info(f"Successfully connected to MongoDB: {DB_NAME}, GridFS bucket 'images', and collection 'course_data'.")
     else:
@@ -54,13 +54,13 @@ except Exception as e:
     app.logger.error(f"Failed to connect to MongoDB or initialize collections: {e}")
     mongo_client = None 
     db = None
-    fs = None
+    fs_images = None
     course_data_collection = None
 
 
 @app.route('/api/process-certificates', methods=['POST'])
 def process_certificates_from_db():
-    if mongo_client is None or db is None or fs is None or course_data_collection is None:
+    if mongo_client is None or db is None or fs_images is None or course_data_collection is None:
         app.logger.error("MongoDB connection or course_data collection not available for /api/process-certificates.")
         return jsonify({"error": "Database connection or required collection is not available. Check server logs."}), 503
 
@@ -85,7 +85,7 @@ def process_certificates_from_db():
             
             app.logger.info(f"Fetching file from GridFS: ID={file_id}, Name={original_filename}, Type={content_type}")
 
-            grid_out = fs.get(file_id)
+            grid_out = fs_images.get(file_id)
             image_bytes = grid_out.read()
             grid_out.close()
             
@@ -170,7 +170,7 @@ def convert_pdf_to_images_route():
     req_id = datetime.now().strftime('%Y%m%d%H%M%S%f')
     app.logger.info(f"Flask /api/convert-pdf-to-images (Req ID: {req_id}): Received request.")
 
-    if mongo_client is None or db is None or fs is None:
+    if mongo_client is None or db is None or fs_images is None:
         app.logger.error(f"Flask (Req ID: {req_id}): MongoDB connection or GridFS not available.")
         return jsonify({"error": "Database connection or GridFS not available. Check server logs."}), 503
 
@@ -180,40 +180,35 @@ def convert_pdf_to_images_route():
 
     pdf_file_storage = request.files['pdf_file']
     user_id = request.form.get('userId')
-    # Use originalName passed from Next.js, fallback to filename from storage
-    original_pdf_name = request.form.get('originalName', pdf_file_storage.filename)
-
+    original_pdf_name = request.form.get('originalName', pdf_file_storage.filename) # Get originalName from form
 
     if not user_id:
         app.logger.warning(f"Flask (Req ID: {req_id}): Missing 'userId' in form data.")
         return jsonify({"error": "Missing 'userId' in form data."}), 400
     
-    if not original_pdf_name: # Check original_pdf_name now
+    if not original_pdf_name:
         app.logger.warning(f"Flask (Req ID: {req_id}): No filename or originalName provided for PDF.")
-        return jsonify({"error": "No filename provided for PDF."}), 400
+        return jsonify({"error": "No filename or originalName provided for PDF."}), 400
 
     app.logger.info(f"Flask (Req ID: {req_id}): Processing PDF '{original_pdf_name}' for userId '{user_id}'.")
 
     try:
         pdf_bytes = pdf_file_storage.read()
         
-        # Check if Poppler is installed and accessible by pdf2image
         try:
             pdfinfo = pdfinfo_from_bytes(pdf_bytes, userpw=None, poppler_path=None)
-            app.logger.info(f"Flask (Req ID: {req_id}): Poppler self-check successful. PDF Info: {pdfinfo}")
+            app.logger.info(f"Flask (Req ID: {req_id}): Poppler self-check (pdfinfo) successful. PDF Info: {pdfinfo}")
         except PDFInfoNotInstalledError:
             app.logger.error(f"Flask (Req ID: {req_id}): CRITICAL - Poppler (pdfinfo) utilities not found or not executable. Please ensure 'poppler-utils' is installed and in the system PATH for the Flask server environment.")
             return jsonify({"error": "PDF processing utilities (Poppler/pdfinfo) are not installed or configured correctly on the server."}), 500
         except PDFPopplerTimeoutError:
             app.logger.error(f"Flask (Req ID: {req_id}): Poppler (pdfinfo) timed out processing the PDF. The PDF might be too complex or corrupted.")
             return jsonify({"error": "Timeout during PDF information retrieval. The PDF may be too complex or corrupted."}), 400
-        except Exception as info_err: # Catch other potential errors from pdfinfo
+        except Exception as info_err:
             app.logger.error(f"Flask (Req ID: {req_id}): Error getting PDF info with Poppler: {str(info_err)}", exc_info=True)
             return jsonify({"error": f"Failed to retrieve PDF info: {str(info_err)}"}), 500
 
-
-        app.logger.info(f"Flask (Req ID: {req_id}): Attempting to convert PDF bytes to images using pdf2image.")
-        # Using fmt='png' for better quality for certificates, jpeg for smaller size if preferred
+        app.logger.info(f"Flask (Req ID: {req_id}): Attempting to convert PDF bytes to images using pdf2image (convert_from_bytes).")
         images_from_pdf = convert_from_bytes(pdf_bytes, dpi=200, fmt='png', poppler_path=None) 
         app.logger.info(f"Flask (Req ID: {req_id}): PDF '{original_pdf_name}' converted to {len(images_from_pdf)} image(s).")
 
@@ -221,25 +216,26 @@ def convert_pdf_to_images_route():
 
         for i, image_pil in enumerate(images_from_pdf):
             page_number = i + 1
-            base_pdf_name = os.path.splitext(original_pdf_name)[0]
-            gridfs_filename = f"{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{secure_filename(base_pdf_name)}_page_{page_number}.png"
+            # Use the secure_filename for the actual GridFS filename part, not for originalName in metadata
+            base_pdf_name_secure = secure_filename(os.path.splitext(original_pdf_name)[0])
+            gridfs_filename = f"{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{base_pdf_name_secure}_page_{page_number}.png"
             
             img_byte_arr = io.BytesIO()
             image_pil.save(img_byte_arr, format='PNG')
             img_byte_arr_val = img_byte_arr.getvalue()
 
             metadata_for_gridfs = {
-                "originalName": f"{original_pdf_name} (Page {page_number})",
+                "originalName": f"{original_pdf_name} (Page {page_number})", # Store full original PDF name + page for display
                 "userId": user_id,
                 "uploadedAt": datetime.utcnow().isoformat(),
-                "sourceContentType": "application/pdf",
-                "convertedTo": "image/png",
+                "sourceContentType": "application/pdf", # Original PDF type
+                "convertedTo": "image/png", # This page's type
                 "pageNumber": page_number,
                 "reqIdParent": req_id 
             }
             
-            app.logger.info(f"Flask (Req ID: {req_id}): Storing page {page_number} as '{gridfs_filename}' in GridFS.")
-            file_id_obj = fs.put(img_byte_arr_val, filename=gridfs_filename, contentType='image/png', metadata=metadata_for_gridfs)
+            app.logger.info(f"Flask (Req ID: {req_id}): Storing page {page_number} as '{gridfs_filename}' in GridFS with metadata: {metadata_for_gridfs}")
+            file_id_obj = fs_images.put(img_byte_arr_val, filename=gridfs_filename, contentType='image/png', metadata=metadata_for_gridfs)
             
             converted_files_metadata.append({
                 "originalName": metadata_for_gridfs["originalName"],
@@ -258,14 +254,13 @@ def convert_pdf_to_images_route():
     except PDFSyntaxError:
         app.logger.error(f"Flask (Req ID: {req_id}): pdf2image encountered syntax error for '{original_pdf_name}'. PDF is likely corrupted.", exc_info=True)
         return jsonify({"error": "PDF syntax error. The file may be corrupted."}), 400
-    except PDFPopplerTimeoutError: # Catch timeout during actual conversion
+    except PDFPopplerTimeoutError:
         app.logger.error(f"Flask (Req ID: {req_id}): Poppler (conversion) timed out processing PDF '{original_pdf_name}'.")
         return jsonify({"error": "Timeout during PDF page conversion. The PDF may be too complex."}), 400
     except Exception as e:
         app.logger.error(f"Flask (Req ID: {req_id}): Error during PDF conversion or storage for '{original_pdf_name}': {str(e)}", exc_info=True)
-        # Check if it's a PopplerNotInstalledError (though pdfinfo_from_bytes should catch it earlier)
-        if "PopplerNotInstalledError" in str(type(e)) or "pdftoppm" in str(e).lower():
-             app.logger.error(f"Flask (Req ID: {req_id}): CRITICAL - Poppler (pdftoppm) utilities not found or not executable.")
+        if "PopplerNotInstalledError" in str(type(e)) or "pdftoppm" in str(e).lower() or "pdfinfo" in str(e).lower():
+             app.logger.error(f"Flask (Req ID: {req_id}): CRITICAL - Poppler utilities (pdftoppm/pdfinfo) not found or not executable.")
              return jsonify({"error": "PDF processing utilities (Poppler) are not installed or configured correctly on the server (conversion stage)."}), 500
         return jsonify({"error": f"An unexpected error occurred during PDF processing: {str(e)}"}), 500
 
