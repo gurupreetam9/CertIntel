@@ -45,21 +45,21 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
     >
       <DialogContent
         key={image.fileId ? `${image.fileId}-dialog-content` : 'dialog-empty'}
-        className="sm:max-w-3xl w-[95vw] max-h-[90vh] flex flex-col overflow-hidden p-0" // No padding here
+        className="sm:max-w-3xl w-[95vw] max-h-[90vh] flex flex-col p-0 overflow-hidden"
       >
         <DialogHeader className="p-4 sm:p-6 pb-2 sm:pb-4 shrink-0 border-b">
           <DialogTitle className="font-headline text-lg sm:text-xl truncate" title={image.originalName}>
             {image.originalName}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            A larger view of the image titled {image.originalName}.
+            A larger view of the image titled {image.originalName}. Image file ID is {image.fileId}.
           </DialogDescription>
         </DialogHeader>
-
+        
         {/* This div is the main stage for the image. It should grow and have padding. */}
         <div
-          key={image.fileId ? `${image.fileId}-image-stage` : 'stage-empty'}
-          className="flex-1 min-h-0 w-full relative overflow-auto p-4 bg-red-500/10" // Added padding here, overflow-auto for scroll if needed
+          key={`${image.fileId}-image-stage`}
+          className="flex-1 min-h-0 w-full relative overflow-hidden bg-red-500/10" // NO PADDING HERE
         >
           <Image
             key={`${image.fileId}-modal-image`}
@@ -67,7 +67,7 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
             alt={`View of ${image.originalName}`}
             layout="fill"
             objectFit="contain"
-            className="rounded-md" // No padding on Image itself
+            className="rounded-md p-2 sm:p-4" // PADDING APPLIED TO IMAGE COMPONENT
             data-ai-hint={image.dataAiHint || 'full view image'}
             unoptimized={process.env.NODE_ENV === 'development'}
             onLoad={(event) => {
@@ -90,3 +90,4 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
     </Dialog>
   );
 }
+
