@@ -1,3 +1,4 @@
+
 'use client';
 
 import {
@@ -13,24 +14,39 @@ import {
 import { Button } from '@/components/ui/button';
 import ImageUploader from './ImageUploader';
 import { useState } from 'react';
-import type { User } from 'firebase/auth'; // Assuming User type is available
+import type { User } from 'firebase/auth';
 import { useToast } from '@/hooks/use-toast';
 
 interface UploadModalProps {
   trigger: React.ReactNode;
-  user: User | null; // Pass user for metadata
+  user: User | null; 
+}
+
+// This is the type of data ImageUploader's onUploadComplete will provide
+interface UploadedImageDetails {
+  originalName: string;
+  downloadURL: string;
+  storagePath: string; // Full path in Firebase storage
 }
 
 export default function UploadModal({ trigger, user }: UploadModalProps) {
   const [isOpen, setIsOpen] = useState(false);
   const { toast } = useToast();
 
-  const handleUploadComplete = async (uploadedFiles: {fileName: string; downloadURL: string; originalName: string}[]) => {
-    if (!user || uploadedFiles.length === 0) return;
+  const handleUploadComplete = async (uploadedFiles: UploadedImageDetails[]) => {
+    if (!user || uploadedFiles.length === 0) {
+      if(uploadedFiles.length === 0 && user){
+        // This case might occur if all uploads failed within ImageUploader
+        // and onUploadComplete was called with an empty array.
+        // ImageUploader should ideally show toasts for individual failures.
+        console.log("handleUploadComplete called with no successful files.");
+      }
+      return;
+    }
 
     const metadataToSave = uploadedFiles.map(file => ({
       originalName: file.originalName,
-      storagePath: file.fileName, // This is actually the Firebase storage path
+      storagePath: file.storagePath, // Use the correct storagePath
       downloadURL: file.downloadURL,
       userId: user.uid,
       timestamp: new Date().toISOString(),
@@ -39,23 +55,31 @@ export default function UploadModal({ trigger, user }: UploadModalProps) {
     try {
       const response = await fetch('/api/metadata', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          // Future: Add Authorization header with Firebase ID token for security
+          // 'Authorization': `Bearer ${await user.getIdToken()}` 
+        },
         body: JSON.stringify(metadataToSave),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to save metadata');
+        throw new Error(errorData.message || 'Failed to save metadata to server.');
       }
+      // Toast for successful metadata save is now handled more granularly by ImageUploader's upload results.
+      // If all went well, ImageUploader already showed a success toast.
+      // We could add a specific one here if metadata saving is a distinct step for the user.
+      // For now, assume ImageUploader's feedback is sufficient.
       // toast({ title: 'Metadata Saved', description: 'Image metadata successfully saved.' });
-      // Optionally update UI here, e.g. refresh image list
-      // For now, modal can be closed or kept open for more uploads.
-      // setIsOpen(false); // Uncomment to close modal after successful metadata save
+      
+      // Potentially close modal or refresh list here
+      // setIsOpen(false); // Example: Close modal after successful metadata save for all files
     } catch (error: any) {
       console.error('Failed to save metadata:', error);
       toast({
         title: 'Metadata Save Failed',
-        description: error.message || 'Could not save image metadata.',
+        description: error.message || 'Could not save image metadata after upload. Images are in storage, but metadata may be missing.',
         variant: 'destructive',
       });
     }
