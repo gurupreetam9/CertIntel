@@ -197,46 +197,58 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
       formData.append('originalName', fileEntry.file.name);
       formData.append('contentType', fileEntry.file.type);
 
-
       try {
-        // Simulate progress for FormData
         setSelectedFiles(prev => prev.map(f => f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified ? { ...f, progress: 60 } : f));
 
         const response = await fetch('/api/upload-image', {
           method: 'POST',
-          body: formData, // Sending FormData
+          body: formData,
         });
         
-        const responseBodyArray = await response.json().catch((err) => {
-            console.error(`ImageUploader: Failed to parse JSON response for ${fileEntry.file.name}. Status: ${response.status}. Error:`, err);
-            return [{ originalName: fileEntry.file.name, error: `Server returned non-JSON response (Status: ${response.status}).` }];
-        });
+        // Get raw response text first to handle potential non-JSON error bodies
+        const responseText = await response.text();
 
-
-        if (!response.ok) {
-          const serverErrorDetail = responseBodyArray[0];
-          const errorMsg = serverErrorDetail?.message || serverErrorDetail?.error || `Server error: ${response.status}.`;
-          console.error(`ImageUploader: Upload failed for ${fileEntry.file.name}. Status: ${response.status}`, responseBodyArray);
+        if (!response.ok) { // Handle HTTP errors (e.g., 4xx, 5xx)
+          let errorMsg = `Server error: ${response.status}.`;
+          let parsedErrorJson = null;
+          try {
+            parsedErrorJson = JSON.parse(responseText); // Try to parse the text as JSON
+            const serverErrorDetail = Array.isArray(parsedErrorJson) ? parsedErrorJson[0] : parsedErrorJson;
+            errorMsg = serverErrorDetail?.message || serverErrorDetail?.error || errorMsg;
+          } catch (e) {
+            // If JSON.parse fails, the responseText was not valid JSON.
+            console.warn(`ImageUploader: Server error response for ${fileEntry.file.name} was not valid JSON. Status: ${response.status}.`);
+            // Use a snippet of the raw text as the error message.
+            errorMsg = `Server error ${response.status}: ${responseText.substring(0, 150)}${responseText.length > 150 ? '...' : ''}`;
+          }
+          console.error(`ImageUploader: Upload failed for ${fileEntry.file.name}. Status: ${response.status}. Raw Response:`, responseText.substring(0,500));
           setSelectedFiles(prev => prev.map(f => f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified ? { ...f, status: 'error', error: errorMsg, progress: 0 } : f));
           continue; // Move to the next file
         }
+
+        // If response.ok is true, try to parse the responseText as JSON (expected for success)
+        let responseBodyArray;
+        try {
+            responseBodyArray = JSON.parse(responseText);
+        } catch (e) {
+            console.error(`ImageUploader: Successfully received 2xx response for ${fileEntry.file.name}, but body was not valid JSON. Raw text:`, responseText.substring(0,500));
+            setSelectedFiles(prev => prev.map(f => f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified ? { ...f, status: 'error', error: 'Server sent success status but invalid data format.', progress: 0 } : f));
+            continue; // Move to the next file
+        }
         
-        // responseBodyArray should be an array of {originalName, fileId, pageNumber?}
-        const successfulUploadsForThisFile = responseBodyArray.filter((meta: any) => meta.fileId);
+        const successfulUploadsForThisFile = (Array.isArray(responseBodyArray) ? responseBodyArray : [responseBodyArray]).filter((meta: any) => meta.fileId);
         allUploadedFileMetas.push(...successfulUploadsForThisFile);
 
         setSelectedFiles(prev => prev.map(f => {
           if (f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified) {
-            // If it was a PDF that resulted in multiple pages, we mark the original PDF entry as 'success'
-            // The actual fileIds are in successfulUploadsForThisFile
             return { ...f, status: 'success', progress: 100, fileId: successfulUploadsForThisFile.length > 0 ? successfulUploadsForThisFile[0].fileId : undefined };
           }
           return f;
         }));
         
-      } catch (error: any) {
-        console.error(`ImageUploader: Individual upload error for file: ${fileEntry.file.name}. Error:`, error.message, error);
-        const errorMessage = error.message || 'Upload failed';
+      } catch (networkError: any) { // Catch for actual network errors (e.g., fetch itself failed)
+        console.error(`ImageUploader: Network error during upload for file: ${fileEntry.file.name}. Error:`, networkError.message, networkError);
+        const errorMessage = networkError.message || 'Upload failed due to a network issue.';
         setSelectedFiles(prev => prev.map(f => f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified ? { ...f, status: 'error', error: errorMessage, progress: 0 } : f));
       }
     } // end of for loop
@@ -375,3 +387,5 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     </div>
   );
 }
+
+    
