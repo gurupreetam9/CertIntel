@@ -32,35 +32,34 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
     <Dialog
       open={isOpen}
       onOpenChange={(openStatus) => {
-        console.log('ViewImageModal: Dialog onOpenChange triggered. New open status:', openStatus);
         if (!openStatus) onClose();
       }}
     >
       <DialogContent
-        key={`${image.fileId}-dialog-content`}
-        className="sm:max-w-3xl w-[95vw] max-h-[90vh] flex flex-col p-0 overflow-hidden" // No padding on DialogContent itself
+        key={image.fileId ? `${image.fileId}-dialog-content` : 'dialog-empty'}
+        className="sm:max-w-3xl w-[95vw] max-h-[90vh] flex flex-col overflow-hidden p-4 sm:p-6" // Re-added padding here
       >
-        <DialogHeader className="p-4 sm:p-6 pb-2 sm:pb-4 shrink-0 border-b">
+        <DialogHeader className="pb-2 sm:pb-4 shrink-0 border-b"> {/* Adjusted padding as parent has it */}
           <DialogTitle className="font-headline text-lg sm:text-xl truncate" title={image.originalName}>
             {image.originalName}
           </DialogTitle>
+          <DialogDescription className="sr-only"> {/* For accessibility */}
+            A larger view of the image titled {image.originalName}.
+          </DialogDescription>
         </DialogHeader>
-        <DialogDescription className="sr-only"> {/* For accessibility, as requested by console warning */}
-          A larger view of the image titled {image.originalName}.
-        </DialogDescription>
 
-        {/* This div is the main stage for the image. It should grow. It's also the relative parent. */}
+        {/* This div is the main stage for the image. It should grow. */}
         <div
-          key={`${image.fileId}-image-stage`}
-          className="flex-1 min-h-0 w-full relative overflow-hidden p-2 sm:p-4 bg-background" // Padding here for around the image
+          key={image.fileId ? `${image.fileId}-image-stage` : 'stage-empty'}
+          className="flex-1 min-h-0 w-full relative bg-red-500/70" // Prominent debug background
         >
           <Image
             key={`${image.fileId}-modal-image`}
             src={imageSrc}
             alt={`View of ${image.originalName}`}
             layout="fill"
-            objectFit="contain" // This will scale the image down to fit, maintaining aspect ratio, and center it
-            className="rounded-md" // Can add specific padding to image if needed, but parent has it now
+            objectFit="contain"
+            className="rounded-md" // Image itself can have padding if needed around it, e.g., "p-1"
             data-ai-hint={image.dataAiHint || 'full view image'}
             unoptimized={process.env.NODE_ENV === 'development'}
             onLoad={(event) => {
@@ -74,7 +73,7 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
           />
         </div>
 
-        <DialogFooter className="p-4 sm:p-6 pt-2 sm:pt-4 shrink-0 border-t">
+        <DialogFooter className="pt-2 sm:pt-4 shrink-0 border-t"> {/* Adjusted padding */}
           <DialogClose asChild>
             <Button variant="outline">Close</Button>
           </DialogClose>
