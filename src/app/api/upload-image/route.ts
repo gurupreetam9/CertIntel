@@ -6,10 +6,16 @@ import { connectToDb } from '@/lib/mongodb';
 import { promises as fsPromises } from 'fs';
 import fs from 'fs';
 import os from 'os';
-import OriginalFormData from 'form-data'; // For sending to Python
 import path from 'path';
 
-// Define interfaces for the structure returned by our custom form parser
+// Import pdfjs-dist and canvas for server-side PDF processing
+// Using the standard CJS build path for pdfjs-dist v4+
+const pdfjsLib = require('pdfjs-dist/build/pdf.js');
+// Specify the worker source for Node.js environment. Critical for pdfjs-dist v3+
+pdfjsLib.GlobalWorkerOptions.workerSrc = require.resolve('pdfjs-dist/build/pdf.worker.mjs');
+import { createCanvas, type Canvas } from 'canvas';
+
+
 interface CustomUploadedFile {
   filepath: string;
   originalFilename: string | null;
@@ -20,11 +26,10 @@ interface CustomUploadedFile {
 interface CustomParsedForm {
   fields: { [key: string]: string | string[] };
   files: {
-    [key: string]: CustomUploadedFile | undefined; // Key is 'file' or similar from client FormData
+    [key: string]: CustomUploadedFile | undefined;
   };
 }
 
-// Helper to parse form data using request.formData() and save files to temp
 const parseFormRevised = async (req: NextRequest, reqId: string): Promise<CustomParsedForm> => {
   const formData = await req.formData();
   const fields: { [key: string]: string | string[] } = {};
@@ -34,7 +39,6 @@ const parseFormRevised = async (req: NextRequest, reqId: string): Promise<Custom
   for (const [key, value] of formData.entries()) {
     if (value instanceof File) {
       console.log(`API /api/upload-image (Req ID: ${reqId}, parseFormRevised): Processing file field '${key}', filename: '${value.name}'.`);
-      // Sanitize filename for temp file creation
       const safeOriginalName = value.name.replace(/[^a-zA-Z0-9_.-]/g, '_');
       const tempFileName = `nextjs_temp_${reqId}_${Date.now()}_${safeOriginalName}`;
       const tempFilePath = path.join(os.tmpdir(), tempFileName);
@@ -43,7 +47,7 @@ const parseFormRevised = async (req: NextRequest, reqId: string): Promise<Custom
         const fileBuffer = Buffer.from(await value.arrayBuffer());
         await fsPromises.writeFile(tempFilePath, fileBuffer);
 
-        filesOutput[key] = { // Use original field key 'file' or as received
+        filesOutput[key] = {
           filepath: tempFilePath,
           originalFilename: value.name,
           mimetype: value.type,
@@ -52,10 +56,8 @@ const parseFormRevised = async (req: NextRequest, reqId: string): Promise<Custom
         console.log(`API /api/upload-image (Req ID: ${reqId}, parseFormRevised): File '${value.name}' saved to temp path '${tempFilePath}'.`);
       } catch (error: any) {
         console.error(`API /api/upload-image (Req ID: ${reqId}, parseFormRevised): Error writing file '${value.name}' to temp. Error: ${error.message}`);
-        // Optionally re-throw or handle cleanup if one file fails to write
       }
     } else {
-      // It's a field
       console.log(`API /api/upload-image (Req ID: ${reqId}, parseFormRevised): Processing text field '${key}'.`);
       if (fields[key]) {
         if (Array.isArray(fields[key])) {
@@ -71,7 +73,6 @@ const parseFormRevised = async (req: NextRequest, reqId: string): Promise<Custom
   console.log(`API /api/upload-image (Req ID: ${reqId}, parseFormRevised): Finished formData processing. Found ${Object.keys(filesOutput).length} file(s).`);
   return { fields, files: filesOutput };
 };
-
 
 export async function POST(request: NextRequest) {
   const reqId = Math.random().toString(36).substring(2, 9);
@@ -102,7 +103,7 @@ export async function POST(request: NextRequest) {
       console.log(`API /api/upload-image (Req ID: ${reqId}): Parsing form data using parseFormRevised...`);
       const parsedForm = await parseFormRevised(request, reqId);
       fields = parsedForm.fields;
-      files = parsedForm.files; // files will be an object like { "file": CustomUploadedFile }
+      files = parsedForm.files;
 
       Object.values(files).forEach(fileDetail => {
         if (fileDetail?.filepath) tempFilePathsToDelete.push(fileDetail.filepath);
@@ -121,7 +122,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Missing userId in form data.', errorKey: 'MISSING_USER_ID' }, { status: 400 });
     }
     
-    const uploadedFileEntry = files.file; // Assuming 'file' is the key from client FormData
+    const uploadedFileEntry = files.file;
 
     if (!uploadedFileEntry || !uploadedFileEntry.filepath) {
       console.warn(`API /api/upload-image (Req ID: ${reqId}): No file uploaded in 'file' field or filepath missing.`);
@@ -136,49 +137,59 @@ export async function POST(request: NextRequest) {
     const results: { originalName: string; fileId: string; filename: string; pageNumber?: number }[] = [];
 
     if (fileType === 'application/pdf') {
-      console.log(`API /api/upload-image (Req ID: ${reqId}): PDF detected. Forwarding to Python server for conversion.`);
-      const flaskServerUrl = process.env.NEXT_PUBLIC_FLASK_SERVER_URL;
-      if (!flaskServerUrl) {
-        console.error(`API /api/upload-image (Req ID: ${reqId}): NEXT_PUBLIC_FLASK_SERVER_URL is not set. Cannot forward PDF.`);
-        throw new Error('Python server URL for PDF conversion is not configured.');
-      }
-      
-      const pythonApiFormData = new OriginalFormData();
+      console.log(`API /api/upload-image (Req ID: ${reqId}): PDF detected. Processing with pdfjs-dist and canvas.`);
       if (!fs.existsSync(tempFilePath)) {
-        console.error(`API /api/upload-image (Req ID: ${reqId}): Temp PDF file not found at ${tempFilePath} before sending to Python.`);
+        console.error(`API /api/upload-image (Req ID: ${reqId}): Temp PDF file not found at ${tempFilePath} before processing.`);
         throw new Error('Temporary PDF file disappeared before processing.');
       }
-      const pdfFileStream = fs.createReadStream(tempFilePath);
-      pythonApiFormData.append('pdf_file', pdfFileStream, { filename: actualOriginalName, contentType: 'application/pdf' });
-      pythonApiFormData.append('userId', userId);
-      pythonApiFormData.append('originalName', actualOriginalName); 
+      const pdfData = new Uint8Array(await fsPromises.readFile(tempFilePath));
+      const pdfDocument = await pdfjsLib.getDocument({ data: pdfData }).promise;
+      console.log(`API /api/upload-image (Req ID: ${reqId}): PDF loaded, ${pdfDocument.numPages} page(s).`);
 
-      const conversionEndpoint = `${flaskServerUrl}/api/convert-pdf-to-images`;
-      console.log(`API /api/upload-image (Req ID: ${reqId}): Sending PDF to ${conversionEndpoint}. Headers:`, JSON.stringify(pythonApiFormData.getHeaders()));
-      
-      let pythonResponse;
-      try {
-        pythonResponse = await fetch(conversionEndpoint, {
-          method: 'POST',
-          body: pythonApiFormData as any, 
-          headers: pythonApiFormData.getHeaders(),
+      for (let i = 1; i <= pdfDocument.numPages; i++) {
+        const pageNumber = i;
+        console.log(`API /api/upload-image (Req ID: ${reqId}): Processing page ${pageNumber}...`);
+        const page = await pdfDocument.getPage(pageNumber);
+        const viewport = page.getViewport({ scale: 2.0 }); // Adjust scale as needed for resolution
+        
+        const canvas = createCanvas(viewport.width, viewport.height) as Canvas;
+        const canvasContext = canvas.getContext('2d');
+
+        await page.render({ canvasContext, viewport }).promise;
+        const pngBuffer = canvas.toBuffer('image/png');
+        page.cleanup(); // Release page resources
+
+        const basePdfNameSecure = path.basename(actualOriginalName, path.extname(actualOriginalName)).replace(/[^a-zA-Z0-9_.-]/g, '_');
+        const imageFilename = `${userId}_${Date.now()}_${basePdfNameSecure}_page_${pageNumber}.png`;
+        
+        const metadata = {
+          originalName: `${actualOriginalName} (Page ${pageNumber})`,
+          userId,
+          uploadedAt: new Date().toISOString(),
+          sourceContentType: 'application/pdf',
+          convertedTo: 'image/png',
+          pageNumber,
+          reqIdParent: reqId,
+        };
+
+        console.log(`API /api/upload-image (Req ID: ${reqId}): Creating GridFS upload stream for PDF page: ${imageFilename} with metadata:`, metadata);
+        const uploadStream = bucket.openUploadStream(imageFilename, { contentType: 'image/png', metadata });
+        
+        await new Promise<void>((resolveStream, rejectStream) => {
+          uploadStream.on('error', (err: MongoError) => {
+            console.error(`API /api/upload-image (Req ID: ${reqId}): GridFS Stream Error for PDF page ${imageFilename}:`, err);
+            rejectStream(new Error(`GridFS upload error for ${imageFilename}: ${err.message}`));
+          });
+          uploadStream.on('finish', () => {
+            console.log(`API /api/upload-image (Req ID: ${reqId}): GridFS Upload finished for PDF page: ${imageFilename}, ID: ${uploadStream.id}.`);
+            results.push({ originalName: metadata.originalName, fileId: uploadStream.id.toString(), filename: imageFilename, pageNumber });
+            resolveStream();
+          });
+          uploadStream.end(pngBuffer);
         });
-      } catch (fetchError: any) {
-        console.error(`API /api/upload-image (Req ID: ${reqId}): Error fetching Python PDF conversion endpoint. Full error object:`, fetchError);
-        throw new Error(`Failed to connect to PDF conversion service: ${fetchError.message || 'fetch failed'}`);
       }
+      console.log(`API /api/upload-image (Req ID: ${reqId}): Finished processing all PDF pages.`);
 
-      const pythonResponseData = await pythonResponse.json();
-
-      if (!pythonResponse.ok) {
-        console.error(`API /api/upload-image (Req ID: ${reqId}): Python server PDF conversion failed. Status: ${pythonResponse.status}, Response:`, pythonResponseData);
-        throw new Error(pythonResponseData.error || `PDF conversion service failed with status ${pythonResponse.status}`);
-      }
-
-      console.log(`API /api/upload-image (Req ID: ${reqId}): PDF conversion successful from Python server. Results:`, pythonResponseData);
-      if (pythonResponseData.converted_files && Array.isArray(pythonResponseData.converted_files)) {
-        results.push(...pythonResponseData.converted_files);
-      }
     } else if (fileType && fileType.startsWith('image/')) {
       console.log(`API /api/upload-image (Req ID: ${reqId}): Image file type (${fileType}) detected. Uploading directly to GridFS.`);
       const imageFilename = `${userId}_${Date.now()}_${actualOriginalName.replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
@@ -186,7 +197,7 @@ export async function POST(request: NextRequest) {
         originalName: actualOriginalName,
         userId,
         uploadedAt: new Date().toISOString(),
-        sourceContentType: fileType, 
+        sourceContentType: fileType,
         explicitContentType: fileType,
         reqIdParent: reqId,
       };

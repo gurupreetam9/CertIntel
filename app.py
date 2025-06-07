@@ -2,39 +2,29 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
-import io
 import logging
 from pymongo import MongoClient, DESCENDING
 from gridfs import GridFS
 from dotenv import load_dotenv
 from datetime import datetime
 import json
-from werkzeug.utils import secure_filename
-import tempfile
-from pdf2image import convert_from_bytes, pdfinfo_from_bytes
-from pdf2image.exceptions import PDFInfoNotInstalledError, PDFPageCountError, PDFSyntaxError, PDFPopplerTimeoutError
+# Removed: from werkzeug.utils import secure_filename (if not used elsewhere)
+# Removed: import tempfile (if not used elsewhere)
+# Removed: from pdf2image import convert_from_bytes, pdfinfo_from_bytes (and exceptions)
 
 # --- Initial Setup ---
-# Configure logging BEFORE creating the Flask app instance for consistent logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-app_logger = logging.getLogger(__name__) # Use this logger throughout
+app_logger = logging.getLogger(__name__)
 app_logger.info("Flask app.py: Script execution started.")
 
-
-# Load environment variables from .env file
 load_dotenv()
 app_logger.info(f"Flask app.py: .env loaded: {'Yes' if os.getenv('MONGODB_URI') else 'No (or MONGODB_URI not set)'}")
 
-
-# Import the refactored processing function
 from certificate_processor import extract_and_recommend_courses_from_image_data
 
 app = Flask(__name__)
-CORS(app) # Enable CORS for all routes
-
-# Use the app's logger after it's created
+CORS(app)
 app.logger.info("Flask app instance created.")
-
 
 # --- MongoDB Setup ---
 MONGODB_URI = os.getenv("MONGODB_URI")
@@ -45,7 +35,7 @@ if not MONGODB_URI:
 
 mongo_client = None
 db = None
-fs_images = None # GridFS for 'images' bucket
+fs_images = None 
 course_data_collection = None 
 
 try:
@@ -70,7 +60,6 @@ except Exception as e:
 def health_check():
     app.logger.info("Flask /: Health check endpoint hit.")
     return jsonify({"status": "Flask server is running", "message": "Welcome to ImageVerse Flask API!"}), 200
-
 
 @app.route('/api/process-certificates', methods=['POST'])
 def process_certificates_from_db():
@@ -97,7 +86,7 @@ def process_certificates_from_db():
         for file_doc in user_image_files_cursor:
             file_id = file_doc["_id"]
             original_filename = file_doc.get("metadata", {}).get("originalName", file_doc["filename"])
-            content_type = file_doc.get("contentType", "application/octet-stream")
+            content_type = file_doc.get("contentType", "application/octet-stream") # GridFS stores this
             
             app.logger.info(f"Flask (Req ID: {req_id_cert}): Fetching file from GridFS: ID={file_id}, Name={original_filename}, Type={content_type}")
 
@@ -105,10 +94,18 @@ def process_certificates_from_db():
             image_bytes = grid_out.read()
             grid_out.close()
             
+            # The certificate_processor expects content_type from the *original* upload,
+            # or the type it was converted to (e.g., image/png if it was a PDF page).
+            # The GridFS 'contentType' for a PDF page will be 'image/png'.
+            # 'sourceContentType' in metadata can tell if it came from a PDF.
+            effective_content_type = file_doc.get("metadata", {}).get("sourceContentType", content_type)
+            if file_doc.get("metadata", {}).get("convertedTo"): # If it's a converted page
+                 effective_content_type = file_doc.get("metadata", {}).get("convertedTo")
+
             image_data_for_processing.append({
                 "bytes": image_bytes,
-                "original_filename": original_filename,
-                "content_type": content_type,
+                "original_filename": original_filename, # This will be like "mypdf.pdf (Page 1)"
+                "content_type": effective_content_type, # Should be image/png for converted pages
                 "file_id": str(file_id) 
             })
         
@@ -129,7 +126,6 @@ def process_certificates_from_db():
                 app.logger.info(f"Flask (Req ID: {req_id_cert}): Fetched latest course_data record for user {user_id} for duplicate check.")
         except Exception as e:
             app.logger.error(f"Flask (Req ID: {req_id_cert}): Error fetching latest course_data for user {user_id}: {e}")
-
 
         if not image_data_for_processing and not additional_manual_courses:
             return jsonify({
@@ -181,116 +177,14 @@ def process_certificates_from_db():
         app.logger.error(f"Flask (Req ID: {req_id_cert}): Error during certificate processing for user {user_id}: {str(e)}", exc_info=True)
         return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
 
-@app.route('/api/convert-pdf-to-images', methods=['POST'])
-def convert_pdf_to_images_route():
-    # Generate a unique ID for this request for logging correlation
-    req_id = datetime.now().strftime('%Y%m%d%H%M%S%f')
-    app.logger.info(f"Flask /api/convert-pdf-to-images (Req ID: {req_id}): Received request.")
-
-    if mongo_client is None or db is None or fs_images is None:
-        app.logger.error(f"Flask (Req ID: {req_id}): MongoDB connection or GridFS not available.")
-        return jsonify({"error": "Database connection or GridFS not available. Check server logs."}), 503
-
-    if 'pdf_file' not in request.files:
-        app.logger.warning(f"Flask (Req ID: {req_id}): No 'pdf_file' part in the request. Files: {list(request.files.keys())}")
-        return jsonify({"error": "No PDF file part in the request."}), 400
-
-    pdf_file_storage = request.files['pdf_file']
-    user_id = request.form.get('userId')
-    original_pdf_name = request.form.get('originalName', pdf_file_storage.filename) 
-    app.logger.info(f"Flask (Req ID: {req_id}): Received form fields - userId: '{user_id}', originalName: '{original_pdf_name}'")
-
-
-    if not user_id:
-        app.logger.warning(f"Flask (Req ID: {req_id}): Missing 'userId' in form data.")
-        return jsonify({"error": "Missing 'userId' in form data."}), 400
-    
-    if not original_pdf_name:
-        app.logger.warning(f"Flask (Req ID: {req_id}): No filename or originalName provided for PDF.")
-        return jsonify({"error": "No filename or originalName provided for PDF."}), 400
-
-    app.logger.info(f"Flask (Req ID: {req_id}): Processing PDF '{original_pdf_name}' for userId '{user_id}'.")
-
-    try:
-        pdf_bytes = pdf_file_storage.read()
-        
-        # Poppler self-check using pdfinfo_from_bytes
-        try:
-            app.logger.info(f"Flask (Req ID: {req_id}): Attempting Poppler self-check (pdfinfo_from_bytes)...")
-            pdfinfo = pdfinfo_from_bytes(pdf_bytes, userpw=None, poppler_path=None)
-            app.logger.info(f"Flask (Req ID: {req_id}): Poppler self-check (pdfinfo) successful. PDF Info: {pdfinfo}")
-        except PDFInfoNotInstalledError:
-            app.logger.error(f"Flask (Req ID: {req_id}): CRITICAL - Poppler (pdfinfo) utilities not found or not executable. Please ensure 'poppler-utils' is installed and in the system PATH for the Flask server environment.")
-            return jsonify({"error": "PDF processing utilities (Poppler/pdfinfo) are not installed or configured correctly on the server."}), 500
-        except PDFPopplerTimeoutError:
-            app.logger.error(f"Flask (Req ID: {req_id}): Poppler (pdfinfo) timed out processing the PDF. The PDF might be too complex or corrupted.")
-            return jsonify({"error": "Timeout during PDF information retrieval. The PDF may be too complex or corrupted."}), 400
-        except Exception as info_err: # Catch other potential errors from pdfinfo
-            app.logger.error(f"Flask (Req ID: {req_id}): Error getting PDF info with Poppler: {str(info_err)}", exc_info=True)
-            return jsonify({"error": f"Failed to retrieve PDF info: {str(info_err)}"}), 500
-
-        app.logger.info(f"Flask (Req ID: {req_id}): Attempting to convert PDF bytes to images using pdf2image (convert_from_bytes).")
-        images_from_pdf = convert_from_bytes(pdf_bytes, dpi=200, fmt='png', poppler_path=None) 
-        app.logger.info(f"Flask (Req ID: {req_id}): PDF '{original_pdf_name}' converted to {len(images_from_pdf)} image(s).")
-
-        converted_files_metadata = []
-
-        for i, image_pil in enumerate(images_from_pdf):
-            page_number = i + 1
-            base_pdf_name_secure = secure_filename(os.path.splitext(original_pdf_name)[0])
-            gridfs_filename = f"{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{base_pdf_name_secure}_page_{page_number}.png"
-            
-            img_byte_arr = io.BytesIO()
-            image_pil.save(img_byte_arr, format='PNG')
-            img_byte_arr_val = img_byte_arr.getvalue()
-
-            metadata_for_gridfs = {
-                "originalName": f"{original_pdf_name} (Page {page_number})", 
-                "userId": user_id,
-                "uploadedAt": datetime.utcnow().isoformat(),
-                "sourceContentType": "application/pdf",
-                "convertedTo": "image/png",
-                "pageNumber": page_number,
-                "reqIdParent": req_id 
-            }
-            
-            app.logger.info(f"Flask (Req ID: {req_id}): Storing page {page_number} as '{gridfs_filename}' in GridFS with metadata: {metadata_for_gridfs}")
-            file_id_obj = fs_images.put(img_byte_arr_val, filename=gridfs_filename, contentType='image/png', metadata=metadata_for_gridfs)
-            
-            converted_files_metadata.append({
-                "originalName": metadata_for_gridfs["originalName"],
-                "fileId": str(file_id_obj),
-                "filename": gridfs_filename,
-                "pageNumber": page_number
-            })
-            app.logger.info(f"Flask (Req ID: {req_id}): Stored page {page_number} with GridFS ID: {str(file_id_obj)}.")
-
-        app.logger.info(f"Flask (Req ID: {req_id}): Successfully processed and stored {len(converted_files_metadata)} pages for PDF '{original_pdf_name}'.")
-        return jsonify({"message": "PDF converted and pages stored successfully.", "converted_files": converted_files_metadata}), 200
-
-    except PDFPageCountError:
-        app.logger.error(f"Flask (Req ID: {req_id}): pdf2image could not get page count for '{original_pdf_name}'. PDF might be corrupted or password-protected.", exc_info=True)
-        return jsonify({"error": "Could not determine page count. The PDF may be corrupted or password-protected."}), 400
-    except PDFSyntaxError:
-        app.logger.error(f"Flask (Req ID: {req_id}): pdf2image encountered syntax error for '{original_pdf_name}'. PDF is likely corrupted.", exc_info=True)
-        return jsonify({"error": "PDF syntax error. The file may be corrupted."}), 400
-    except PDFPopplerTimeoutError: # This catches timeouts during the convert_from_bytes call
-        app.logger.error(f"Flask (Req ID: {req_id}): Poppler (conversion) timed out processing PDF '{original_pdf_name}'.")
-        return jsonify({"error": "Timeout during PDF page conversion. The PDF may be too complex."}), 400
-    except Exception as e:
-        app.logger.error(f"Flask (Req ID: {req_id}): Error during PDF conversion or storage for '{original_pdf_name}': {str(e)}", exc_info=True)
-        # Check if the error string or type suggests Poppler is not installed (during conversion stage)
-        if "PopplerNotInstalledError" in str(type(e)) or "pdftoppm" in str(e).lower() or "pdfinfo" in str(e).lower():
-             app.logger.error(f"Flask (Req ID: {req_id}): CRITICAL - Poppler utilities (pdftoppm/pdfinfo) not found or not executable.")
-             return jsonify({"error": "PDF processing utilities (Poppler) are not installed or configured correctly on the server (conversion stage)."}), 500
-        return jsonify({"error": f"An unexpected error occurred during PDF processing: {str(e)}"}), 500
-
+# Removed the /api/convert-pdf-to-images route
 
 if __name__ == '__main__':
     app.logger.info("Flask application starting with __name__ == '__main__'")
-    app.logger.info("Ensure 'poppler-utils' (or equivalent Poppler binaries) are installed and accessible in the system PATH.")
-    app.logger.info(f"Effective MONGODB_URI configured: {'Yes' if MONGODB_URI else 'No'}") # Log effective URI status
+    # Removed Poppler self-check from here as it was specific to the removed route
+    # The certificate_processor.py now handles its own Poppler needs for image processing,
+    # which may include PDFs if they are fetched as raw bytes with 'application/pdf' type.
+    app.logger.info(f"Effective MONGODB_URI configured: {'Yes' if MONGODB_URI else 'No'}")
     app.logger.info(f"Effective MONGODB_DB_NAME: {DB_NAME}")
     app.logger.info("Flask app will attempt to run on host=0.0.0.0, port from env or 5000.")
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)), debug=True)
-
