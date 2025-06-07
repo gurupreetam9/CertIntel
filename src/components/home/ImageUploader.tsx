@@ -7,13 +7,13 @@ import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'; // Removed CardDescription as it wasn't used
 import { AlertCircle, Camera, CheckCircle, FileUp, ImagePlus, Loader2, Trash2, UploadCloud } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { uploadFileToFirebase } from '@/lib/firebase/storage';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { generateImageDescription, type GenerateImageDescriptionOutput } from '@/ai/flows/generate-image-description';
+// Removed Genkit flow import: import { generateImageDescription, type GenerateImageDescriptionOutput } from '@/ai/flows/generate-image-description';
 
 interface UploadedFile {
   file: File;
@@ -45,10 +45,43 @@ async function fileToDataUri(file: File): Promise<string> {
   });
 }
 
+// New function to call your custom AI server
+async function getDescriptionFromCustomAI(photoDataUri: string): Promise<{ description: string }> {
+  const aiServerBaseUrl = process.env.NEXT_PUBLIC_FLASK_SERVER_URL;
+  if (!aiServerBaseUrl) {
+    console.error('ImageUploader: NEXT_PUBLIC_FLASK_SERVER_URL is not set. Cannot call custom AI.');
+    throw new Error('Custom AI server URL is not configured.');
+  }
+  const aiEndpoint = `${aiServerBaseUrl}/describe-image`; // Example endpoint
+
+  console.log(`ImageUploader: Calling custom AI server at ${aiEndpoint}`);
+  const response = await fetch(aiEndpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ photoDataUri }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    console.error(`ImageUploader: Custom AI server request failed with status ${response.status}: ${errorBody}`);
+    throw new Error(`Custom AI server failed: ${response.statusText} - ${errorBody.substring(0, 100)}`);
+  }
+
+  const result = await response.json();
+  console.log('ImageUploader: Custom AI server response:', result);
+  if (!result.description) {
+     throw new Error('Custom AI server response did not include a description.');
+  }
+  return result;
+}
+
+
 export default function ImageUploader({ onUploadComplete, closeModal }: ImageUploaderProps) {
   const [selectedFiles, setSelectedFiles] = useState<UploadedFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadSource, setUploadSource] = useState<'camera' | 'files' | null>(null);
+  // const [uploadSource, setUploadSource] = useState<'camera' | 'files' | null>(null); // uploadSource seems unused
   const { userId } = useAuth();
   const { toast } = useToast();
   const isMobile = useIsMobile();
@@ -71,7 +104,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
   };
 
   const triggerFileInput = (source: 'camera' | 'files') => {
-    setUploadSource(source);
+    // setUploadSource(source); // uploadSource seems unused
     if (fileInputRef.current) {
       if (isMobile && source === 'camera') {
         fileInputRef.current.setAttribute('capture', 'environment');
@@ -125,28 +158,28 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
         console.log(`ImageUploader: Individual upload successful for: ${uploadedFile.file.name}. URL: ${downloadURL}`);
         setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'success', progress: 100, downloadURL, storagePath: returnedPath } : f));
         
-        // ---- AI Description Generation ----
+        // ---- Custom AI Description Generation ----
         try {
-          console.log(`ImageUploader: Converting ${uploadedFile.file.name} to data URI for AI...`);
+          console.log(`ImageUploader: Converting ${uploadedFile.file.name} to data URI for Custom AI...`);
           const dataUri = await fileToDataUri(uploadedFile.file);
-          console.log(`ImageUploader: Calling generateImageDescription for ${uploadedFile.file.name}`);
-          const descriptionResult: GenerateImageDescriptionOutput = await generateImageDescription({ photoDataUri: dataUri });
-          console.log(`ImageUploader: AI Description for ${uploadedFile.file.name}: ${descriptionResult.description}`);
+          console.log(`ImageUploader: Calling getDescriptionFromCustomAI for ${uploadedFile.file.name}`);
+          const descriptionResult = await getDescriptionFromCustomAI(dataUri);
+          console.log(`ImageUploader: Custom AI Description for ${uploadedFile.file.name}: ${descriptionResult.description}`);
           toast({
-            title: `AI Description: ${uploadedFile.file.name}`,
-            description: descriptionResult.description.substring(0, 200) + (descriptionResult.description.length > 200 ? '...' : ''), // Truncate for toast
+            title: `Custom AI: ${uploadedFile.file.name}`,
+            description: descriptionResult.description.substring(0, 200) + (descriptionResult.description.length > 200 ? '...' : ''),
             duration: 7000, 
           });
-        } catch (aiError: any) {
-          console.error(`ImageUploader: AI description failed for ${uploadedFile.file.name}:`, aiError);
+        } catch (customAiError: any) {
+          console.error(`ImageUploader: Custom AI description failed for ${uploadedFile.file.name}:`, customAiError);
           toast({
-            title: 'AI Description Failed',
-            description: `Could not generate description for ${uploadedFile.file.name}. ${(aiError.message || 'Unknown AI error')}`,
+            title: 'Custom AI Failed',
+            description: `Could not get description from custom AI for ${uploadedFile.file.name}. ${(customAiError.message || 'Unknown custom AI error')}`,
             variant: 'destructive',
             duration: 7000,
           });
         }
-        // ---- End AI Description Generation ----
+        // ---- End Custom AI Description Generation ----
 
         return { originalName: uploadedFile.file.name, downloadURL, storagePath: returnedPath };
       } catch (error: any) {
@@ -262,7 +295,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
                   {(uploadedFile.status === 'uploading' || (uploadedFile.status === 'success' && uploadedFile.progress < 100)) && (
                     <Progress value={uploadedFile.progress} className="w-full h-2 mt-1" />
                   )}
-                   {uploadedFile.status === 'uploading' && <p className="text-xs text-blue-600 flex items-center"><Loader2 className="w-3 h-3 mr-1 animate-spin"/>Uploading...</p>}
+                   {uploadedFile.status === 'uploading' && <p className="text-xs text-primary flex items-center"><Loader2 className="w-3 h-3 mr-1 animate-spin"/>Uploading...</p>}
                   {uploadedFile.status === 'success' && <p className="text-xs text-green-600 flex items-center"><CheckCircle className="w-3 h-3 mr-1"/>Uploaded</p>}
                   {uploadedFile.status === 'error' && <p className="text-xs text-destructive flex items-center" title={uploadedFile.error}><AlertCircle className="w-3 h-3 mr-1"/>{uploadedFile.error}</p>}
                 </div>
@@ -295,3 +328,5 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     </div>
   );
 }
+
+    
