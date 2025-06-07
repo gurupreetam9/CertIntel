@@ -8,10 +8,6 @@ from gridfs import GridFS
 from dotenv import load_dotenv
 from datetime import datetime
 import json
-from werkzeug.utils import secure_filename
-import tempfile
-import io
-from pdf2image import convert_from_bytes, pdfinfo_from_bytes, PDFInfo, PDFPageCountError, PDFSyntaxError, PDFPopplerTimeoutError
 
 
 # --- Initial Setup ---
@@ -26,7 +22,7 @@ from certificate_processor import extract_and_recommend_courses_from_image_data
 
 app = Flask(__name__)
 CORS(app)
-app.logger.info("Flask app instance created.")
+app_logger.info("Flask app instance created.")
 
 # --- MongoDB Setup ---
 MONGODB_URI = os.getenv("MONGODB_URI")
@@ -63,126 +59,14 @@ POPPLER_PATH = os.getenv("POPPLER_PATH", None)
 if POPPLER_PATH:
     app_logger.info(f"Flask app.py: POPPLER_PATH environment variable found: {POPPLER_PATH}")
 else:
-    app_logger.warning("Flask app.py: POPPLER_PATH environment variable not set. pdf2image will rely on poppler being in system PATH.")
+    # This warning is less critical now as pdf2image is not directly used in this simplified app.py
+    app_logger.info("Flask app.py: POPPLER_PATH environment variable not set (not critical for current app.py features).")
 
 
 @app.route('/', methods=['GET'])
 def health_check():
     app.logger.info("Flask /: Health check endpoint hit.")
     return jsonify({"status": "Flask server is running", "message": "Welcome to ImageVerse Flask API!"}), 200
-
-@app.route('/api/convert-pdf-to-images', methods=['POST'])
-def convert_pdf_to_images_route():
-    req_id_pdf = request.form.get('reqId', datetime.now().strftime('%Y%m%d%H%M%S%f'))
-    app_logger.info(f"Flask /api/convert-pdf-to-images (Req ID: {req_id_pdf}): Received request.")
-
-    if mongo_client is None or db is None or fs_images is None:
-        app_logger.error(f"Flask (Req ID: {req_id_pdf}): MongoDB connection or GridFS not available.")
-        return jsonify({"error": "Database connection or GridFS not available. Check server logs."}), 503
-
-    if 'pdf_file' not in request.files:
-        app_logger.warning(f"Flask (Req ID: {req_id_pdf}): No PDF file part in the request.")
-        return jsonify({"error": "No PDF file part in request"}), 400
-
-    pdf_file_storage = request.files['pdf_file']
-    user_id = request.form.get('userId')
-    original_name_from_form = request.form.get('originalName', pdf_file_storage.filename) 
-
-    if not user_id:
-        app_logger.warning(f"Flask (Req ID: {req_id_pdf}): User ID not provided in form data.")
-        return jsonify({"error": "User ID (userId) not provided in form data"}), 400
-
-    if not pdf_file_storage.filename:
-        app_logger.warning(f"Flask (Req ID: {req_id_pdf}): No selected PDF file (filename is empty).")
-        return jsonify({"error": "No selected PDF file (empty filename)"}), 400
-    
-    # Use originalName from form if available, otherwise fallback to filename from FileStorage
-    effective_original_name = original_name_from_form or pdf_file_storage.filename
-
-    if pdf_file_storage and pdf_file_storage.mimetype == 'application/pdf':
-        filename_secure = secure_filename(effective_original_name) # Secure the effective original name
-        app_logger.info(f"Flask (Req ID: {req_id_pdf}): Processing PDF: {filename_secure} for user: {user_id}")
-
-        pdf_bytes = pdf_file_storage.read()
-        results = []
-        
-        temp_pdf_dir = tempfile.mkdtemp()
-        # Note: We don't strictly need to save to temp_pdf_path if using convert_from_bytes,
-        # but it can be useful for debugging or if other operations needed the file path.
-        # For convert_from_bytes, pdf_bytes is sufficient.
-        
-        app_logger.info(f"Flask (Req ID: {req_id_pdf}): PDF bytes read (length: {len(pdf_bytes)}). Temporary directory created: {temp_pdf_dir}")
-
-        try:
-            try:
-                info = pdfinfo_from_bytes(pdf_bytes, userpw=None, poppler_path=POPPLER_PATH)
-                app_logger.info(f"Flask (Req ID: {req_id_pdf}): PDF info for {filename_secure}: Pages={info.get('Pages', 'N/A')}")
-            except Exception as e_info:
-                app_logger.warning(f"Flask (Req ID: {req_id_pdf}): Could not get PDF info for {filename_secure}: {str(e_info)}. Proceeding with conversion attempt.")
-
-            images_pil_list = convert_from_bytes(pdf_bytes, dpi=200, poppler_path=POPPLER_PATH, fmt='png', output_folder=None)
-            app_logger.info(f"Flask (Req ID: {req_id_pdf}): Converted {filename_secure} to {len(images_pil_list)} image(s).")
-
-            for i, image_pil in enumerate(images_pil_list):
-                page_num = i + 1
-                # Create a unique filename for storage, incorporating user_id, original PDF name (sanitized), and page number
-                base_pdf_name_sanitized = secure_filename(os.path.splitext(filename_secure)[0])
-                image_filename_in_db = f"{user_id}_{base_pdf_name_sanitized}_page_{page_num}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}.png"
-                
-                img_byte_arr_io = io.BytesIO()
-                image_pil.save(img_byte_arr_io, format='PNG')
-                img_bytes_for_gridfs = img_byte_arr_io.getvalue()
-                
-                app_logger.info(f"Flask (Req ID: {req_id_pdf}): Saving page {page_num} as {image_filename_in_db} to GridFS.")
-
-                metadata = {
-                    "originalName": f"{effective_original_name} (Page {page_num})", # Use the name from form/upload
-                    "userId": user_id,
-                    "uploadedAt": datetime.utcnow().isoformat(),
-                    "sourceContentType": "application/pdf",
-                    "convertedTo": "image/png",
-                    "pageNumber": page_num,
-                    "reqIdParent": req_id_pdf,
-                }
-                
-                file_id = fs_images.put(img_bytes_for_gridfs, filename=image_filename_in_db, contentType="image/png", metadata=metadata)
-                results.append({
-                    "originalName": metadata["originalName"],
-                    "fileId": str(file_id),
-                    "filename": image_filename_in_db,
-                    "pageNumber": page_num
-                })
-                app_logger.info(f"Flask (Req ID: {req_id_pdf}): Saved page {page_num} to GridFS with ID: {file_id}")
-
-            return jsonify(results), 200
-
-        except PDFPageCountError as e_count:
-            app_logger.error(f"Flask (Req ID: {req_id_pdf}): PDFPageCountError for {filename_secure}: {str(e_count)}")
-            return jsonify({"error": f"Could not count pages in PDF '{filename_secure}'. It might be corrupted or password protected. Details: {str(e_count)}"}), 400
-        except PDFSyntaxError as e_syntax:
-            app_logger.error(f"Flask (Req ID: {req_id_pdf}): PDFSyntaxError for {filename_secure}: {str(e_syntax)}")
-            return jsonify({"error": f"PDF syntax error for '{filename_secure}'. The file might be corrupted. Details: {str(e_syntax)}"}), 400
-        except PDFPopplerTimeoutError as e_timeout:
-            app_logger.error(f"Flask (Req ID: {req_id_pdf}): PDFPopplerTimeoutError for {filename_secure}: {str(e_timeout)}")
-            return jsonify({"error": f"Processing PDF '{filename_secure}' timed out. File might be too complex/large. Details: {str(e_timeout)}"}), 408
-        except Exception as e:
-            app_logger.error(f"Flask (Req ID: {req_id_pdf}): Unexpected error converting PDF {filename_secure}: {str(e)}", exc_info=True)
-            return jsonify({"error": f"Failed to convert PDF '{filename_secure}'. An unexpected error occurred: {str(e)}"}), 500
-        finally:
-            try:
-                if os.path.exists(temp_pdf_dir):
-                    # Clean up temporary files if any were created inside temp_pdf_dir by convert_from_bytes with output_folder
-                    # Since output_folder=None, this directory should ideally be empty of image files.
-                    # If convert_from_bytes itself saved something, it needs to be cleaned.
-                    # For safety, just attempt to remove the directory.
-                    import shutil
-                    shutil.rmtree(temp_pdf_dir)
-                app_logger.info(f"Flask (Req ID: {req_id_pdf}): Cleaned up temporary directory {temp_pdf_dir} for {filename_secure}.")
-            except Exception as e_clean:
-                app_logger.error(f"Flask (Req ID: {req_id_pdf}): Error cleaning up temp directory {temp_pdf_dir} for {filename_secure}: {str(e_clean)}")
-    else:
-        app_logger.warning(f"Flask (Req ID: {req_id_pdf}): File uploaded is not a PDF. Filename: {pdf_file_storage.filename}, MIME: {pdf_file_storage.mimetype}")
-        return jsonify({"error": "File provided is not a PDF"}), 415 # 415 Unsupported Media Type
 
 
 @app.route('/api/process-certificates', methods=['POST'])
@@ -300,8 +184,7 @@ def process_certificates_from_db():
 
 if __name__ == '__main__':
     app.logger.info("Flask application starting with __name__ == '__main__'")
-    app.logger.info(f"Effective MONGODB_URI configured: {'Yes' if MONGODB_URI else 'No'}")
-    app.logger.info(f"Effective MONGODB_DB_NAME: {DB_NAME}")
+    app_logger.info(f"Effective MONGODB_URI configured: {'Yes' if MONGODB_URI else 'No'}")
+    app_logger.info(f"Effective MONGODB_DB_NAME: {DB_NAME}")
     app_logger.info("Flask app will attempt to run on host=0.0.0.0, port from env or 5000.")
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)), debug=True)
-
