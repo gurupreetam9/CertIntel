@@ -22,22 +22,15 @@ interface ViewImageModalProps {
 }
 
 export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModalProps) {
-  useEffect(() => {
-    console.log('ViewImageModal: Render/Update. isOpen:', isOpen, 'Image prop ID:', image ? image.fileId : 'null');
-  }, [isOpen, image]);
 
   if (!image) {
-    if (isOpen) {
-      console.warn('ViewImageModal: isOpen is true but image prop is null. Modal will not render content.');
-    }
     return null;
   }
 
   const imageSrc = `/api/images/${image.fileId}`;
-  console.log(`ViewImageModal: Constructed image source URL for ${image.originalName} (ID: ${image.fileId}): ${imageSrc}`);
 
-  // Default large dimensions for next/image; Tailwind will constrain it.
-  // In a more advanced setup, we could use a state updated by onLoad to get natural dimensions.
+  // Default large dimensions for next/image when not using layout="fill".
+  // Tailwind classes (max-w-full, max-h-full, object-contain) will constrain it.
   const defaultImgRenderWidth = 1920; 
   const defaultImgRenderHeight = 1080;
 
@@ -56,29 +49,28 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
           <DialogTitle className="font-headline text-lg sm:text-xl truncate" title={image.originalName}>
             {image.originalName}
           </DialogTitle>
-          <DialogDescription className="sr-only">
+           <DialogDescription className="sr-only">
             A larger view of the image titled {image.originalName}. Image file ID is {image.fileId}.
           </DialogDescription>
         </DialogHeader>
         
-        {/* This div is the main stage for the image. It should grow and center its content. */}
         <div
           key={`${image.fileId}-image-stage`}
-          className="flex-1 min-h-0 w-full flex items-center justify-center overflow-auto p-2 sm:p-4 bg-muted/20" // Changed background for debugging
+          className="flex-1 min-h-0 w-full flex items-center justify-center overflow-auto p-2 sm:p-4" 
         >
-          {/* The Image component, not using layout="fill" */}
           <Image
             key={`${image.fileId}-modal-image`}
             src={imageSrc}
             alt={`View of ${image.originalName}`}
-            width={defaultImgRenderWidth} // Provide large default width
-            height={defaultImgRenderHeight} // Provide large default height
-            className="object-contain max-w-full max-h-full rounded-md" // Tailwind classes to constrain and fit
+            width={defaultImgRenderWidth} 
+            height={defaultImgRenderHeight} 
+            className="object-contain max-w-full max-h-full rounded-md" 
             data-ai-hint={image.dataAiHint || 'full view image'}
-            unoptimized={process.env.NODE_ENV === 'development'}
+            unoptimized={process.env.NODE_ENV === 'development'} // Useful for local dev if external image optimization is slow/problematic
             onLoad={(event) => {
               const target = event.target as HTMLImageElement;
-              console.log(`ViewImageModal: Next/Image onLoad for src: ${target.src}. Natural dimensions: ${target.naturalWidth}x${target.naturalHeight}. Rendered via props: ${defaultImgRenderWidth}x${defaultImgRenderHeight}`);
+              // Optional: log if needed for further debugging, but generally not for production
+              // console.log(`ViewImageModal: Next/Image onLoad for src: ${target.src}. Natural dimensions: ${target.naturalWidth}x${target.naturalHeight}. Rendered via props: ${defaultImgRenderWidth}x${defaultImgRenderHeight}`);
             }}
             onError={(e) => {
               const target = e.target as HTMLImageElement;
