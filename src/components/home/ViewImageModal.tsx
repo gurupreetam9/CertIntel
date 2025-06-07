@@ -2,7 +2,7 @@
 'use client';
 
 import Image from 'next/image';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import type { UserImage } from './ImageGrid'; 
 
@@ -35,21 +35,23 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
           <DialogTitle className="font-headline text-lg sm:text-xl truncate" title={image.originalName}>
             {image.originalName}
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            A larger view of the image titled {image.originalName}.
+          </DialogDescription>
         </DialogHeader>
         
-        {/* This div is the main stage for the image, it should grow. */}
+        {/* This div is the main stage for the image. It should grow and be the relative parent for the Image component. */}
         <div 
           key={`${image.fileId}-modal-image-stage`}
-          className="flex-1 relative min-h-0 bg-blue-500/10 flex items-center justify-center" // flex-1 ensures it tries to grow, relative for Image, min-h-0 for flex grow
+          className="flex-1 relative min-h-0 bg-blue-500/10 overflow-hidden" // flex-1, min-h-0 for growth, relative for Image, overflow-hidden
         >
-          {/* The Image component itself will fill this blue-tinted stage */}
           <Image
             key={`${image.fileId}-modal-image`}
             src={imageSrc}
             alt={`View of ${image.originalName}`}
-            layout="fill" // Fills the parent (the blue-tinted div)
-            objectFit="contain" // Maintains aspect ratio within the parent
-            className="rounded-md" // General styling
+            layout="fill" 
+            objectFit="contain" 
+            className="rounded-md" 
             placeholder="blur"
             blurDataURL="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
             data-ai-hint={image.dataAiHint || 'full view image'}
@@ -57,14 +59,15 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
               const target = e.target as HTMLImageElement;
               console.error(`ViewImageModal: Next/Image onError event for src: ${target.src}. Natural width: ${target.naturalWidth}. Error:`, e);
             }}
-            onLoadingComplete={(img) => {
-              console.log(`ViewImageModal: Next/Image onLoadingComplete for src: ${img.src}. Natural dimensions: ${img.naturalWidth}x${img.naturalHeight}`);
+            onLoad={(event) => { // Changed from onLoadingComplete
+              const target = event.target as HTMLImageElement;
+              console.log(`ViewImageModal: Next/Image onLoad for src: ${target.src}. Natural dimensions: ${target.naturalWidth}x${target.naturalHeight}`);
             }}
             unoptimized={process.env.NODE_ENV === 'development'} 
           />
         </div>
 
-        <DialogFooter className="pt-4 sm:pt-6 shrink-0"> {/* Added more top padding to footer */}
+        <DialogFooter className="pt-4 sm:pt-6 shrink-0">
           <DialogClose asChild>
             <Button variant="outline">Close</Button>
           </DialogClose>
@@ -73,3 +76,4 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
     </Dialog>
   );
 }
+
