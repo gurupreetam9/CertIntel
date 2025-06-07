@@ -8,8 +8,8 @@ import formidable from 'formidable';
 import fs from 'fs'; // Needed to read file stream from formidable
 
 // Import pdfjs-dist and canvas for server-side PDF processing
-// Using the standard CJS build path for pdfjs-dist v4+
-const pdfjsLib = require('pdfjs-dist/build/pdf.js');
+// Using the main package require, letting Node.js resolve the correct CJS entry point.
+const pdfjsLib = require('pdfjs-dist');
 import { createCanvas, type Canvas } from 'canvas';
 
 // Helper to make formidable work with Next.js Edge/Node.js runtime
@@ -69,12 +69,14 @@ export async function POST(request: NextRequest) {
       dbConnection = await connectToDb();
       if (!dbConnection || !dbConnection.bucket || !dbConnection.db) {
         console.error(`API /api/upload-image (Req ID: ${reqId}): DB Connection Error - connectToDb returned invalid structure.`);
-        throw new Error('Server error: Database or GridFS bucket not initialized after connectToDb call.');
+        const dbConnectError = new Error('Server error: Database or GridFS bucket not initialized after connectToDb call.');
+        dbConnectError.name = 'DBInitializationError';
+        throw dbConnectError;
       }
       console.log(`API /api/upload-image (Req ID: ${reqId}): DB connected, GridFS bucket obtained.`);
     } catch (dbError: any) {
-      console.error(`API /api/upload-image (Req ID: ${reqId}): DB Connection Error.`, { message: dbError.message, stack: dbError.stack });
-      throw new Error(`Database connection failed (Req ID: ${reqId}): ${dbError.message}`);
+      console.error(`API /api/upload-image (Req ID: ${reqId}): DB Connection Error.`, { message: dbError.message, name: dbError.name, stack: dbError.stack?.substring(0,500) });
+      throw dbError; // Re-throw to be caught by the main handler
     }
     
     const { bucket } = dbConnection;
@@ -88,8 +90,10 @@ export async function POST(request: NextRequest) {
       files = parsedForm.files;
       console.log(`API /api/upload-image (Req ID: ${reqId}): Form data parsed. Fields: ${Object.keys(fields).join(', ')}. Files: ${files.file ? (files.file[0] as formidable.File).originalFilename : 'No file field'}`);
     } catch (formError: any) {
-      console.error(`API /api/upload-image (Req ID: ${reqId}): Form Parsing Error.`, { message: formError.message, stack: formError.stack });
-      throw new Error(`Failed to parse form data (Req ID: ${reqId}): ${formError.message}`);
+      console.error(`API /api/upload-image (Req ID: ${reqId}): Form Parsing Error.`, { message: formError.message, name: formError.name, stack: formError.stack?.substring(0,500) });
+      const specificFormError = new Error(`Failed to parse form data (Req ID: ${reqId}): ${formError.message}`);
+      specificFormError.name = 'FormParsingError';
+      throw specificFormError;
     }
 
     const userIdField = fields.userId;
@@ -103,13 +107,17 @@ export async function POST(request: NextRequest) {
 
     if (!userId || !originalNameFromField) {
       console.warn(`API /api/upload-image (Req ID: ${reqId}): Missing userId or originalName. UserID: ${userId}, OriginalName: ${originalNameFromField}`);
-      throw new Error('Missing userId or originalName in form data.');
+      const missingFieldsError = new Error('Missing userId or originalName in form data.');
+      missingFieldsError.name = 'MissingFieldsError';
+      throw missingFieldsError;
     }
 
     const fileArray = files.file;
     if (!fileArray || fileArray.length === 0) {
       console.warn(`API /api/upload-image (Req ID: ${reqId}): No file uploaded in 'file' field.`);
-      throw new Error('No file uploaded.');
+      const noFileError = new Error('No file uploaded.');
+      noFileError.name = 'NoFileUploadedError';
+      throw noFileError;
     }
     const uploadedFile = fileArray[0] as formidable.File; 
     const actualOriginalName = uploadedFile.originalFilename || originalNameFromField; 
@@ -123,12 +131,13 @@ export async function POST(request: NextRequest) {
       try {
         const pdfBuffer = fs.readFileSync(uploadedFile.filepath);
         console.log(`API /api/upload-image (Req ID: ${reqId}): PDF buffer read (size: ${pdfBuffer.length}). Loading document...`);
-        // Ensure isEvalSupported is explicitly false for Node.js environments for pdfjs-dist v3+
         pdfDocument = await pdfjsLib.getDocument({ data: pdfBuffer, useWorkerFetch: false, isEvalSupported: false }).promise;
         console.log(`API /api/upload-image (Req ID: ${reqId}): PDF document loaded with ${pdfDocument.numPages} pages.`);
       } catch (pdfLoadError: any) {
         console.error(`API /api/upload-image (Req ID: ${reqId}): Error loading PDF document "${actualOriginalName}".`, { message: pdfLoadError.message, name: pdfLoadError.name, stack: pdfLoadError.stack?.substring(0, 500) });
-        throw new Error(`Failed to load PDF "${actualOriginalName}" (Req ID: ${reqId}): ${pdfLoadError.message}`);
+        const specificPdfLoadError = new Error(`Failed to load PDF "${actualOriginalName}" (Req ID: ${reqId}): ${pdfLoadError.message}`);
+        specificPdfLoadError.name = 'PdfLoadError';
+        throw specificPdfLoadError;
       }
 
       const canvasFactory = new NodeCanvasFactory(); 
@@ -181,7 +190,9 @@ export async function POST(request: NextRequest) {
           });
         } catch (pageProcessingError: any) {
           console.error(`API /api/upload-image (Req ID: ${reqId}): Error processing page ${i} of PDF "${actualOriginalName}".`, { message: pageProcessingError.message, name: pageProcessingError.name, stack: pageProcessingError.stack?.substring(0,500) });
-          throw new Error(`Failed to process page ${i} of PDF "${actualOriginalName}" (Req ID: ${reqId}): ${pageProcessingError.message}`);
+           const specificPageError = new Error(`Failed to process page ${i} of PDF "${actualOriginalName}" (Req ID: ${reqId}): ${pageProcessingError.message}`);
+           specificPageError.name = 'PdfPageProcessingError';
+           throw specificPageError;
         } finally {
           if (page) page.cleanup(); 
           if (canvasAndContext) canvasFactory.destroy(canvasAndContext); 
@@ -218,7 +229,9 @@ export async function POST(request: NextRequest) {
       });
     } else {
       console.warn(`API /api/upload-image (Req ID: ${reqId}): Unsupported file type: ${fileType} for file ${actualOriginalName}`);
-      throw new Error(`Unsupported file type: ${fileType}. Please upload an image or PDF.`);
+      const unsupportedFileTypeError = new Error(`Unsupported file type: ${fileType}. Please upload an image or PDF.`);
+      unsupportedFileTypeError.name = 'UnsupportedFileTypeError';
+      throw unsupportedFileTypeError;
     }
 
     if (uploadedFile.filepath && fs.existsSync(uploadedFile.filepath)) {
@@ -242,16 +255,15 @@ export async function POST(request: NextRequest) {
     });
     
     const responseMessage = error.message || 'An unexpected critical error occurred during file upload.';
-    const errorKey = error.name === 'Error' ? 'UPLOAD_PROCESSING_ERROR' : (error.name || 'UNKNOWN_SERVER_ERROR');
+    const errorKey = error.name || 'UNKNOWN_SERVER_ERROR';
 
     return NextResponse.json(
-      [{ message: `Server Error (Req ID: ${reqId}): ${responseMessage}`, error: errorKey, name: error.name, stack: error.stack?.substring(0,300) }],
+      [{ message: `Server Error (Req ID: ${reqId}): ${responseMessage}`, error: errorKey, details: error.toString() }],
       { status: 500 }
     );
   }
 }
 
-// Ensure Next.js doesn't try to parse the body for this route if it's FormData
 export const config = {
   api: {
     bodyParser: false,
