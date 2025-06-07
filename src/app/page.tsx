@@ -39,15 +39,26 @@ function HomePageContent() {
       const response = await fetch(fetchUrl);
 
       if (!response.ok) {
-        let errorData = { message: `Error ${response.status}: Failed to load images from API.`, detail: `Status code ${response.status}` };
+        let errorData = { message: `Error ${response.status}: Failed to load images from API.`, detail: `Status code ${response.status}`, errorKey: 'UNKNOWN_CLIENT_ERROR' };
         try {
-          errorData = await response.json(); // API should send { message: "...", errorKey: "...", detail: "..." }
+          const parsedJson = await response.json();
+          if (parsedJson && typeof parsedJson === 'object') {
+            errorData.message = parsedJson.message || errorData.message;
+            errorData.detail = parsedJson.detail || errorData.detail;
+            errorData.errorKey = parsedJson.errorKey || errorData.errorKey;
+          }
         } catch (jsonError) {
-          console.error("HomePageContent: Could not parse error JSON from API:", jsonError);
+          console.error("HomePageContent: Could not parse error JSON from API. Raw response text might follow if parsable.", jsonError);
+          try {
+            const rawText = await response.text(); // Attempt to get raw text if JSON parsing fails
+            console.error("HomePageContent: Raw error response text from API:", rawText.substring(0, 500));
+          } catch (textReadError) {
+            console.error("HomePageContent: Could not read raw error response text from API.", textReadError);
+          }
         }
-        // Use the message from the API response if available, otherwise construct one.
         const displayErrorMessage = errorData.message || `Failed to load images. Server responded with status ${response.status}.`;
-        console.error(`HomePageContent: API error while fetching images. Status: ${response.status}. API Message: ${errorData.message}. Detail: ${errorData.detail}`);
+        // Log the full structured errorData received from the API for better client-side debugging
+        console.error(`HomePageContent: API error while fetching images. Status: ${response.status}. Full errorData from API:`, errorData);
         throw new Error(`API Error: ${displayErrorMessage}`);
       }
       const data: UserImage[] = await response.json();
@@ -56,10 +67,10 @@ function HomePageContent() {
     } catch (err: any) {
       console.error("HomePageContent: Error in fetchImages catch block:", err);
       const errorMessage = err.message || "Could not load your images due to an unexpected error.";
-      setError(errorMessage); // This error will be displayed in the UI by ImageGrid
+      setError(errorMessage);
       toast({
         title: "Error Loading Images",
-        description: errorMessage, // err.message should now be "API Error: Database connection error." or similar
+        description: errorMessage,
         variant: "destructive",
       });
       setImages([]);
@@ -71,13 +82,13 @@ function HomePageContent() {
 
   useEffect(() => {
     console.log("HomePageContent: useEffect triggered for fetchImages. Current userId:", userId, "Current refreshKey:", refreshKey);
-    if (userId) { // Only fetch if userId is available
+    if (userId) {
         fetchImages();
     } else {
-        setIsLoading(false); // Not loading if no user
-        setImages([]); // Clear images if no user
+        setIsLoading(false);
+        setImages([]);
     }
-  }, [userId, fetchImages, refreshKey]); // fetchImages is memoized, refreshKey triggers it.
+  }, [userId, fetchImages, refreshKey]);
 
   return (
     <div className="container mx-auto px-4 py-8 md:px-6 lg:px-8">
