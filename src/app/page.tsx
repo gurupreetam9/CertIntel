@@ -38,23 +38,25 @@ function HomePageContent() {
       const response = await fetch(fetchUrl);
 
       if (!response.ok) {
-        let errorData = { message: `Error ${response.status}: Failed to load images.` };
+        let errorData = { message: `Error ${response.status}: Failed to load images from API.` };
         try {
           errorData = await response.json();
         } catch (jsonError) {
-          console.error("HomePageContent: Could not parse error JSON from server:", jsonError);
+          console.error("HomePageContent: Could not parse error JSON from API:", jsonError);
         }
-        throw new Error(errorData.message || `Error ${response.status}: Failed to load images.`);
+        // Prepend "API Error: " to make the source clearer
+        throw new Error(`API Error: ${errorData.message || `Status ${response.status} while fetching images.`}`);
       }
       const data: UserImage[] = await response.json();
       console.log("HomePageContent: Successfully fetched image data. Count:", data.length);
       setImages(data);
     } catch (err: any) {
       console.error("HomePageContent: Error in fetchImages:", err);
-      setError(err.message || "Could not load your images.");
+      const errorMessage = err.message || "Could not load your images.";
+      setError(errorMessage);
       toast({
         title: "Error Loading Images",
-        description: err.message || "An unexpected error occurred.",
+        description: errorMessage,
         variant: "destructive",
       });
       setImages([]);
