@@ -13,40 +13,41 @@ interface ViewImageModalProps {
 }
 
 export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModalProps) {
-  // Log when the component renders or its props change
-  console.log('ViewImageModal: Render/Update. isOpen:', isOpen, 'Image prop:', image ? image.fileId : 'null');
+  // console.log('ViewImageModal: Render/Update. isOpen:', isOpen, 'Image prop:', image ? image.fileId : 'null');
 
   if (!image) {
     if (isOpen) {
-      console.warn('ViewImageModal: isOpen is true but image prop is null.');
+      // console.warn('ViewImageModal: isOpen is true but image prop is null.');
     }
     return null; 
   }
 
   const imageSrc = `/api/images/${image.fileId}`;
-  console.log(`ViewImageModal: Image source URL for ${image.originalName}: ${imageSrc}`);
+  // console.log(`ViewImageModal: Image source URL for ${image.originalName}: ${imageSrc}`);
 
   return (
     <Dialog open={isOpen} onOpenChange={(openStatus) => { 
-      console.log('ViewImageModal: Dialog onOpenChange triggered. New open status:', openStatus);
+      // console.log('ViewImageModal: Dialog onOpenChange triggered. New open status:', openStatus);
       if (!openStatus) onClose(); 
     }}>
-      <DialogContent className="sm:max-w-3xl max-h-[90vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="font-headline text-xl truncate" title={image.originalName}>
+      <DialogContent className="sm:max-w-3xl w-[95vw] max-h-[90vh] flex flex-col p-4 sm:p-6">
+        <DialogHeader className="pb-2 sm:pb-4">
+          <DialogTitle className="font-headline text-lg sm:text-xl truncate" title={image.originalName}>
             {image.originalName}
           </DialogTitle>
         </DialogHeader>
-        <div className="flex-grow relative my-4 flex items-center justify-center">
-          {/* Set a max height and width for the image container itself */}
-          {/* DEBUG: Added bg-red-500/30 to visualize the container */}
-          <div className="relative w-full h-full max-w-[80vw] max-h-[70vh] bg-red-500/30">
+        
+        {/* This div will grow to take available vertical space */}
+        <div className="flex-grow flex items-center justify-center relative min-h-0 overflow-hidden">
+          {/* This div is the direct parent for next/image, defining its bounds */}
+          {/* Using a green background for debugging this specific container */}
+          <div className="relative w-full h-full max-w-[85vw] max-h-[75vh] bg-green-500/10">
             <Image
-              key={image.fileId} // Adding a key can help if the src changes for the same modal instance
+              key={image.fileId} 
               src={imageSrc}
               alt={`View of ${image.originalName}`}
               layout="fill"
-              objectFit="contain" // Use 'contain' to ensure the whole image is visible
+              objectFit="contain" 
               className="rounded-md"
               placeholder="blur"
               blurDataURL="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
@@ -58,11 +59,12 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
               onLoadingComplete={(img) => {
                 console.log(`ViewImageModal: Next/Image onLoadingComplete for src: ${img.src}. Natural dimensions: ${img.naturalWidth}x${img.naturalHeight}`);
               }}
-              unoptimized={process.env.NODE_ENV === 'development'} // Try unoptimized in dev to rule out optimization issues
+              unoptimized={process.env.NODE_ENV === 'development'} 
             />
           </div>
         </div>
-        <DialogFooter>
+
+        <DialogFooter className="pt-2 sm:pt-4">
           <DialogClose asChild>
             <Button variant="outline">Close</Button>
           </DialogClose>
