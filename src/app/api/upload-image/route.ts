@@ -7,7 +7,7 @@ import { connectToDb } from '@/lib/mongodb';
 import formidable from 'formidable';
 import fs from 'fs'; // Needed to read file stream from formidable
 // Import pdfjs-dist and canvas for server-side PDF processing
-const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
+const pdfjsLib = require('pdfjs-dist/build/pdf.node.js');
 import { createCanvas, type Canvas } from 'canvas';
 
 // Helper to make formidable work with Next.js Edge/Node.js runtime
@@ -198,5 +198,3 @@ export const config = {
     bodyParser: false,
   },
 };
-
-    
