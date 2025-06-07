@@ -72,16 +72,9 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
 
   const handleDeleteImage = async () => {
     if (!imageToDelete || !currentUserId) return;
-    // Client-side check for ownership (optional, server is primary)
-    // if (imageToDelete.metadata?.userId && imageToDelete.metadata.userId !== currentUserId) {
-    //   toast({ title: "Unauthorized", description: "You can only delete your own images.", variant: "destructive" });
-    //   closeDeleteConfirmDialog();
-    //   return;
-    // }
 
     setIsDeleting(true);
     try {
-      // Pass currentUserId for server-side authorization
       const response = await fetch(`/api/images/${imageToDelete.fileId}?userId=${currentUserId}`, {
         method: 'DELETE',
       });
@@ -152,9 +145,9 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
                   <Image
                     src={imageSrc}
                     alt={image.originalName || image.filename}
-                    layout="fill"
-                    objectFit="cover"
-                    className="group-hover:scale-105 transition-transform duration-300"
+                    fill
+                    sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                    className="object-cover group-hover:scale-105 transition-transform duration-300"
                     placeholder="blur"
                     blurDataURL="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
                     data-ai-hint={image.dataAiHint || 'uploaded image'}
@@ -177,7 +170,6 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
               </div>
               <div className="p-2 text-center bg-card absolute bottom-0 left-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                  <p className="text-xs font-medium truncate text-card-foreground" title={image.originalName}>{image.originalName}</p>
-                 {/* <p className="text-xs text-muted-foreground">{ (image.size / (1024*1024)).toFixed(2) } MB</p> */}
               </div>
             </Card>
           );

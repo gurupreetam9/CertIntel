@@ -15,11 +15,11 @@ import { useIsMobile } from '@/hooks/use-mobile';
 
 interface UploadedFileEntry {
   file: File;
-  previewUrl: string; // For images, actual preview. For PDFs, a generic icon or placeholder.
+  previewUrl: string; 
   progress: number;
   status: 'pending' | 'uploading' | 'success' | 'error';
   error?: string;
-  fileId?: string; // MongoDB GridFS File ID after upload
+  fileId?: string; 
   isGeneratingDescription?: boolean;
   isPdf: boolean;
 }
@@ -29,9 +29,6 @@ interface ImageUploaderProps {
   closeModal: () => void;
 }
 
-// This function is no longer needed if sending raw files
-// async function fileToDataUri(file: File): Promise<string> { ... }
-
 async function getDescriptionFromCustomAI(photoDataUri: string): Promise<{ description: string }> {
   const aiServerBaseUrl = process.env.NEXT_PUBLIC_FLASK_SERVER_URL;
   if (!aiServerBaseUrl) {
@@ -39,8 +36,6 @@ async function getDescriptionFromCustomAI(photoDataUri: string): Promise<{ descr
     console.error(errorMsg);
     throw new Error('Custom AI server URL is not configured. Please set NEXT_PUBLIC_FLASK_SERVER_URL in .env.local');
   }
-  // This function would need to be adapted if your Flask server now expects a fileId instead of data URI
-  // For now, assuming it's still for individual image description from data URI
   const aiEndpoint = `${aiServerBaseUrl}/describe-image`;
 
   console.log(`ImageUploader: Calling custom AI server at ${aiEndpoint} for description.`);
@@ -100,7 +95,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
           const isPdf = file.type === 'application/pdf';
           return {
             file,
-            previewUrl: isPdf ? '' : URL.createObjectURL(file), // No direct preview for PDF here, backend will handle pages
+            previewUrl: isPdf ? '' : URL.createObjectURL(file),
             progress: 0,
             status: 'pending',
             isGeneratingDescription: false,
@@ -116,16 +111,16 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     if (fileInputRef.current) {
       if (isMobile && source === 'camera') {
         fileInputRef.current.setAttribute('capture', 'environment');
-        fileInputRef.current.accept = 'image/*'; // Camera should only take images
+        fileInputRef.current.accept = 'image/*'; 
       } else {
         fileInputRef.current.removeAttribute('capture');
-        fileInputRef.current.accept = 'image/*,application/pdf'; // File input allows both
+        fileInputRef.current.accept = 'image/*,application/pdf'; 
       }
       fileInputRef.current.click();
     }
   };
 
-  const removeFile = (identity: string) => { // identity can be file.name + file.lastModified
+  const removeFile = (identity: string) => { 
     setSelectedFiles(prev => {
       const fileToRemove = prev.find(f => f.file.name + f.file.lastModified === identity);
       if (fileToRemove?.previewUrl && !fileToRemove.isPdf) {
@@ -135,41 +130,13 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     });
   };
 
-  // AI Description button might need rethinking if we are uploading PDFs which become multiple images.
-  // This function is kept for potential future use or adaptation.
   const handleGenerateDescription = async (targetFileEntry: UploadedFileEntry) => {
     if (targetFileEntry.isPdf || targetFileEntry.status !== 'success' || !targetFileEntry.fileId) {
       toast({ title: 'Cannot get description', description: 'AI description is only available for successfully uploaded single images.', variant: 'destructive'});
       return;
     }
     console.log(`ImageUploader: Attempting to generate AI description for ${targetFileEntry.file.name}`);
-    // This needs direct image data or a way for Flask to get the image via fileId
-    // For simplicity, if we were to keep this, we'd need to fetch the image data from /api/images/[fileId]
-    // then convert to data URI to send to Flask. This is inefficient.
-    // It's better if Flask can take a fileId. For now, this button may be less useful for PDF pages.
-    // Let's disable or adapt it based on further requirements.
-    // For now, I'll comment out the actual call and show a placeholder toast.
     toast({ title: 'AI Description', description: 'AI Description for individual pages to be implemented.' });
-
-    /*
-    setSelectedFiles(prev => prev.map(f => f.file.name === targetFileEntry.file.name ? { ...f, isGeneratingDescription: true } : f));
-    try {
-      // To make this work, we'd need to fetch the image data using targetFileEntry.fileId,
-      // convert it to dataURI, then call getDescriptionFromCustomAI.
-      // This is out of scope for the current PDF upload change.
-      const photoDataUri = await fileToDataUri(targetFileEntry.file); // This is problematic if file is already uploaded
-      const descriptionResult = await getDescriptionFromCustomAI(photoDataUri);
-      toast({
-        title: `AI Description: ${targetFileEntry.file.name}`,
-        description: descriptionResult.description.substring(0, 200) + (descriptionResult.description.length > 200 ? '...' : ''),
-        duration: 7000,
-      });
-    } catch (customAiError: any) {
-      // ... error handling
-    } finally {
-      setSelectedFiles(prev => prev.map(f => f.file.name === targetFileEntry.file.name ? { ...f, isGeneratingDescription: false } : f));
-    }
-    */
   };
 
 
@@ -199,41 +166,40 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
 
       try {
         setSelectedFiles(prev => prev.map(f => f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified ? { ...f, progress: 60 } : f));
-
+        
         const response = await fetch('/api/upload-image', {
           method: 'POST',
           body: formData,
         });
         
-        // Get raw response text first to handle potential non-JSON error bodies
         const responseText = await response.text();
 
-        if (!response.ok) { // Handle HTTP errors (e.g., 4xx, 5xx)
+        if (!response.ok) { 
           let errorMsg = `Server error: ${response.status}.`;
           let parsedErrorJson = null;
           try {
-            parsedErrorJson = JSON.parse(responseText); // Try to parse the text as JSON
+            parsedErrorJson = JSON.parse(responseText); 
             const serverErrorDetail = Array.isArray(parsedErrorJson) ? parsedErrorJson[0] : parsedErrorJson;
             errorMsg = serverErrorDetail?.message || serverErrorDetail?.error || errorMsg;
+             if (parsedErrorJson?.reqId) {
+              errorMsg += ` (Req ID: ${parsedErrorJson.reqId})`;
+            }
           } catch (e) {
-            // If JSON.parse fails, the responseText was not valid JSON.
-            console.warn(`ImageUploader: Server error response for ${fileEntry.file.name} was not valid JSON. Status: ${response.status}.`);
-            // Use a snippet of the raw text as the error message.
+            console.warn(`ImageUploader: Server error response for ${fileEntry.file.name} was not valid JSON. Status: ${response.status}. Raw Response:`, responseText.substring(0,500));
             errorMsg = `Server error ${response.status}: ${responseText.substring(0, 150)}${responseText.length > 150 ? '...' : ''}`;
           }
-          console.error(`ImageUploader: Upload failed for ${fileEntry.file.name}. Status: ${response.status}. Raw Response:`, responseText.substring(0,500));
+          console.error(`ImageUploader: Upload failed for ${fileEntry.file.name}. Status: ${response.status}. Parsed/Raw Error:`, parsedErrorJson || responseText.substring(0,500));
           setSelectedFiles(prev => prev.map(f => f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified ? { ...f, status: 'error', error: errorMsg, progress: 0 } : f));
-          continue; // Move to the next file
+          continue; 
         }
 
-        // If response.ok is true, try to parse the responseText as JSON (expected for success)
         let responseBodyArray;
         try {
             responseBodyArray = JSON.parse(responseText);
         } catch (e) {
             console.error(`ImageUploader: Successfully received 2xx response for ${fileEntry.file.name}, but body was not valid JSON. Raw text:`, responseText.substring(0,500));
             setSelectedFiles(prev => prev.map(f => f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified ? { ...f, status: 'error', error: 'Server sent success status but invalid data format.', progress: 0 } : f));
-            continue; // Move to the next file
+            continue; 
         }
         
         const successfulUploadsForThisFile = (Array.isArray(responseBodyArray) ? responseBodyArray : [responseBodyArray]).filter((meta: any) => meta.fileId);
@@ -246,12 +212,12 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
           return f;
         }));
         
-      } catch (networkError: any) { // Catch for actual network errors (e.g., fetch itself failed)
+      } catch (networkError: any) { 
         console.error(`ImageUploader: Network error during upload for file: ${fileEntry.file.name}. Error:`, networkError.message, networkError);
         const errorMessage = networkError.message || 'Upload failed due to a network issue.';
         setSelectedFiles(prev => prev.map(f => f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified ? { ...f, status: 'error', error: errorMessage, progress: 0 } : f));
       }
-    } // end of for loop
+    } 
 
     setIsUploading(false);
 
@@ -278,7 +244,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     <div className="space-y-6">
       <Input
           type="file"
-          accept="image/*,application/pdf" // Accept images and PDFs
+          accept="image/*,application/pdf" 
           multiple
           onChange={handleFileChange}
           className="hidden"
@@ -312,7 +278,14 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
                    {uploadedFile.isPdf ? (
                      <FileText className="w-12 h-12 text-muted-foreground" />
                    ) : (
-                     <Image src={uploadedFile.previewUrl} alt={`Preview ${uploadedFile.file.name}`} layout="fill" objectFit="cover" data-ai-hint="uploaded file" />
+                     <Image 
+                        src={uploadedFile.previewUrl} 
+                        alt={`Preview ${uploadedFile.file.name}`} 
+                        fill
+                        sizes="(max-width: 640px) 96px, 128px" // Small size for preview
+                        className="object-cover"
+                        data-ai-hint="uploaded file preview" 
+                      />
                    )}
                 </div>
                 <div className="flex-grow space-y-2">
@@ -338,7 +311,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
                   {uploadedFile.status === 'success' && (
                     <>
                       <p className="text-xs text-green-600 flex items-center"><CheckCircle className="w-3 h-3 mr-1"/>{uploadedFile.isPdf ? 'PDF processed &amp; pages uploaded' : 'Uploaded to DB'}</p>
-                      {!uploadedFile.isPdf && ( // AI description button for non-PDFs for now
+                      {!uploadedFile.isPdf && ( 
                         <Button 
                           size="sm" 
                           variant="outline" 
@@ -387,5 +360,3 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     </div>
   );
 }
-
-    
