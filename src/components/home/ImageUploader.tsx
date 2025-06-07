@@ -12,6 +12,7 @@ import { AlertCircle, Bot, Camera, CheckCircle, FileText, FileUp, ImagePlus, Loa
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { generateImageDescription, type GenerateImageDescriptionOutput } from '@/ai/flows/generate-image-description';
 
 interface UploadedFileEntry {
   file: File;
@@ -20,7 +21,7 @@ interface UploadedFileEntry {
   status: 'pending' | 'uploading' | 'success' | 'error';
   error?: string;
   fileId?: string; 
-  isGeneratingDescription?: boolean;
+  isGeneratingDescription: boolean; // Ensure this is part of the interface
   isPdf: boolean;
 }
 
@@ -29,55 +30,19 @@ interface ImageUploaderProps {
   closeModal: () => void;
 }
 
-async function getDescriptionFromCustomAI(photoDataUri: string): Promise<{ description: string }> {
-  const aiServerBaseUrl = process.env.NEXT_PUBLIC_FLASK_SERVER_URL;
-  if (!aiServerBaseUrl) {
-    const errorMsg = 'ImageUploader: NEXT_PUBLIC_FLASK_SERVER_URL is not set. Cannot call custom AI.';
-    console.error(errorMsg);
-    throw new Error('Custom AI server URL is not configured. Please set NEXT_PUBLIC_FLASK_SERVER_URL in .env.local');
-  }
-  const aiEndpoint = `${aiServerBaseUrl}/describe-image`;
-
-  console.log(`ImageUploader: Calling custom AI server at ${aiEndpoint} for description.`);
-  try {
-    const response = await fetch(aiEndpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ photoDataUri }),
-    });
-
-    if (!response.ok) {
-      let errorBodyText = "Could not retrieve error body from AI server.";
-      try {
-        errorBodyText = await response.text();
-      } catch (textError) {
-        console.warn("ImageUploader: Could not parse error response body from AI server as text.", textError);
-      }
-      const fullErrorMessage = `Custom AI server request failed with status ${response.status}: ${errorBodyText.substring(0, 200)}`;
-      console.error(`ImageUploader: ${fullErrorMessage}`);
-      throw new Error(fullErrorMessage);
-    }
-
-    const result = await response.json();
-    console.log('ImageUploader: Custom AI server response:', result);
-    if (!result.description) {
-       throw new Error('Custom AI server response did not include a "description" field.');
-    }
-    return result;
-  } catch (error: any) {
-    console.error('ImageUploader: Error during fetch to custom AI server:', error);
-    let detailedMessage = 'Failed to get description from custom AI server.';
-    if (error.message) {
-      detailedMessage += ` Details: ${error.message}`;
-    }
-    if (error instanceof TypeError && error.message.toLowerCase().includes('failed to fetch')) {
-        detailedMessage += ` This often means the AI server at "${aiEndpoint}" is not running, not reachable, or there's a CORS issue. Please check your AI server logs, ensure it's running, and that CORS is configured correctly if it's on a different origin/port.`;
-    }
-    throw new Error(detailedMessage);
-  }
-}
+// Helper function to convert File to Data URI
+const fileToDataUri = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      resolve(reader.result as string);
+    };
+    reader.onerror = (error) => {
+      reject(error);
+    };
+    reader.readAsDataURL(file);
+  });
+};
 
 export default function ImageUploader({ onUploadComplete, closeModal }: ImageUploaderProps) {
   const [selectedFiles, setSelectedFiles] = useState<UploadedFileEntry[]>([]);
@@ -131,12 +96,44 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
   };
 
   const handleGenerateDescription = async (targetFileEntry: UploadedFileEntry) => {
-    if (targetFileEntry.isPdf || targetFileEntry.status !== 'success' || !targetFileEntry.fileId) {
+    const fileIdentity = targetFileEntry.file.name + targetFileEntry.file.lastModified;
+
+    if (targetFileEntry.isPdf || targetFileEntry.status !== 'success' ) {
       toast({ title: 'Cannot get description', description: 'AI description is only available for successfully uploaded single images.', variant: 'destructive'});
       return;
     }
-    console.log(`ImageUploader: Attempting to generate AI description for ${targetFileEntry.file.name}`);
-    toast({ title: 'AI Description', description: 'AI Description for individual pages to be implemented.' });
+    
+    setSelectedFiles(prev => prev.map(f => 
+      f.file.name + f.file.lastModified === fileIdentity ? { ...f, isGeneratingDescription: true } : f
+    ));
+
+    try {
+      const photoDataUri = await fileToDataUri(targetFileEntry.file);
+      console.log(`ImageUploader: Calling Genkit 'generateImageDescription' for ${targetFileEntry.file.name}`);
+      
+      const result: GenerateImageDescriptionOutput = await generateImageDescription({ photoDataUri });
+
+      if (result.description) {
+        toast({
+          title: `AI Description for ${targetFileEntry.file.name}`,
+          description: result.description,
+          duration: 8000, // Give more time to read
+        });
+      } else {
+        throw new Error('AI did not return a description.');
+      }
+    } catch (error: any) {
+      console.error(`ImageUploader: Error generating AI description for ${targetFileEntry.file.name}:`, error);
+      toast({
+        title: 'AI Description Failed',
+        description: error.message || 'Could not generate description for the image.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSelectedFiles(prev => prev.map(f => 
+        f.file.name + f.file.lastModified === fileIdentity ? { ...f, isGeneratingDescription: false } : f
+      ));
+    }
   };
 
 
@@ -317,7 +314,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
                           variant="outline" 
                           className="mt-2"
                           onClick={() => handleGenerateDescription(uploadedFile)}
-                          disabled={uploadedFile.isGeneratingDescription}
+                          disabled={uploadedFile.isGeneratingDescription || uploadedFile.isPdf || uploadedFile.status !== 'success'}
                         >
                           {uploadedFile.isGeneratingDescription ? (
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -360,3 +357,5 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     </div>
   );
 }
+
+    
