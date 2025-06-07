@@ -7,16 +7,16 @@ import { connectToDb } from '@/lib/mongodb';
 import formidable from 'formidable';
 import fs from 'fs'; // Needed to read file stream from formidable
 // Import pdfjs-dist and canvas for server-side PDF processing
-import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.js';
+const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
 import { createCanvas, type Canvas } from 'canvas';
 
 // Helper to make formidable work with Next.js Edge/Node.js runtime
 const parseForm = (req: NextRequest): Promise<{ fields: formidable.Fields; files: formidable.Files }> => {
   return new Promise((resolve, reject) => {
-    const form = formidable({ 
+    const form = formidable({
       multiples: false, // Handle one file at a time from client loop, or adjust if batching
       // maxFileSize: 100 * 1024 * 1024, // 100MB limit, example
-    }); 
+    });
     form.parse(req as any, (err, fields, files) => {
       if (err) {
         console.error('API /api/upload-image: Formidable parsing error', err);
@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
     console.log(`API /api/upload-image (Req ID: ${reqId}): DB connected, GridFS bucket obtained.`);
 
     const { fields, files } = await parseForm(request);
-    
+
     const userId = fields.userId?.[0] as string;
     const originalName = fields.originalName?.[0] as string;
     const clientContentType = fields.contentType?.[0] as string; // Content type from client
@@ -92,14 +92,14 @@ export async function POST(request: NextRequest) {
       console.log(`API /api/upload-image (Req ID: ${reqId}): Processing PDF: ${originalName}`);
       const pdfBuffer = fs.readFileSync(uploadedFile.filepath);
       const pdfDocument = await pdfjsLib.getDocument({ data: pdfBuffer, useWorkerFetch: false, isEvalSupported: false }).promise;
-      
+
       for (let i = 1; i <= pdfDocument.numPages; i++) {
         const page = await pdfDocument.getPage(i);
         const viewport = page.getViewport({ scale: 1.5 }); // Adjust scale for rendering quality
-        
+
         const canvasFactory = new NodeCanvasFactory();
         const canvasAndContext = canvasFactory.create(viewport.width, viewport.height);
-        
+
         const renderContext = {
           canvasContext: canvasAndContext.context,
           viewport: viewport,
@@ -120,21 +120,21 @@ export async function POST(request: NextRequest) {
           convertedTo: 'image/png',
           pageNumber: i,
         };
-        
+
         console.log(`GridFS (upload-image, Req ID: ${reqId}): Uploading PDF page ${i} as "${pageFilename}"`);
         const uploadStream = bucket.openUploadStream(pageFilename, { contentType: 'image/png', metadata });
         const readable = Readable.from(imageBuffer);
-        
-        await new Promise<void>((resolve, reject) => {
+
+        await new Promise<void>((resolveStream, rejectStream) => {
           readable.pipe(uploadStream)
             .on('error', (err) => {
               console.error(`GridFS Stream Error for PDF page ${pageFilename}:`, err);
-              reject(err);
+              rejectStream(err);
             })
             .on('finish', () => {
               console.log(`GridFS Upload finished for PDF page: ${pageFilename}, ID: ${uploadStream.id}`);
               results.push({ originalName: metadata.originalName, fileId: uploadStream.id.toString(), filename: pageFilename, pageNumber: i });
-              resolve();
+              resolveStream();
             });
         });
       }
@@ -153,39 +153,39 @@ export async function POST(request: NextRequest) {
       const uploadStream = bucket.openUploadStream(imageFilename, { contentType: fileType, metadata });
       const readable = fs.createReadStream(uploadedFile.filepath);
 
-      await new Promise<void>((resolve, reject) => {
+      await new Promise<void>((resolveStream, rejectStream) => {
         readable.pipe(uploadStream)
           .on('error', (err) => {
             console.error(`GridFS Stream Error for image ${imageFilename}:`, err);
-            reject(err);
+            rejectStream(err);
           })
           .on('finish', () => {
             console.log(`GridFS Upload finished for image: ${imageFilename}, ID: ${uploadStream.id}`);
             results.push({ originalName, fileId: uploadStream.id.toString(), filename: imageFilename });
-            resolve();
+            resolveStream();
           });
       });
     } else {
       console.warn(`API /api/upload-image (Req ID: ${reqId}): Unsupported file type: ${fileType} for file ${originalName}`);
       return NextResponse.json([{ message: `Unsupported file type: ${fileType}. Please upload an image or PDF.` }], { status: 415 });
     }
-    
+
     // Cleanup temp file from formidable
     if (uploadedFile.filepath && fs.existsSync(uploadedFile.filepath)) {
         fs.unlinkSync(uploadedFile.filepath);
     }
-    
+
     console.log(`API /api/upload-image (Req ID: ${reqId}): Successfully processed. Results:`, results);
     return NextResponse.json(results, { status: 201 });
 
   } catch (error: any) {
-    console.error(`API /api/upload-image (Req ID: ${reqId}): Unhandled error.`, { 
-        errorMessage: error.message, 
-        errorType: error.constructor?.name, 
-        errorStack: error.stack?.substring(0, 500) 
+    console.error(`API /api/upload-image (Req ID: ${reqId}): Unhandled error.`, {
+        errorMessage: error.message,
+        errorType: error.constructor?.name,
+        errorStack: error.stack?.substring(0, 500)
     });
-    const errorPayload = { 
-        message: error.message || 'An unexpected error occurred during file upload.', 
+    const errorPayload = {
+        message: error.message || 'An unexpected error occurred during file upload.',
         error: 'UPLOAD_PROCESSING_ERROR',
     };
     return NextResponse.json([errorPayload], { status: 500 });
@@ -198,3 +198,5 @@ export const config = {
     bodyParser: false,
   },
 };
+
+    
