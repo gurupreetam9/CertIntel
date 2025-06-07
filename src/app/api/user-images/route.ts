@@ -18,9 +18,9 @@ export async function GET(request: NextRequest) {
   let dbConnection;
   try {
     console.log(`API Route /api/user-images (Req ID: ${reqId}): Attempting to connect to DB...`);
-    dbConnection = await connectToDb();
+    dbConnection = await connectToDb(); // This now has more detailed internal logging
     const { db } = dbConnection;
-    console.log(`API Route /api/user-images (Req ID: ${reqId}): DB connected. Accessing 'images.files' collection.`);
+    console.log(`API Route /api/user-images (Req ID: ${reqId}): DB connected successfully. Accessing 'images.files' collection.`);
 
     const filesCollection = db.collection('images.files');
     const query = { 'metadata.userId': userId };
@@ -40,12 +40,13 @@ export async function GET(request: NextRequest) {
       }
     ).sort({ uploadDate: -1 }).toArray();
 
-    console.log(`API Route /api/user-images (Req ID: ${reqId}): Found ${userImages.length} images for userId ${userId}. Raw data sample:`, userImages.slice(0,1));
+    console.log(`API Route /api/user-images (Req ID: ${reqId}): Found ${userImages.length} images for userId ${userId}.`);
+    // console.log(`API Route /api/user-images (Req ID: ${reqId}): Raw data sample:`, userImages.slice(0,1)); // Less verbose
 
     const formattedImages = userImages.map(img => ({
       fileId: img._id.toString(),
       filename: img.filename,
-      uploadDate: img.uploadDate as string, // Assuming uploadDate is stored as ISODate
+      uploadDate: img.uploadDate as string, 
       contentType: img.contentType,
       originalName: img.metadata?.originalName || img.filename,
       dataAiHint: img.metadata?.dataAiHint || '',
@@ -53,27 +54,27 @@ export async function GET(request: NextRequest) {
       userId: img.metadata?.userId,
     }));
 
-    console.log(`API Route /api/user-images (Req ID: ${reqId}): Returning ${formattedImages.length} formatted images. Sample:`, formattedImages.slice(0,1));
+    // console.log(`API Route /api/user-images (Req ID: ${reqId}): Returning ${formattedImages.length} formatted images. Sample:`, formattedImages.slice(0,1)); // Less verbose
     return NextResponse.json(formattedImages, { status: 200 });
 
   } catch (error: any) {
     console.error(`API Route /api/user-images (Req ID: ${reqId}): Error during image fetching process. Name: ${error.name}, Message: ${error.message}`);
     if (error.stack) {
-        console.error(`API Route /api/user-images (Req ID: ${reqId}): Error stack: ${error.stack.substring(0,500)}...`);
+        console.error(`API Route /api/user-images (Req ID: ${reqId}): Error stack (first 500 chars): ${error.stack.substring(0,500)}...`);
     }
 
     let responseMessage = 'Error fetching user images.';
     let errorKey = 'FETCH_IMAGES_FAILED';
 
-    // This condition is key: it checks if the error came from connectToDb
+    // Check if the error message *includes* 'MongoDB connection error', which is how connectToDb now throws its errors
     if (error.message && error.message.toLowerCase().includes('mongodb connection error')) {
-      responseMessage = 'Database connection error.'; // This specific message is expected by the frontend
+      responseMessage = 'Database connection error.'; // Consistent message for frontend
       errorKey = 'DB_CONNECTION_ERROR';
-    } else if (error.message) {
+    } else if (error.message) { // Fallback for other types of errors
         responseMessage = error.message;
     }
 
-    const errorPayload = { message: responseMessage, errorKey, detail: error.message };
+    const errorPayload = { message: responseMessage, errorKey, detail: error.message }; // Keep original error in detail
     console.log(`API Route /api/user-images (Req ID: ${reqId}): Preparing to send error response:`, errorPayload);
     return NextResponse.json(errorPayload, { status: 500 });
   }
