@@ -167,6 +167,7 @@ def process_certificates_from_db():
 
 @app.route('/api/convert-pdf-to-images', methods=['POST'])
 def convert_pdf_to_images_route():
+    # Generate a unique ID for this request for logging correlation
     req_id = datetime.now().strftime('%Y%m%d%H%M%S%f')
     app.logger.info(f"Flask /api/convert-pdf-to-images (Req ID: {req_id}): Received request.")
 
@@ -180,7 +181,7 @@ def convert_pdf_to_images_route():
 
     pdf_file_storage = request.files['pdf_file']
     user_id = request.form.get('userId')
-    original_pdf_name = request.form.get('originalName', pdf_file_storage.filename) # Get originalName from form
+    original_pdf_name = request.form.get('originalName', pdf_file_storage.filename) 
 
     if not user_id:
         app.logger.warning(f"Flask (Req ID: {req_id}): Missing 'userId' in form data.")
@@ -195,6 +196,7 @@ def convert_pdf_to_images_route():
     try:
         pdf_bytes = pdf_file_storage.read()
         
+        # Poppler self-check using pdfinfo_from_bytes
         try:
             pdfinfo = pdfinfo_from_bytes(pdf_bytes, userpw=None, poppler_path=None)
             app.logger.info(f"Flask (Req ID: {req_id}): Poppler self-check (pdfinfo) successful. PDF Info: {pdfinfo}")
@@ -204,7 +206,7 @@ def convert_pdf_to_images_route():
         except PDFPopplerTimeoutError:
             app.logger.error(f"Flask (Req ID: {req_id}): Poppler (pdfinfo) timed out processing the PDF. The PDF might be too complex or corrupted.")
             return jsonify({"error": "Timeout during PDF information retrieval. The PDF may be too complex or corrupted."}), 400
-        except Exception as info_err:
+        except Exception as info_err: # Catch other potential errors from pdfinfo
             app.logger.error(f"Flask (Req ID: {req_id}): Error getting PDF info with Poppler: {str(info_err)}", exc_info=True)
             return jsonify({"error": f"Failed to retrieve PDF info: {str(info_err)}"}), 500
 
@@ -216,7 +218,6 @@ def convert_pdf_to_images_route():
 
         for i, image_pil in enumerate(images_from_pdf):
             page_number = i + 1
-            # Use the secure_filename for the actual GridFS filename part, not for originalName in metadata
             base_pdf_name_secure = secure_filename(os.path.splitext(original_pdf_name)[0])
             gridfs_filename = f"{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{base_pdf_name_secure}_page_{page_number}.png"
             
@@ -225,11 +226,11 @@ def convert_pdf_to_images_route():
             img_byte_arr_val = img_byte_arr.getvalue()
 
             metadata_for_gridfs = {
-                "originalName": f"{original_pdf_name} (Page {page_number})", # Store full original PDF name + page for display
+                "originalName": f"{original_pdf_name} (Page {page_number})", 
                 "userId": user_id,
                 "uploadedAt": datetime.utcnow().isoformat(),
-                "sourceContentType": "application/pdf", # Original PDF type
-                "convertedTo": "image/png", # This page's type
+                "sourceContentType": "application/pdf",
+                "convertedTo": "image/png",
                 "pageNumber": page_number,
                 "reqIdParent": req_id 
             }
@@ -254,11 +255,12 @@ def convert_pdf_to_images_route():
     except PDFSyntaxError:
         app.logger.error(f"Flask (Req ID: {req_id}): pdf2image encountered syntax error for '{original_pdf_name}'. PDF is likely corrupted.", exc_info=True)
         return jsonify({"error": "PDF syntax error. The file may be corrupted."}), 400
-    except PDFPopplerTimeoutError:
+    except PDFPopplerTimeoutError: # This catches timeouts during the convert_from_bytes call
         app.logger.error(f"Flask (Req ID: {req_id}): Poppler (conversion) timed out processing PDF '{original_pdf_name}'.")
         return jsonify({"error": "Timeout during PDF page conversion. The PDF may be too complex."}), 400
     except Exception as e:
         app.logger.error(f"Flask (Req ID: {req_id}): Error during PDF conversion or storage for '{original_pdf_name}': {str(e)}", exc_info=True)
+        # Check if the error string or type suggests Poppler is not installed (during conversion stage)
         if "PopplerNotInstalledError" in str(type(e)) or "pdftoppm" in str(e).lower() or "pdfinfo" in str(e).lower():
              app.logger.error(f"Flask (Req ID: {req_id}): CRITICAL - Poppler utilities (pdftoppm/pdfinfo) not found or not executable.")
              return jsonify({"error": "PDF processing utilities (Poppler) are not installed or configured correctly on the server (conversion stage)."}), 500

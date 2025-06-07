@@ -34,6 +34,7 @@ const parseFormRevised = async (req: NextRequest, reqId: string): Promise<Custom
   for (const [key, value] of formData.entries()) {
     if (value instanceof File) {
       console.log(`API /api/upload-image (Req ID: ${reqId}, parseFormRevised): Processing file field '${key}', filename: '${value.name}'.`);
+      // Sanitize filename for temp file creation
       const safeOriginalName = value.name.replace(/[^a-zA-Z0-9_.-]/g, '_');
       const tempFileName = `nextjs_temp_${reqId}_${Date.now()}_${safeOriginalName}`;
       const tempFilePath = path.join(os.tmpdir(), tempFileName);
@@ -42,7 +43,7 @@ const parseFormRevised = async (req: NextRequest, reqId: string): Promise<Custom
         const fileBuffer = Buffer.from(await value.arrayBuffer());
         await fsPromises.writeFile(tempFilePath, fileBuffer);
 
-        filesOutput[key] = { // Use original field key 'file'
+        filesOutput[key] = { // Use original field key 'file' or as received
           filepath: tempFilePath,
           originalFilename: value.name,
           mimetype: value.type,
@@ -51,7 +52,7 @@ const parseFormRevised = async (req: NextRequest, reqId: string): Promise<Custom
         console.log(`API /api/upload-image (Req ID: ${reqId}, parseFormRevised): File '${value.name}' saved to temp path '${tempFilePath}'.`);
       } catch (error: any) {
         console.error(`API /api/upload-image (Req ID: ${reqId}, parseFormRevised): Error writing file '${value.name}' to temp. Error: ${error.message}`);
-        // Decide if you want to throw or skip this file
+        // Optionally re-throw or handle cleanup if one file fails to write
       }
     } else {
       // It's a field
@@ -128,7 +129,7 @@ export async function POST(request: NextRequest) {
     }
     
     const actualOriginalName = uploadedFileEntry.originalFilename || 'unknown_file';
-    const tempFilePath = uploadedFileEntry.filepath; // This is the path to the temp file written by parseFormRevised
+    const tempFilePath = uploadedFileEntry.filepath; 
     const fileType = uploadedFileEntry.mimetype;
 
     console.log(`API /api/upload-image (Req ID: ${reqId}): Processing file: ${actualOriginalName}, Type: ${fileType}, Temp path: ${tempFilePath}`);
@@ -150,10 +151,10 @@ export async function POST(request: NextRequest) {
       const pdfFileStream = fs.createReadStream(tempFilePath);
       pythonApiFormData.append('pdf_file', pdfFileStream, { filename: actualOriginalName, contentType: 'application/pdf' });
       pythonApiFormData.append('userId', userId);
-      pythonApiFormData.append('originalName', actualOriginalName); // Send original name
+      pythonApiFormData.append('originalName', actualOriginalName); 
 
       const conversionEndpoint = `${flaskServerUrl}/api/convert-pdf-to-images`;
-      console.log(`API /api/upload-image (Req ID: ${reqId}): Sending PDF to ${conversionEndpoint}`);
+      console.log(`API /api/upload-image (Req ID: ${reqId}): Sending PDF to ${conversionEndpoint}. Headers:`, JSON.stringify(pythonApiFormData.getHeaders()));
       
       let pythonResponse;
       try {
@@ -163,8 +164,8 @@ export async function POST(request: NextRequest) {
           headers: pythonApiFormData.getHeaders(),
         });
       } catch (fetchError: any) {
-        console.error(`API /api/upload-image (Req ID: ${reqId}): Error fetching Python PDF conversion endpoint: ${fetchError.message}`);
-        throw new Error(`Failed to connect to PDF conversion service: ${fetchError.message}`);
+        console.error(`API /api/upload-image (Req ID: ${reqId}): Error fetching Python PDF conversion endpoint. Full error object:`, fetchError);
+        throw new Error(`Failed to connect to PDF conversion service: ${fetchError.message || 'fetch failed'}`);
       }
 
       const pythonResponseData = await pythonResponse.json();
@@ -185,8 +186,8 @@ export async function POST(request: NextRequest) {
         originalName: actualOriginalName,
         userId,
         uploadedAt: new Date().toISOString(),
-        sourceContentType: fileType, // Original type from upload
-        explicitContentType: fileType, // Type being stored
+        sourceContentType: fileType, 
+        explicitContentType: fileType,
         reqIdParent: reqId,
       };
 
@@ -249,8 +250,6 @@ export async function POST(request: NextRequest) {
             } catch (unlinkError: any) {
                 console.warn(`API /api/upload-image (Req ID: ${reqId}): Could not delete temp file ${tempPath}. Error: ${unlinkError.message}`);
             }
-        } else {
-            // console.log(`API /api/upload-image (Req ID: ${reqId}): Temp file ${tempPath} already deleted or never existed.`);
         }
     }
     console.log(`API /api/upload-image (Req ID: ${reqId}): Request processing finished.`);
