@@ -26,24 +26,30 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
   console.log(`ViewImageModal: Constructed image source URL for ${image.originalName} (ID: ${image.fileId}): ${imageSrc}`);
 
   return (
-    <Dialog open={isOpen} onOpenChange={(openStatus) => { 
-      console.log('ViewImageModal: Dialog onOpenChange triggered. New open status:', openStatus);
-      if (!openStatus) onClose(); 
-    }}>
-      <DialogContent className="sm:max-w-3xl w-[95vw] max-h-[90vh] flex flex-col p-4 sm:p-6">
+    <Dialog 
+      open={isOpen} 
+      onOpenChange={(openStatus) => { 
+        console.log('ViewImageModal: Dialog onOpenChange triggered. New open status:', openStatus);
+        if (!openStatus) onClose(); 
+      }}
+    >
+      <DialogContent 
+        key={`${image.fileId}-dialog`} // Force re-mount of content if image changes
+        className="sm:max-w-3xl w-[95vw] max-h-[90vh] flex flex-col p-4 sm:p-6"
+      >
         <DialogHeader className="pb-2 sm:pb-4 shrink-0">
           <DialogTitle className="font-headline text-lg sm:text-xl truncate" title={image.originalName}>
             {image.originalName}
           </DialogTitle>
-          <DialogDescription className="sr-only">
+          <DialogDescription className="sr-only"> {/* For accessibility */}
             A larger view of the image titled {image.originalName}.
           </DialogDescription>
         </DialogHeader>
         
         {/* This div is the main stage for the image. It should grow and be the relative parent for the Image component. */}
         <div 
-          key={`${image.fileId}-modal-image-stage`}
-          className="flex-1 relative min-h-0 bg-blue-500/10 overflow-hidden" // flex-1, min-h-0 for growth, relative for Image, overflow-hidden
+          key={`${image.fileId}-image-stage`} // Force re-mount of stage if image changes
+          className="flex-1 min-h-0 relative w-full overflow-hidden" // Ensure it takes width and can grow vertically
         >
           <Image
             key={`${image.fileId}-modal-image`}
@@ -59,7 +65,7 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
               const target = e.target as HTMLImageElement;
               console.error(`ViewImageModal: Next/Image onError event for src: ${target.src}. Natural width: ${target.naturalWidth}. Error:`, e);
             }}
-            onLoad={(event) => { // Changed from onLoadingComplete
+            onLoad={(event) => {
               const target = event.target as HTMLImageElement;
               console.log(`ViewImageModal: Next/Image onLoad for src: ${target.src}. Natural dimensions: ${target.naturalWidth}x${target.naturalHeight}`);
             }}
@@ -76,4 +82,3 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
     </Dialog>
   );
 }
-
