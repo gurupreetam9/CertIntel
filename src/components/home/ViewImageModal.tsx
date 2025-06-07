@@ -45,7 +45,7 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
     >
       <DialogContent
         key={image.fileId ? `${image.fileId}-dialog-content` : 'dialog-empty'}
-        className="sm:max-w-3xl w-[95vw] max-h-[90vh] flex flex-col p-0 overflow-hidden"
+        className="sm:max-w-3xl w-[95vw] max-h-[90vh] flex flex-col p-0 overflow-hidden" 
       >
         <DialogHeader className="p-4 sm:p-6 pb-2 sm:pb-4 shrink-0 border-b">
           <DialogTitle className="font-headline text-lg sm:text-xl truncate" title={image.originalName}>
@@ -56,29 +56,32 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
           </DialogDescription>
         </DialogHeader>
         
-        {/* This div is the main stage for the image. It should grow and have padding. */}
+        {/* This div is the main stage for the image. It should grow. */}
         <div
-          key={`${image.fileId}-image-stage`}
-          className="flex-1 min-h-0 w-full relative overflow-hidden bg-red-500/10" // NO PADDING HERE
+          key={`${image.fileId}-image-area-wrapper`}
+          className="flex-1 min-h-0 w-full overflow-auto p-4 bg-sky-500/10" // Added padding here, and a new debug color
         >
-          <Image
-            key={`${image.fileId}-modal-image`}
-            src={imageSrc}
-            alt={`View of ${image.originalName}`}
-            layout="fill"
-            objectFit="contain"
-            className="rounded-md p-2 sm:p-4" // PADDING APPLIED TO IMAGE COMPONENT
-            data-ai-hint={image.dataAiHint || 'full view image'}
-            unoptimized={process.env.NODE_ENV === 'development'}
-            onLoad={(event) => {
-              const target = event.target as HTMLImageElement;
-              console.log(`ViewImageModal: Next/Image onLoad for src: ${target.src}. Natural dimensions: ${target.naturalWidth}x${target.naturalHeight}`);
-            }}
-            onError={(e) => {
-              const target = e.target as HTMLImageElement;
-              console.error(`ViewImageModal: Next/Image onError event for src: ${target.src}. Error:`, e);
-            }}
-          />
+          {/* This inner div establishes the relative positioning context and full dimensions for next/image */}
+          <div className="relative w-full h-full bg-teal-500/20"> {/* Another debug color */}
+            <Image
+              key={`${image.fileId}-modal-image`}
+              src={imageSrc}
+              alt={`View of ${image.originalName}`}
+              layout="fill"
+              objectFit="contain"
+              className="rounded-md" // Padding removed from here, let parent handle it.
+              data-ai-hint={image.dataAiHint || 'full view image'}
+              unoptimized={process.env.NODE_ENV === 'development'}
+              onLoad={(event) => {
+                const target = event.target as HTMLImageElement;
+                console.log(`ViewImageModal: Next/Image onLoad for src: ${target.src}. Natural dimensions: ${target.naturalWidth}x${target.naturalHeight}`);
+              }}
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                console.error(`ViewImageModal: Next/Image onError event for src: ${target.src}. Error:`, e);
+              }}
+            />
+          </div>
         </div>
 
         <DialogFooter className="p-4 sm:p-6 pt-2 sm:pt-4 shrink-0 border-t">
@@ -90,4 +93,3 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
     </Dialog>
   );
 }
-
