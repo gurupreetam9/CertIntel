@@ -13,21 +13,21 @@ interface ViewImageModalProps {
 }
 
 export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModalProps) {
-  // console.log('ViewImageModal: Render/Update. isOpen:', isOpen, 'Image prop:', image ? image.fileId : 'null');
+  console.log('ViewImageModal: Render/Update. isOpen:', isOpen, 'Image prop ID:', image ? image.fileId : 'null');
 
   if (!image) {
     if (isOpen) {
-      // console.warn('ViewImageModal: isOpen is true but image prop is null.');
+      console.warn('ViewImageModal: isOpen is true but image prop is null. Modal will not render content.');
     }
     return null; 
   }
 
   const imageSrc = `/api/images/${image.fileId}`;
-  // console.log(`ViewImageModal: Image source URL for ${image.originalName}: ${imageSrc}`);
+  console.log(`ViewImageModal: Constructed image source URL for ${image.originalName} (ID: ${image.fileId}): ${imageSrc}`);
 
   return (
     <Dialog open={isOpen} onOpenChange={(openStatus) => { 
-      // console.log('ViewImageModal: Dialog onOpenChange triggered. New open status:', openStatus);
+      console.log('ViewImageModal: Dialog onOpenChange triggered. New open status:', openStatus);
       if (!openStatus) onClose(); 
     }}>
       <DialogContent className="sm:max-w-3xl w-[95vw] max-h-[90vh] flex flex-col p-4 sm:p-6">
@@ -37,26 +37,23 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
           </DialogTitle>
         </DialogHeader>
         
-        {/* This div will grow to take available vertical space and center its content */}
-        {/* Added min-h-0 to prevent content from overflowing flex parent */}
-        {/* Added very obvious debug background */}
         <div 
-          key={image.fileId + '-modal-outer-container'}
-          className="flex-grow flex items-center justify-center relative min-h-0 overflow-auto bg-yellow-500/30 p-2"
+          key={`${image.fileId}-modal-outer-container`}
+          className="flex-grow flex items-center justify-center relative min-h-0 overflow-auto bg-yellow-500/30 w-full p-2" 
         >
           {/* This div is the direct parent for next/image, defining its bounds */}
-          {/* max-w and max-h are applied here to constrain the image within the available viewport space */}
+          {/* It should try to fill the yellow box. Max-w/max-h constrain the image content via objectFit="contain" */}
           <div 
-            key={image.fileId + '-modal-inner-wrapper'}
-            className="relative w-full h-full max-w-[calc(95vw-4rem)] max-h-[calc(90vh-8rem)] bg-pink-500/30"
-          > {/* Adjusted max-w/max-h to account for padding and header/footer approx heights */}
+            key={`${image.fileId}-modal-inner-wrapper`}
+            className="relative w-full h-full max-w-[calc(95vw-4rem)] max-h-[calc(90vh-10rem)] bg-pink-500/30" // Increased bottom margin for footer
+          > 
             <Image
-              key={image.fileId + '-modal-image'} 
+              key={`${image.fileId}-modal-image`}
               src={imageSrc}
               alt={`View of ${image.originalName}`}
               layout="fill"
               objectFit="contain" 
-              className="rounded-md"
+              className="rounded-md" // This class is fine
               placeholder="blur"
               blurDataURL="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
               data-ai-hint={image.dataAiHint || 'full view image'}
@@ -72,7 +69,7 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
           </div>
         </div>
 
-        <DialogFooter className="pt-2 sm:pb-0 sm:pt-4 shrink-0"> {/* Ensure footer does not grow */}
+        <DialogFooter className="pt-2 sm:pb-0 sm:pt-4 shrink-0">
           <DialogClose asChild>
             <Button variant="outline">Close</Button>
           </DialogClose>
