@@ -8,6 +8,7 @@ from pymongo import MongoClient, DESCENDING # Added DESCENDING
 from gridfs import GridFS
 from dotenv import load_dotenv
 from datetime import datetime # Added datetime
+import json # For sorting recommendations comparison
 
 # Load environment variables from .env file
 load_dotenv()
@@ -43,7 +44,9 @@ try:
         fs = GridFS(db, collection="images") 
         course_data_collection = db["course_data"] # Initialize course_data collection
         # Optional: Create index for faster queries on userId and processedAt for course_data
-        # course_data_collection.create_index([("userId", 1), ("processedAt", -1)])
+        # course_data_collection.create_index([("userId", 1), ("processedAt", -1)]) # For user-specific history
+        # Potentially an index on processedAt if fetching all for cache becomes slow.
+        # course_data_collection.create_index([("processedAt", -1)])
         app.logger.info(f"Successfully connected to MongoDB: {DB_NAME}, GridFS bucket 'images', and collection 'course_data'.")
     else:
         app.logger.warning("MONGODB_URI not found, MongoDB connection will not be established.")
@@ -57,9 +60,9 @@ except Exception as e:
 
 @app.route('/api/process-certificates', methods=['POST'])
 def process_certificates_from_db():
-    if mongo_client is None or db is None or fs is None: # Explicitly check against None
-        app.logger.error("MongoDB connection not available for /api/process-certificates.")
-        return jsonify({"error": "Database connection is not available. Check server logs."}), 503
+    if mongo_client is None or db is None or fs is None or course_data_collection is None:
+        app.logger.error("MongoDB connection or course_data collection not available for /api/process-certificates.")
+        return jsonify({"error": "Database connection or required collection is not available. Check server logs."}), 503
 
     data = request.get_json()
     user_id = data.get("userId")
@@ -95,20 +98,30 @@ def process_certificates_from_db():
         
         app.logger.info(f"Found {len(image_data_for_processing)} certificate images in GridFS for user {user_id}.")
 
-        previous_results_list = []
-        if course_data_collection is not None:
-            try:
-                # Fetch all previous results, sorted by most recent. Can be limited later.
-                raw_previous_docs = list(course_data_collection.find({"userId": user_id}).sort("processedAt", DESCENDING))
-                # The stored document itself is the 'previous_result' structure expected by the processor
-                previous_results_list = raw_previous_docs 
-                app.logger.info(f"Fetched {len(previous_results_list)} previous course_data records for user {user_id}.")
-            except Exception as e:
-                app.logger.error(f"Error fetching previous course_data for user {user_id}: {e}")
-                # Continue without previous results if fetching fails
+        # Fetch ALL previous results from course_data to populate the recommendation cache globally
+        # This list is used by certificate_processor to find existing recommendations.
+        cache_population_docs = []
+        try:
+            # Fetch all documents. For very large collections, consider limiting or sampling.
+            # Sorting by processedAt descending might help prioritize newer cache entries if the processor uses that.
+            cache_population_docs = list(course_data_collection.find({}).sort("processedAt", DESCENDING))
+            app.logger.info(f"Fetched {len(cache_population_docs)} documents from course_data to populate recommendation cache.")
+        except Exception as e:
+            app.logger.error(f"Error fetching documents for cache population from course_data: {e}")
+            # Continue, processor will work without a pre-filled cache if this fails.
+        
+        # Fetch the latest previous result for THIS USER to check against for duplicate storage
+        latest_previous_doc_for_user = None
+        try:
+            cursor = course_data_collection.find({"userId": user_id}).sort("processedAt", DESCENDING).limit(1)
+            latest_previous_doc_for_user = next(cursor, None)
+            if latest_previous_doc_for_user:
+                app.logger.info(f"Fetched latest course_data record for user {user_id} for duplicate check.")
+        except Exception as e:
+            app.logger.error(f"Error fetching latest course_data for user {user_id}: {e}")
+
 
         if not image_data_for_processing and not additional_manual_courses:
-             # If no images and no manual courses, return early
             return jsonify({
                 "message": "No certificate images found in the database and no manual courses provided for this user.",
                 "extracted_courses": [],
@@ -117,14 +130,33 @@ def process_certificates_from_db():
 
         processing_result = extract_and_recommend_courses_from_image_data(
             image_data_list=image_data_for_processing,
-            previous_results_list=previous_results_list,
+            previous_results_list=cache_population_docs, # Pass all docs for cache
             additional_manual_courses=additional_manual_courses
         )
         
         app.logger.info(f"Successfully processed certificates for user {user_id}.")
 
-        # Store the new result in course_data collection if successful and collection exists
-        if course_data_collection is not None and \
+        # --- Logic to prevent storing duplicate data for the SAME USER if nothing changed ---
+        should_store_new_result = True
+        if latest_previous_doc_for_user:
+            # Compare extracted_courses (order-insensitive)
+            prev_extracted = sorted(latest_previous_doc_for_user.get("extracted_courses", []))
+            curr_extracted = sorted(processing_result.get("extracted_courses", []))
+            
+            # Compare recommendations (more complex, order-insensitive for items, content-sensitive)
+            # Convert each recommendation dict to a sorted string to compare
+            def serialize_recommendations(recs_list):
+                if not recs_list: return "[]"
+                return json.dumps(sorted([json.dumps(dict(sorted(r.items()))) for r in recs_list]))
+
+            prev_recs_str = serialize_recommendations(latest_previous_doc_for_user.get("recommendations", []))
+            curr_recs_str = serialize_recommendations(processing_result.get("recommendations", []))
+
+            if prev_extracted == curr_extracted and prev_recs_str == curr_recs_str:
+                should_store_new_result = False
+                app.logger.info(f"Processing result for user {user_id} is identical to the latest stored. Skipping storage.")
+        
+        if should_store_new_result and \
            (processing_result.get("extracted_courses") or processing_result.get("recommendations")):
             try:
                 data_to_store = {
@@ -133,10 +165,9 @@ def process_certificates_from_db():
                     **processing_result 
                 }
                 insert_result = course_data_collection.insert_one(data_to_store)
-                app.logger.info(f"Stored processing result for user {user_id} in course_data. Inserted ID: {insert_result.inserted_id}")
+                app.logger.info(f"Stored new processing result for user {user_id} in course_data. Inserted ID: {insert_result.inserted_id}")
             except Exception as e:
                 app.logger.error(f"Error storing result to course_data for user {user_id}: {e}")
-                # Don't fail the request if storing fails, just log it.
         
         return jsonify(processing_result)
 
@@ -146,3 +177,4 @@ def process_certificates_from_db():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)), debug=True)
+
