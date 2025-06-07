@@ -61,11 +61,11 @@ export async function connectToDb(): Promise<ConnectionResult> {
         strict: true,
         deprecationErrors: true,
       },
-      connectTimeoutMS: 10000, // 10 seconds
-      socketTimeoutMS: 45000,  // 45 seconds
+      connectTimeoutMS: 30000, // Increased from 10000 to 30000
+      socketTimeoutMS: 45000,  // Can also increase this, e.g., to 45000
     });
 
-    console.log(`MongoDB (connectToDb-${connectionId}): Connecting to new client...`);
+    console.log(`MongoDB (connectToDb-${connectionId}): Connecting to new client... (timeout set to 30s)`);
     await newClient.connect();
     console.log(`MongoDB (connectToDb-${connectionId}): New client connected successfully.`);
 
@@ -86,12 +86,11 @@ export async function connectToDb(): Promise<ConnectionResult> {
         errorMessage: error.message,
         errorCode: error.code,
         errorName: error.name,
-        errorLabels: error.errorLabels, // Array of strings, e.g., ['TransientTransactionError', 'NetworkError']
+        errorLabels: error.errorLabels,
         isTransient: error.hasErrorLabel && error.hasErrorLabel('TransientTransactionError'),
         isNetworkError: error.hasErrorLabel && error.hasErrorLabel('NetworkError'),
-        // fullErrorObject: error // Avoid logging the full error object directly if it might contain sensitive info or be too large
     });
-    if (client) { // Ensure client is the one that failed, not an old one
+    if (client) {
       try {
         await client.close();
         console.log(`MongoDB (connectToDb-${connectionId}): Closed client after connection failure.`);
@@ -99,10 +98,9 @@ export async function connectToDb(): Promise<ConnectionResult> {
         console.error(`MongoDB (connectToDb-${connectionId}): Error closing client after connection failure:`, { message: closeErr.message });
       }
     }
-    client = undefined; // Reset global client on failure
+    client = undefined;
     dbInstance = undefined;
     bucketInstance = undefined;
-    // The error message here is critical as it will be caught by API routes
     throw new Error(`MongoDB connection error: ${error.message || 'Failed to connect to database and initialize resources.'}`);
   }
 }
