@@ -31,19 +31,27 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
       if (!openStatus) onClose(); 
     }}>
       <DialogContent className="sm:max-w-3xl w-[95vw] max-h-[90vh] flex flex-col p-4 sm:p-6">
-        <DialogHeader className="pb-2 sm:pb-4">
+        <DialogHeader className="pb-2 sm:pb-4 shrink-0">
           <DialogTitle className="font-headline text-lg sm:text-xl truncate" title={image.originalName}>
             {image.originalName}
           </DialogTitle>
         </DialogHeader>
         
-        {/* This div will grow to take available vertical space */}
-        <div className="flex-grow flex items-center justify-center relative min-h-0 overflow-hidden">
+        {/* This div will grow to take available vertical space and center its content */}
+        {/* Added min-h-0 to prevent content from overflowing flex parent */}
+        {/* Added very obvious debug background */}
+        <div 
+          key={image.fileId + '-modal-outer-container'}
+          className="flex-grow flex items-center justify-center relative min-h-0 overflow-auto bg-yellow-500/30 p-2"
+        >
           {/* This div is the direct parent for next/image, defining its bounds */}
-          {/* Using a green background for debugging this specific container */}
-          <div className="relative w-full h-full max-w-[85vw] max-h-[75vh] bg-green-500/10">
+          {/* max-w and max-h are applied here to constrain the image within the available viewport space */}
+          <div 
+            key={image.fileId + '-modal-inner-wrapper'}
+            className="relative w-full h-full max-w-[calc(95vw-4rem)] max-h-[calc(90vh-8rem)] bg-pink-500/30"
+          > {/* Adjusted max-w/max-h to account for padding and header/footer approx heights */}
             <Image
-              key={image.fileId} 
+              key={image.fileId + '-modal-image'} 
               src={imageSrc}
               alt={`View of ${image.originalName}`}
               layout="fill"
@@ -64,7 +72,7 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
           </div>
         </div>
 
-        <DialogFooter className="pt-2 sm:pt-4">
+        <DialogFooter className="pt-2 sm:pb-0 sm:pt-4 shrink-0"> {/* Ensure footer does not grow */}
           <DialogClose asChild>
             <Button variant="outline">Close</Button>
           </DialogClose>
