@@ -15,37 +15,36 @@ import { Button } from '@/components/ui/button';
 import ImageUploader from './ImageUploader';
 import { useState } from 'react';
 import type { User } from 'firebase/auth';
-// useToast removed as it's not used here directly anymore for generic upload completion
 
 interface UploadModalProps {
   trigger: React.ReactNode;
   user: User | null;
-  onUploadProcessed: () => void; // Renamed for clarity, this will trigger grid refresh
+  onUploadProcessed: () => void;
 }
 
 // This is the type of data ImageUploader's onUploadComplete will provide
-interface UploadedImageDetailsToMongoDB {
-  originalName: string;
+// It's now an array because a PDF can result in multiple image files
+interface UploadedFileMeta {
+  originalName: string; // Could be original PDF name or image name, or page name
   fileId: string; // MongoDB GridFS File ID
+  filename?: string; // Filename in GridFS
+  pageNumber?: number; // If it was a PDF page
 }
 
 export default function UploadModal({ trigger, user, onUploadProcessed }: UploadModalProps) {
   const [isOpen, setIsOpen] = useState(false);
-  // const { toast } = useToast(); // Removed if not used directly
 
-  const handleUploadComplete = async (uploadedFiles: UploadedImageDetailsToMongoDB[]) => {
+  const handleUploadComplete = async (uploadedFiles: UploadedFileMeta[]) => {
     if (!user) return;
 
-    console.log('UploadModal: Images uploaded to MongoDB. Count:', uploadedFiles.length, 'Details:', uploadedFiles);
+    console.log('UploadModal: Files processed by server. Count:', uploadedFiles.length, 'Details:', uploadedFiles);
     
     if (uploadedFiles.length > 0) {
       console.log('UploadModal: Calling onUploadProcessed to refresh image grid.');
-      onUploadProcessed(); // Call the passed-in function to refresh the grid
+      onUploadProcessed(); 
     } else {
-      console.log("UploadModal: No files successfully uploaded in this batch, not refreshing grid.");
+      console.log("UploadModal: No files successfully processed in this batch, not refreshing grid.");
     }
-    // Toast for completion is now handled within ImageUploader for batch summary
-    // setIsOpen(false); // Optionally close modal, or let user do it
   };
 
   return (
@@ -53,9 +52,9 @@ export default function UploadModal({ trigger, user, onUploadProcessed }: Upload
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="sm:max-w-[625px] max-h-[90vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle className="font-headline text-2xl">Upload Images to Database</DialogTitle>
+          <DialogTitle className="font-headline text-2xl">Upload Files to Database</DialogTitle>
           <DialogDescription>
-            Select images from your device to upload them directly to the database.
+            Select images or PDF documents from your device. PDFs will be converted to images per page.
           </DialogDescription>
         </DialogHeader>
         <div className="flex-grow overflow-y-auto pr-1 py-4">

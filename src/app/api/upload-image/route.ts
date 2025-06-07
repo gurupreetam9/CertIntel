@@ -1,159 +1,200 @@
 
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { MongoError } from 'mongodb';
+import { MongoError, ObjectId } from 'mongodb';
 import { Readable } from 'stream';
-import { connectToDb } from '@/lib/mongodb'; // Import the centralized connection utility
+import { connectToDb } from '@/lib/mongodb';
+import formidable from 'formidable';
+import fs from 'fs'; // Needed to read file stream from formidable
+// Import pdfjs-dist and canvas for server-side PDF processing
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.js';
+import { createCanvas, type Canvas } from 'canvas';
 
-// Helper to convert Data URI to Buffer
-function dataURIToBuffer(dataURI: string): { buffer: Buffer; contentType: string | null; filenameExtension: string | null } {
-  if (!dataURI.startsWith('data:')) {
-    console.error('Data URI Error: Invalid Data URI prefix.');
-    throw new Error('Invalid Data URI: Missing "data:" prefix.');
+// Helper to make formidable work with Next.js Edge/Node.js runtime
+const parseForm = (req: NextRequest): Promise<{ fields: formidable.Fields; files: formidable.Files }> => {
+  return new Promise((resolve, reject) => {
+    const form = formidable({ 
+      multiples: false, // Handle one file at a time from client loop, or adjust if batching
+      // maxFileSize: 100 * 1024 * 1024, // 100MB limit, example
+    }); 
+    form.parse(req as any, (err, fields, files) => {
+      if (err) {
+        console.error('API /api/upload-image: Formidable parsing error', err);
+        reject(err);
+        return;
+      }
+      resolve({ fields, files });
+    });
+  });
+};
+
+// Helper class for PDF rendering with canvas
+class NodeCanvasFactory {
+  create(width: number, height: number) {
+    const canvas = createCanvas(width, height);
+    const context = canvas.getContext("2d");
+    return {
+      canvas: canvas as any, // Type assertion for compatibility
+      context,
+    };
   }
-  const MimeRegex = /^data:(.+?);base64,(.+)$/;
-  const match = dataURI.match(MimeRegex);
-  if (!match) {
-    console.error('Data URI Error: Invalid Data URI format. Does not match regex.');
-    throw new Error('Invalid Data URI format. Expected "data:<mimetype>;base64,<data>".');
+  reset(canvasAndContext: { canvas: Canvas; context: any }, width: number, height: number) {
+    canvasAndContext.canvas.width = width;
+    canvasAndContext.canvas.height = height;
   }
-  
-  const contentType = match[1];
-  const base64Data = match[2];
-  const buffer = Buffer.from(base64Data, 'base64');
-  
-  let filenameExtension = null;
-  if (contentType) {
-    const parts = contentType.split('/');
-    if (parts.length === 2) {
-        filenameExtension = parts[1];
-    }
+  destroy(canvasAndContext: { canvas: Canvas; context: any }) {
+    canvasAndContext.canvas.width = 0;
+    canvasAndContext.canvas.height = 0;
+    // @ts-ignore
+    canvasAndContext.canvas = null;
+    // @ts-ignore
+    canvasAndContext.context = null;
   }
-  return { buffer, contentType, filenameExtension };
 }
 
 
 export async function POST(request: NextRequest) {
   const reqId = Math.random().toString(36).substring(2, 9);
-  console.log(`API Route /api/upload-image (Req ID: ${reqId}): POST request received.`);
-  
+  console.log(`API /api/upload-image (Req ID: ${reqId}): POST request received.`);
+
   let dbConnection;
   try {
-    console.log(`API Route /api/upload-image (Req ID: ${reqId}): Attempting to connect to DB...`);
     dbConnection = await connectToDb();
-    if (!dbConnection || !dbConnection.bucket || !dbConnection.db) { 
-      const errorMsg = 'Server error: Database or GridFS bucket not initialized after connectToDb call.';
-      console.error(`API Error (upload-image, Req ID: ${reqId}): ${errorMsg}`);
-      const errorPayload = { message: errorMsg, error: 'DB_INITIALIZATION_FAILURE' };
-      console.log(`API Error (upload-image - DB Init, Req ID: ${reqId}): Preparing to send error response:`, errorPayload);
-      return NextResponse.json(errorPayload, { status: 500 });
+    if (!dbConnection || !dbConnection.bucket || !dbConnection.db) {
+      throw new Error('Server error: Database or GridFS bucket not initialized.');
     }
-    const { bucket } = dbConnection;
-    console.log(`API Route /api/upload-image (Req ID: ${reqId}): DB connected, GridFS bucket obtained.`);
+    const { bucket, db } = dbConnection;
+    console.log(`API /api/upload-image (Req ID: ${reqId}): DB connected, GridFS bucket obtained.`);
 
-    const requestBody = await request.json();
-    console.log(`API Route /api/upload-image (Req ID: ${reqId}): Request body parsed:`, { hasPhotoDataUri: !!requestBody.photoDataUri, originalName: requestBody.originalName, userId: requestBody.userId });
+    const { fields, files } = await parseForm(request);
     
-    const { photoDataUri, originalName, userId, contentType: explicitContentType } = requestBody;
+    const userId = fields.userId?.[0] as string;
+    const originalName = fields.originalName?.[0] as string;
+    const clientContentType = fields.contentType?.[0] as string; // Content type from client
 
-    if (!photoDataUri || !originalName || !userId) {
-      const errorMsg = 'Missing required fields: photoDataUri, originalName, or userId.';
-      console.warn(`API Warning (upload-image, Req ID: ${reqId}): ${errorMsg}`, { photoDataUri: !!photoDataUri, originalName: !!originalName, userId: !!userId });
-      const errorPayload = { message: errorMsg, error: 'MISSING_FIELDS' };
-      console.log(`API Warning (upload-image - Missing Fields, Req ID: ${reqId}): Preparing to send error response:`, errorPayload);
-      return NextResponse.json(errorPayload, { status: 400 });
+    if (!userId || !originalName) {
+      return NextResponse.json([{ message: 'Missing userId or originalName in form data.' }], { status: 400 });
     }
 
-    let buffer: Buffer;
-    let detectedContentType: string | null;
-    try {
-      console.log(`API Route /api/upload-image (Req ID: ${reqId}): Parsing Data URI for ${originalName}...`);
-      const parsedData = dataURIToBuffer(photoDataUri);
-      buffer = parsedData.buffer;
-      detectedContentType = parsedData.contentType;
-      console.log(`API Route /api/upload-image (Req ID: ${reqId}): Data URI parsed. Detected ContentType: ${detectedContentType}, Buffer length: ${buffer.length}`);
-    } catch (parseError: any) {
-      const errorMsg = `Invalid image data format: ${parseError.message}`;
-      console.error(`API Error (upload-image, Req ID: ${reqId}): Failed to parse Data URI.`, { message: parseError.message });
-      const errorPayload = { message: errorMsg, error: 'DATA_URI_PARSE_ERROR', details: String(parseError.message) };
-      console.log(`API Error (upload-image - Data URI Parse, Req ID: ${reqId}): Preparing to send error response:`, errorPayload);
-      return NextResponse.json(errorPayload, { status: 400 });
+    const fileArray = files.file;
+    if (!fileArray || fileArray.length === 0) {
+      return NextResponse.json([{ message: 'No file uploaded.' }], { status: 400 });
     }
-    
-    const finalContentType = explicitContentType || detectedContentType || 'application/octet-stream';
-    const filename = `${userId}_${Date.now()}_${originalName.replace(/\s+/g, '_')}`; 
-    
-    const metadataToStore = { 
-      originalName,
-      userId,
-      uploadedAt: new Date().toISOString(),
-      sourceContentType: detectedContentType, 
-      explicitContentType,
-      // Add any other metadata you might need for querying, e.g., tags
-    };
-    console.log(`GridFS (upload-image, Req ID: ${reqId}): Attempting to upload "${filename}" with contentType "${finalContentType}". Metadata:`, metadataToStore);
+    const uploadedFile = fileArray[0];
 
 
-    return new Promise((resolve) => {
-      const uploadStream = bucket.openUploadStream(filename, { 
-        contentType: finalContentType,
-        metadata: metadataToStore,
-      });
-      console.log(`GridFS (upload-image, Req ID: ${reqId}): Upload stream opened for ${filename}. ID: ${uploadStream.id}`);
+    const results: { originalName: string; fileId: string; filename: string; pageNumber?: number }[] = [];
 
-      const readable = Readable.from(buffer);
-      readable.pipe(uploadStream)
-        .on('error', (error: MongoError) => { 
-          const errorMsg = 'Failed to upload image to GridFS.';
-          console.error(`GridFS Stream Error (upload-image, Req ID: ${reqId}) for ${filename}:`, { message: error.message, code: error.code, mongoErrorName: error.name });
-          const errorPayload = { 
-            message: errorMsg, 
-            error: 'GRIDFS_UPLOAD_STREAM_ERROR', 
-            details: String(error.message || 'Unknown GridFS stream error'),
-            mongoErrorCode: String(error.code || 'N/A')
-          };
-          console.log(`API Error (upload-image - GridFS Stream, Req ID: ${reqId}): Preparing to send error response from stream error:`, errorPayload);
-          resolve(NextResponse.json(errorPayload, { status: 500 }));
-        })
-        .on('finish', () => {
-          console.log(`GridFS (upload-image, Req ID: ${reqId}): File "${filename}" (ID: ${uploadStream.id}) upload finished.`);
-          const successPayload = { 
-            message: 'Image uploaded successfully to MongoDB GridFS.', 
-            fileId: uploadStream.id.toString(), 
-            filename: filename
-          };
-          console.log(`GridFS (upload-image, Req ID: ${reqId}): Preparing to send success response:`, successPayload);
-          resolve(NextResponse.json(successPayload, { status: 201 }));
+    // Determine file type (from formidable or clientContentType as fallback)
+    const fileType = uploadedFile.mimetype || clientContentType;
+
+    if (fileType === 'application/pdf') {
+      console.log(`API /api/upload-image (Req ID: ${reqId}): Processing PDF: ${originalName}`);
+      const pdfBuffer = fs.readFileSync(uploadedFile.filepath);
+      const pdfDocument = await pdfjsLib.getDocument({ data: pdfBuffer, useWorkerFetch: false, isEvalSupported: false }).promise;
+      
+      for (let i = 1; i <= pdfDocument.numPages; i++) {
+        const page = await pdfDocument.getPage(i);
+        const viewport = page.getViewport({ scale: 1.5 }); // Adjust scale for rendering quality
+        
+        const canvasFactory = new NodeCanvasFactory();
+        const canvasAndContext = canvasFactory.create(viewport.width, viewport.height);
+        
+        const renderContext = {
+          canvasContext: canvasAndContext.context,
+          viewport: viewport,
+          canvasFactory: canvasFactory,
+        };
+
+        await page.render(renderContext).promise;
+        const imageBuffer = canvasAndContext.canvas.toBuffer('image/png'); // Store as PNG
+        page.cleanup(); // Important to free memory
+        canvasFactory.destroy(canvasAndContext); // Explicitly destroy canvas resources
+
+        const pageFilename = `${userId}_${Date.now()}_${originalName.replace(/\.pdf$/i, '')}_page_${i}.png`;
+        const metadata = {
+          originalName: `${originalName} (Page ${i})`,
+          userId,
+          uploadedAt: new Date().toISOString(),
+          sourceContentType: 'application/pdf',
+          convertedTo: 'image/png',
+          pageNumber: i,
+        };
+        
+        console.log(`GridFS (upload-image, Req ID: ${reqId}): Uploading PDF page ${i} as "${pageFilename}"`);
+        const uploadStream = bucket.openUploadStream(pageFilename, { contentType: 'image/png', metadata });
+        const readable = Readable.from(imageBuffer);
+        
+        await new Promise<void>((resolve, reject) => {
+          readable.pipe(uploadStream)
+            .on('error', (err) => {
+              console.error(`GridFS Stream Error for PDF page ${pageFilename}:`, err);
+              reject(err);
+            })
+            .on('finish', () => {
+              console.log(`GridFS Upload finished for PDF page: ${pageFilename}, ID: ${uploadStream.id}`);
+              results.push({ originalName: metadata.originalName, fileId: uploadStream.id.toString(), filename: pageFilename, pageNumber: i });
+              resolve();
+            });
         });
-    });
+      }
+      console.log(`API /api/upload-image (Req ID: ${reqId}): PDF ${originalName} processed into ${results.length} pages.`);
+    } else if (fileType && fileType.startsWith('image/')) {
+      console.log(`API /api/upload-image (Req ID: ${reqId}): Processing Image: ${originalName}`);
+      const imageFilename = `${userId}_${Date.now()}_${originalName.replace(/\s+/g, '_')}`;
+      const metadata = {
+        originalName,
+        userId,
+        uploadedAt: new Date().toISOString(),
+        sourceContentType: fileType,
+      };
+
+      console.log(`GridFS (upload-image, Req ID: ${reqId}): Uploading image "${imageFilename}" with contentType "${fileType}".`);
+      const uploadStream = bucket.openUploadStream(imageFilename, { contentType: fileType, metadata });
+      const readable = fs.createReadStream(uploadedFile.filepath);
+
+      await new Promise<void>((resolve, reject) => {
+        readable.pipe(uploadStream)
+          .on('error', (err) => {
+            console.error(`GridFS Stream Error for image ${imageFilename}:`, err);
+            reject(err);
+          })
+          .on('finish', () => {
+            console.log(`GridFS Upload finished for image: ${imageFilename}, ID: ${uploadStream.id}`);
+            results.push({ originalName, fileId: uploadStream.id.toString(), filename: imageFilename });
+            resolve();
+          });
+      });
+    } else {
+      console.warn(`API /api/upload-image (Req ID: ${reqId}): Unsupported file type: ${fileType} for file ${originalName}`);
+      return NextResponse.json([{ message: `Unsupported file type: ${fileType}. Please upload an image or PDF.` }], { status: 415 });
+    }
+    
+    // Cleanup temp file from formidable
+    if (uploadedFile.filepath && fs.existsSync(uploadedFile.filepath)) {
+        fs.unlinkSync(uploadedFile.filepath);
+    }
+    
+    console.log(`API /api/upload-image (Req ID: ${reqId}): Successfully processed. Results:`, results);
+    return NextResponse.json(results, { status: 201 });
 
   } catch (error: any) {
-    const generalErrorMsg = 'An unexpected error occurred during image upload processing.';
-    console.error(`API Error (upload-image - Outer Catch, Req ID: ${reqId}): Unhandled error in POST /api/upload-image.`, { 
+    console.error(`API /api/upload-image (Req ID: ${reqId}): Unhandled error.`, { 
         errorMessage: error.message, 
         errorType: error.constructor?.name, 
-        errorStack: error.stack?.substring(0, 500) // Limit stack trace length
+        errorStack: error.stack?.substring(0, 500) 
     });
-    
-    let displayMessage = generalErrorMsg;
-    if (error.message && typeof error.message === 'string') {
-        if (error.message.includes('MONGODB_URI is not set')) {
-            displayMessage = `Server configuration error: ${error.message}`;
-        } else if (error.message.includes('MongoDB connection error')) {
-            displayMessage = `Database connection issue: ${error.message}`; 
-        } else if (error.message.includes('Invalid Data URI')) {
-            displayMessage = `Bad request: ${error.message}`;
-        } else {
-            displayMessage = error.message; 
-        }
-    }
-
     const errorPayload = { 
-        message: displayMessage, 
-        error: 'UNHANDLED_SERVER_ERROR',
-        details: String(error.message || 'No specific error message available')
+        message: error.message || 'An unexpected error occurred during file upload.', 
+        error: 'UPLOAD_PROCESSING_ERROR',
     };
-    console.log(`API Error (upload-image - Outer Catch, Req ID: ${reqId}): Preparing to send error response:`, errorPayload);
-    return NextResponse.json(errorPayload, { status: 500 });
+    return NextResponse.json([errorPayload], { status: 500 });
   }
 }
+
+// Ensure Next.js doesn't try to parse the body for this route if it's FormData
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};

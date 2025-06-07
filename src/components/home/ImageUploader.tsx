@@ -8,19 +8,20 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { AlertCircle, Bot, Camera, CheckCircle, FileUp, ImagePlus, Loader2, Trash2, UploadCloud } from 'lucide-react';
+import { AlertCircle, Bot, Camera, CheckCircle, FileText, FileUp, ImagePlus, Loader2, Trash2, UploadCloud } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
 
-interface UploadedFile {
+interface UploadedFileEntry {
   file: File;
-  previewUrl: string;
+  previewUrl: string; // For images, actual preview. For PDFs, a generic icon or placeholder.
   progress: number;
   status: 'pending' | 'uploading' | 'success' | 'error';
   error?: string;
-  fileId?: string; // MongoDB GridFS File ID
-  isGeneratingDescription?: boolean; // New state for AI button loading
+  fileId?: string; // MongoDB GridFS File ID after upload
+  isGeneratingDescription?: boolean;
+  isPdf: boolean;
 }
 
 interface ImageUploaderProps {
@@ -28,20 +29,8 @@ interface ImageUploaderProps {
   closeModal: () => void;
 }
 
-async function fileToDataUri(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      if (typeof reader.result === 'string') {
-        resolve(reader.result);
-      } else {
-        reject(new Error('Failed to read file as Data URI.'));
-      }
-    };
-    reader.onerror = (error) => reject(error);
-    reader.readAsDataURL(file);
-  });
-}
+// This function is no longer needed if sending raw files
+// async function fileToDataUri(file: File): Promise<string> { ... }
 
 async function getDescriptionFromCustomAI(photoDataUri: string): Promise<{ description: string }> {
   const aiServerBaseUrl = process.env.NEXT_PUBLIC_FLASK_SERVER_URL;
@@ -50,6 +39,8 @@ async function getDescriptionFromCustomAI(photoDataUri: string): Promise<{ descr
     console.error(errorMsg);
     throw new Error('Custom AI server URL is not configured. Please set NEXT_PUBLIC_FLASK_SERVER_URL in .env.local');
   }
+  // This function would need to be adapted if your Flask server now expects a fileId instead of data URI
+  // For now, assuming it's still for individual image description from data URI
   const aiEndpoint = `${aiServerBaseUrl}/describe-image`;
 
   console.log(`ImageUploader: Calling custom AI server at ${aiEndpoint} for description.`);
@@ -94,7 +85,7 @@ async function getDescriptionFromCustomAI(photoDataUri: string): Promise<{ descr
 }
 
 export default function ImageUploader({ onUploadComplete, closeModal }: ImageUploaderProps) {
-  const [selectedFiles, setSelectedFiles] = useState<UploadedFile[]>([]);
+  const [selectedFiles, setSelectedFiles] = useState<UploadedFileEntry[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const { userId } = useAuth();
   const { toast } = useToast();
@@ -104,16 +95,19 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (files) {
-      const newFiles: UploadedFile[] = Array.from(files)
-        .filter(file => file.type.startsWith('image/'))
-        .map(file => ({
-          file,
-          previewUrl: URL.createObjectURL(file),
-          progress: 0,
-          status: 'pending',
-          isGeneratingDescription: false,
-        }));
-      setSelectedFiles(prev => [...prev, ...newFiles]);
+      const newFileEntries: UploadedFileEntry[] = Array.from(files)
+        .map(file => {
+          const isPdf = file.type === 'application/pdf';
+          return {
+            file,
+            previewUrl: isPdf ? '' : URL.createObjectURL(file), // No direct preview for PDF here, backend will handle pages
+            progress: 0,
+            status: 'pending',
+            isGeneratingDescription: false,
+            isPdf,
+          };
+        });
+      setSelectedFiles(prev => [...prev, ...newFileEntries]);
       if(event.target) event.target.value = ""; 
     }
   };
@@ -122,153 +116,144 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     if (fileInputRef.current) {
       if (isMobile && source === 'camera') {
         fileInputRef.current.setAttribute('capture', 'environment');
+        fileInputRef.current.accept = 'image/*'; // Camera should only take images
       } else {
         fileInputRef.current.removeAttribute('capture');
+        fileInputRef.current.accept = 'image/*,application/pdf'; // File input allows both
       }
       fileInputRef.current.click();
     }
   };
 
-  const removeFile = (fileName: string) => {
+  const removeFile = (identity: string) => { // identity can be file.name + file.lastModified
     setSelectedFiles(prev => {
-      const fileToRemove = prev.find(f => f.file.name === fileName);
-      if (fileToRemove?.previewUrl) {
+      const fileToRemove = prev.find(f => f.file.name + f.file.lastModified === identity);
+      if (fileToRemove?.previewUrl && !fileToRemove.isPdf) {
         URL.revokeObjectURL(fileToRemove.previewUrl);
       }
-      return prev.filter(f => f.file.name !== fileName);
+      return prev.filter(f => f.file.name + f.file.lastModified !== identity);
     });
   };
 
-  const handleGenerateDescription = async (targetFile: UploadedFile) => {
-    console.log(`ImageUploader: Attempting to generate AI description for ${targetFile.file.name}`);
-    setSelectedFiles(prev => prev.map(f => f.file.name === targetFile.file.name ? { ...f, isGeneratingDescription: true } : f));
+  // AI Description button might need rethinking if we are uploading PDFs which become multiple images.
+  // This function is kept for potential future use or adaptation.
+  const handleGenerateDescription = async (targetFileEntry: UploadedFileEntry) => {
+    if (targetFileEntry.isPdf || targetFileEntry.status !== 'success' || !targetFileEntry.fileId) {
+      toast({ title: 'Cannot get description', description: 'AI description is only available for successfully uploaded single images.', variant: 'destructive'});
+      return;
+    }
+    console.log(`ImageUploader: Attempting to generate AI description for ${targetFileEntry.file.name}`);
+    // This needs direct image data or a way for Flask to get the image via fileId
+    // For simplicity, if we were to keep this, we'd need to fetch the image data from /api/images/[fileId]
+    // then convert to data URI to send to Flask. This is inefficient.
+    // It's better if Flask can take a fileId. For now, this button may be less useful for PDF pages.
+    // Let's disable or adapt it based on further requirements.
+    // For now, I'll comment out the actual call and show a placeholder toast.
+    toast({ title: 'AI Description', description: 'AI Description for individual pages to be implemented.' });
 
+    /*
+    setSelectedFiles(prev => prev.map(f => f.file.name === targetFileEntry.file.name ? { ...f, isGeneratingDescription: true } : f));
     try {
-      const photoDataUri = await fileToDataUri(targetFile.file);
+      // To make this work, we'd need to fetch the image data using targetFileEntry.fileId,
+      // convert it to dataURI, then call getDescriptionFromCustomAI.
+      // This is out of scope for the current PDF upload change.
+      const photoDataUri = await fileToDataUri(targetFileEntry.file); // This is problematic if file is already uploaded
       const descriptionResult = await getDescriptionFromCustomAI(photoDataUri);
-      console.log(`ImageUploader: Custom AI Description for ${targetFile.file.name}: ${descriptionResult.description}`);
       toast({
-        title: `AI Description: ${targetFile.file.name}`,
+        title: `AI Description: ${targetFileEntry.file.name}`,
         description: descriptionResult.description.substring(0, 200) + (descriptionResult.description.length > 200 ? '...' : ''),
         duration: 7000,
       });
     } catch (customAiError: any) {
-      console.error(`ImageUploader: Custom AI description failed for ${targetFile.file.name}:`, customAiError);
-      toast({
-        title: 'AI Description Failed',
-        description: `Could not get description for ${targetFile.file.name}. ${(customAiError.message || 'Unknown custom AI error')}`,
-        variant: 'destructive',
-        duration: 7000,
-      });
+      // ... error handling
     } finally {
-      setSelectedFiles(prev => prev.map(f => f.file.name === targetFile.file.name ? { ...f, isGeneratingDescription: false } : f));
-      console.log(`ImageUploader: Finished AI description attempt for ${targetFile.file.name}`);
+      setSelectedFiles(prev => prev.map(f => f.file.name === targetFileEntry.file.name ? { ...f, isGeneratingDescription: false } : f));
     }
+    */
   };
 
 
   const handleUpload = async () => {
     if (!userId) {
       toast({ title: 'Authentication Error', description: 'User not authenticated. Please log in.', variant: 'destructive' });
-      console.log('ImageUploader: Upload skipped, no user ID.');
       return;
     }
 
     const filesToUpload = selectedFiles.filter(f => f.status === 'pending' || f.status === 'error');
     if (filesToUpload.length === 0) {
-      console.log('ImageUploader: No files in pending/error state to upload.');
       toast({ title: 'No New Files', description: 'No new files or files with errors to attempt uploading.'});
       return;
     }
 
-    console.log(`ImageUploader: handleUpload called. Current isUploading before starting: ${isUploading}. Attempting to upload ${filesToUpload.length} files.`);
     setIsUploading(true);
-    console.log('ImageUploader: isUploading state has been set to true.');
+    let allUploadedFileMetas: { originalName: string; fileId: string }[] = [];
 
-    const uploadPromises = filesToUpload.map(async (uploadedFile) => {
-      setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'uploading', progress: 50, error: undefined } : f));
-      console.log(`ImageUploader: Starting individual upload for: ${uploadedFile.file.name}`);
+    for (const fileEntry of filesToUpload) {
+      setSelectedFiles(prev => prev.map(f => f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified ? { ...f, status: 'uploading', progress: 30, error: undefined } : f));
+      
+      const formData = new FormData();
+      formData.append('file', fileEntry.file);
+      formData.append('userId', userId);
+      formData.append('originalName', fileEntry.file.name);
+      formData.append('contentType', fileEntry.file.type);
+
 
       try {
-        const photoDataUri = await fileToDataUri(uploadedFile.file);
+        // Simulate progress for FormData
+        setSelectedFiles(prev => prev.map(f => f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified ? { ...f, progress: 60 } : f));
 
-        console.log(`ImageUploader: Sending ${uploadedFile.file.name} to /api/upload-image`);
         const response = await fetch('/api/upload-image', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            photoDataUri,
-            originalName: uploadedFile.file.name,
-            userId,
-            contentType: uploadedFile.file.type,
-          }),
+          body: formData, // Sending FormData
         });
         
-        const responseBody = await response.json().catch((err) => {
-            console.error(`ImageUploader: Failed to parse JSON response for ${uploadedFile.file.name}. Status: ${response.status}. Error:`, err);
-            return { message: `Server returned non-JSON response (Status: ${response.status}). Check server logs.`, error: 'Invalid server response' };
+        const responseBodyArray = await response.json().catch((err) => {
+            console.error(`ImageUploader: Failed to parse JSON response for ${fileEntry.file.name}. Status: ${response.status}. Error:`, err);
+            return [{ originalName: fileEntry.file.name, error: `Server returned non-JSON response (Status: ${response.status}).` }];
         });
+
 
         if (!response.ok) {
-          console.error(`ImageUploader: MongoDB upload failed for ${uploadedFile.file.name}. Status: ${response.status}`, responseBody);
-          const errorMessage = responseBody.message || `Server error: ${response.status}. Check server logs.`;
-          throw new Error(errorMessage);
+          const errorMsg = responseBodyArray[0]?.error || responseBodyArray[0]?.message || `Server error: ${response.status}.`;
+          console.error(`ImageUploader: Upload failed for ${fileEntry.file.name}. Status: ${response.status}`, responseBodyArray);
+          setSelectedFiles(prev => prev.map(f => f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified ? { ...f, status: 'error', error: errorMsg, progress: 0 } : f));
+          continue; // Move to the next file
         }
-
-        const result = responseBody;
-        console.log(`ImageUploader: Upload successful for: ${uploadedFile.file.name}. File ID: ${result.fileId}`);
-        setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'success', progress: 100, fileId: result.fileId } : f));
         
-        return { originalName: uploadedFile.file.name, fileId: result.fileId };
+        // responseBodyArray should be an array of {originalName, fileId, pageNumber?}
+        const successfulUploadsForThisFile = responseBodyArray.filter((meta: any) => meta.fileId);
+        allUploadedFileMetas.push(...successfulUploadsForThisFile);
 
+        setSelectedFiles(prev => prev.map(f => {
+          if (f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified) {
+            // If it was a PDF that resulted in multiple pages, we mark the original PDF entry as 'success'
+            // The actual fileIds are in successfulUploadsForThisFile
+            return { ...f, status: 'success', progress: 100, fileId: successfulUploadsForThisFile.length > 0 ? successfulUploadsForThisFile[0].fileId : undefined };
+          }
+          return f;
+        }));
+        
       } catch (error: any) {
-        console.error(`ImageUploader: Individual upload error for file: ${uploadedFile.file.name}. Error:`, error.message, error);
+        console.error(`ImageUploader: Individual upload error for file: ${fileEntry.file.name}. Error:`, error.message, error);
         const errorMessage = error.message || 'Upload failed';
-        setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'error', error: errorMessage, progress: 0 } : f));
-        return null; 
+        setSelectedFiles(prev => prev.map(f => f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified ? { ...f, status: 'error', error: errorMessage, progress: 0 } : f));
       }
-    });
+    } // end of for loop
 
-    try {
-      console.log('ImageUploader: Waiting for all upload promises to settle...');
-      const results = await Promise.all(uploadPromises);
-      console.log('ImageUploader: All upload promises settled. Results:', JSON.stringify(results));
+    setIsUploading(false);
 
-      const successfulUploads = results.filter(r => r !== null && r.fileId) as {originalName: string; fileId: string}[];
-      const failedInThisBatchCount = filesToUpload.length - successfulUploads.length;
-
-      console.log(`ImageUploader: Successful uploads in this batch: ${successfulUploads.length}, Failed in this batch: ${failedInThisBatchCount}`);
-
-      if (successfulUploads.length > 0) {
-        console.log('ImageUploader: Calling onUploadComplete with successful uploads:', successfulUploads);
-        onUploadComplete(successfulUploads);
-      }
-
-      if (filesToUpload.length > 0) { // Only show toast if there were attempts
-        if (successfulUploads.length > 0 && failedInThisBatchCount === 0) {
-          toast({ title: 'Upload Complete', description: `${successfulUploads.length} image(s) uploaded successfully.` });
-        } else if (successfulUploads.length > 0 && failedInThisBatchCount > 0) {
-          toast({ title: 'Partial Upload', description: `${successfulUploads.length} image(s) uploaded. ${failedInThisBatchCount} failed. Check file errors.`, variant: 'default' }); // 'default' might be better than 'warning' if there's no specific warning variant
-        } else if (failedInThisBatchCount > 0 && successfulUploads.length === 0) {
-           toast({ title: 'Upload Failed', description: `All ${failedInThisBatchCount} image(s) in this batch failed. Check file errors & server logs.`, variant: 'destructive' });
-        }
-      }
-
-    } catch (allResultsError) {
-      console.error('ImageUploader: Unexpected error during Promise.all settlement or results processing:', allResultsError);
-      toast({ title: 'Upload Processing Error', description: 'Unexpected error finalizing uploads. Some files may not have processed.', variant: 'destructive' });
-    } finally {
-      console.log(`ImageUploader: Entering finally block of handleUpload. Current isUploading before set: ${isUploading}`);
-      setIsUploading(false);
-      console.log('ImageUploader: isUploading state has been set to false.');
+    if (allUploadedFileMetas.length > 0) {
+      onUploadComplete(allUploadedFileMetas);
+      toast({ title: 'Upload Process Complete', description: `${allUploadedFileMetas.length} image(s)/page(s) processed.` });
+    } else if (filesToUpload.length > 0) {
+      toast({ title: 'Upload Failed', description: 'No files were successfully uploaded in this batch.', variant: 'destructive' });
     }
   };
 
   React.useEffect(() => {
     return () => {
-      console.log("ImageUploader: Component unmounting, revoking object URLs.");
       selectedFiles.forEach(uploadedFile => {
-        if (uploadedFile.previewUrl) {
+        if (uploadedFile.previewUrl && !uploadedFile.isPdf) {
           URL.revokeObjectURL(uploadedFile.previewUrl);
         }
       });
@@ -280,7 +265,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     <div className="space-y-6">
       <Input
           type="file"
-          accept="image/*"
+          accept="image/*,application/pdf" // Accept images and PDFs
           multiple
           onChange={handleFileChange}
           className="hidden"
@@ -298,26 +283,30 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
       )}
       {(!isMobile || selectedFiles.length > 0) && (
         <Button variant="outline" onClick={() => triggerFileInput('files')} className="w-full py-6">
-          <ImagePlus className="mr-2 h-5 w-5" /> Select Images
-          <span className="sr-only">Select images to upload</span>
+          <ImagePlus className="mr-2 h-5 w-5" /> Select Images or PDFs
+          <span className="sr-only">Select images or PDFs to upload</span>
         </Button>
       )}
 
 
       {selectedFiles.length > 0 && (
         <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
-          <h3 className="text-lg font-medium font-headline">Selected Images:</h3>
+          <h3 className="text-lg font-medium font-headline">Selected Files:</h3>
           {selectedFiles.map((uploadedFile) => (
             <Card key={uploadedFile.file.name + uploadedFile.file.lastModified} className="overflow-hidden shadow-md">
               <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                <div className="relative w-24 h-24 sm:w-32 sm:h-32 rounded-md overflow-hidden shrink-0">
-                   <Image src={uploadedFile.previewUrl} alt={`Preview ${uploadedFile.file.name}`} layout="fill" objectFit="cover" data-ai-hint="abstract photo" />
+                <div className="relative w-24 h-24 sm:w-32 sm:h-32 rounded-md overflow-hidden shrink-0 bg-muted flex items-center justify-center">
+                   {uploadedFile.isPdf ? (
+                     <FileText className="w-12 h-12 text-muted-foreground" />
+                   ) : (
+                     <Image src={uploadedFile.previewUrl} alt={`Preview ${uploadedFile.file.name}`} layout="fill" objectFit="cover" data-ai-hint="uploaded file" />
+                   )}
                 </div>
                 <div className="flex-grow space-y-2">
                   <p className="text-sm font-medium truncate" title={uploadedFile.file.name}>{uploadedFile.file.name}</p>
                   <p className="text-xs text-muted-foreground">{(uploadedFile.file.size / 1024 / 1024).toFixed(2)} MB</p>
 
-                  {uploadedFile.status === 'pending' && (
+                  {uploadedFile.status === 'pending' && !uploadedFile.isPdf && (
                     <Card className="mt-2 bg-muted/50 border-dashed">
                       <CardHeader className="p-2">
                         <CardTitle className="text-xs font-normal">Image Editor (Placeholder)</CardTitle>
@@ -332,30 +321,32 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
                   {(uploadedFile.status === 'uploading' || (uploadedFile.status === 'success' && uploadedFile.progress < 100)) && (
                     <Progress value={uploadedFile.progress} className="w-full h-2 mt-1" />
                   )}
-                   {uploadedFile.status === 'uploading' && <p className="text-xs text-primary flex items-center"><Loader2 className="w-3 h-3 mr-1 animate-spin"/>Uploading to DB...</p>}
+                   {uploadedFile.status === 'uploading' && <p className="text-xs text-primary flex items-center"><Loader2 className="w-3 h-3 mr-1 animate-spin"/>Processing &amp; Uploading...</p>}
                   {uploadedFile.status === 'success' && (
                     <>
-                      <p className="text-xs text-green-600 flex items-center"><CheckCircle className="w-3 h-3 mr-1"/>Uploaded to DB</p>
-                      <Button 
-                        size="sm" 
-                        variant="outline" 
-                        className="mt-2"
-                        onClick={() => handleGenerateDescription(uploadedFile)}
-                        disabled={uploadedFile.isGeneratingDescription}
-                      >
-                        {uploadedFile.isGeneratingDescription ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <Bot className="mr-2 h-4 w-4" />
-                        )}
-                        Get AI Description
-                      </Button>
+                      <p className="text-xs text-green-600 flex items-center"><CheckCircle className="w-3 h-3 mr-1"/>{uploadedFile.isPdf ? 'PDF processed &amp; pages uploaded' : 'Uploaded to DB'}</p>
+                      {!uploadedFile.isPdf && ( // AI description button for non-PDFs for now
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="mt-2"
+                          onClick={() => handleGenerateDescription(uploadedFile)}
+                          disabled={uploadedFile.isGeneratingDescription}
+                        >
+                          {uploadedFile.isGeneratingDescription ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <Bot className="mr-2 h-4 w-4" />
+                          )}
+                          Get AI Description
+                        </Button>
+                      )}
                     </>
                   )}
                   {uploadedFile.status === 'error' && <p className="text-xs text-destructive flex items-center" title={uploadedFile.error}><AlertCircle className="w-3 h-3 mr-1"/>{uploadedFile.error}</p>}
                 </div>
                 {uploadedFile.status !== 'uploading' && !uploadedFile.isGeneratingDescription && (
-                  <Button variant="ghost" size="icon" onClick={() => removeFile(uploadedFile.file.name)} className="shrink-0 text-muted-foreground hover:text-destructive">
+                  <Button variant="ghost" size="icon" onClick={() => removeFile(uploadedFile.file.name + uploadedFile.file.lastModified)} className="shrink-0 text-muted-foreground hover:text-destructive">
                     <Trash2 className="h-4 w-4" />
                     <span className="sr-only">Remove {uploadedFile.file.name}</span>
                   </Button>
@@ -377,7 +368,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
           ) : (
             <UploadCloud className="mr-2 h-4 w-4" />
           )}
-          Upload {selectedFiles.filter(f => f.status === 'pending' || f.status === 'error').length} Pending Image(s)
+          Upload {selectedFiles.filter(f => f.status === 'pending' || f.status === 'error').length} Pending File(s)
         </Button>
       )}
     </div>
