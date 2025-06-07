@@ -1,3 +1,4 @@
+
 import { ref, uploadBytesResumable, getDownloadURL, type StorageError, type UploadTaskSnapshot } from 'firebase/storage';
 import { storage } from './config';
 
@@ -11,6 +12,7 @@ export const uploadFileToFirebase = (
   path: string, // This is the intended full filePath
   onProgress: (progress: number) => void
 ): Promise<UploadFileResult> => {
+  console.log(`uploadFileToFirebase: Starting upload for path: ${path}`);
   return new Promise((resolve, reject) => {
     const storageRef = ref(storage, path);
     const uploadTask = uploadBytesResumable(storageRef, file);
@@ -19,14 +21,15 @@ export const uploadFileToFirebase = (
       'state_changed',
       (snapshot: UploadTaskSnapshot) => {
         const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+        // console.log(`uploadFileToFirebase: Progress for ${path}: ${progress.toFixed(2)}%`);
         onProgress(progress);
       },
       (error: StorageError) => {
         console.error(
-          'Firebase Storage Upload failed:', 
-          { 
-            code: error.code, 
-            message: error.message, 
+          `uploadFileToFirebase: Firebase Storage Upload failed for path ${path}:`,
+          {
+            code: error.code,
+            message: error.message,
             serverResponse: error.serverResponse,
             name: error.name,
           }
@@ -66,15 +69,16 @@ export const uploadFileToFirebase = (
                 friendlyMessage = 'An unknown error occurred during upload. Check console for details.';
                 break;
         }
-        // Reject with an object that includes the original error and a user-friendly message
         reject({ ...error, friendlyMessage });
       },
       async () => {
         try {
+          console.log(`uploadFileToFirebase: Upload complete for ${path}. Getting download URL...`);
           const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+          console.log(`uploadFileToFirebase: Download URL for ${path}: ${downloadURL}`);
           resolve({ downloadURL, filePath: path });
         } catch (error) {
-          console.error('Failed to get download URL after upload:', error);
+          console.error(`uploadFileToFirebase: Failed to get download URL for ${path} after upload:`, error);
           reject(error as StorageError);
         }
       }

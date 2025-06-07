@@ -1,7 +1,7 @@
 
 'use client';
 
-import * as React from 'react'; // Added this line
+import * as React from 'react';
 import { useState, type ChangeEvent, useRef } from 'react';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
@@ -50,7 +50,6 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
           status: 'pending',
         }));
       setSelectedFiles(prev => [...prev, ...newFiles]);
-      // Reset input value to allow selecting the same file again if removed and re-added
       if(event.target) event.target.value = "";
     }
   };
@@ -71,33 +70,37 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     setSelectedFiles(prev => {
       const fileToRemove = prev.find(f => f.file.name === fileName);
       if (fileToRemove?.previewUrl) {
-        URL.revokeObjectURL(fileToRemove.previewUrl); // Clean up object URL
+        URL.revokeObjectURL(fileToRemove.previewUrl);
       }
       return prev.filter(f => f.file.name !== fileName);
     });
   };
 
   const handleUpload = async () => {
-    if (!userId || selectedFiles.length === 0) return;
+    if (!userId || selectedFiles.length === 0) {
+      console.log('ImageUploader: Upload skipped, no user or no files selected.');
+      return;
+    }
 
+    console.log('ImageUploader: handleUpload started.');
     setIsUploading(true);
-    let filesProcessedCount = 0;
 
-    const uploadPromises = selectedFiles.map(async (uploadedFile, index) => {
-      // Skip already successfully uploaded files in a batch if re-upload is attempted
-      if (uploadedFile.status === 'success') {
-        return {
-          originalName: uploadedFile.file.name,
-          downloadURL: uploadedFile.downloadURL!,
-          storagePath: uploadedFile.storagePath!
-        };
-      }
+    const filesToUpload = selectedFiles.filter(f => f.status === 'pending' || f.status === 'error');
+    if (filesToUpload.length === 0) {
+      console.log('ImageUploader: No files in pending/error state to upload.');
+      setIsUploading(false);
+      toast({ title: 'No new files to upload', description: 'All selected files have already been processed or are not in a pending state.'});
+      return;
+    }
 
-      // Update status to uploading for this specific file
+    console.log(`ImageUploader: Attempting to upload ${filesToUpload.length} files.`);
+
+    const uploadPromises = filesToUpload.map(async (uploadedFile) => {
       setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'uploading', progress: 0 } : f));
 
       const filePath = `images/${userId}/${Date.now()}_${uploadedFile.file.name}`;
       try {
+        console.log(`ImageUploader: Starting upload for: ${uploadedFile.file.name} to path: ${filePath}`);
         const { downloadURL, filePath: returnedPath } = await uploadFileToFirebase(
           uploadedFile.file,
           filePath,
@@ -105,44 +108,47 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
             setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, progress } : f));
           }
         );
+        console.log(`ImageUploader: Upload successful for: ${uploadedFile.file.name}. URL: ${downloadURL}`);
         setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'success', progress: 100, downloadURL, storagePath: returnedPath } : f));
-        filesProcessedCount++;
         return { originalName: uploadedFile.file.name, downloadURL, storagePath: returnedPath };
       } catch (error: any) {
-        console.error('Upload error for file:', uploadedFile.file.name, error);
+        console.error(`ImageUploader: Upload error for file: ${uploadedFile.file.name}`, error);
         const errorMessage = error.friendlyMessage || error.message || 'Upload failed';
         setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'error', error: errorMessage } : f));
-        filesProcessedCount++;
-        return null; // Indicate failure for this specific file
+        return null;
       }
     });
 
-    const results = await Promise.all(uploadPromises);
-    setIsUploading(false);
+    try {
+      console.log('ImageUploader: Waiting for all uploads to complete...');
+      const results = await Promise.all(uploadPromises);
+      console.log('ImageUploader: All upload promises settled. Results:', results);
+      
+      const successfulUploads = results.filter(r => r !== null && r.downloadURL && r.storagePath) as {originalName: string; downloadURL: string; storagePath: string}[];
+      const failedInThisBatchCount = filesToUpload.length - successfulUploads.length;
 
-    const successfulUploads = results.filter(r => r !== null && r.downloadURL && r.storagePath) as {originalName: string; downloadURL: string; storagePath: string}[];
-    const attemptedUploadsCount = selectedFiles.filter(f => f.status !== 'success' || !f.downloadURL).length; // Files that were pending or error before this attempt
+      if (successfulUploads.length > 0) {
+        console.log('ImageUploader: Calling onUploadComplete with successful uploads:', successfulUploads);
+        onUploadComplete(successfulUploads);
+      }
 
-    if (successfulUploads.length > 0) {
-      onUploadComplete(successfulUploads); // This eventually calls /api/metadata
+      if (successfulUploads.length > 0 && failedInThisBatchCount === 0) {
+        toast({ title: 'Upload Successful', description: `${successfulUploads.length} image(s) uploaded.` });
+      } else if (successfulUploads.length > 0 && failedInThisBatchCount > 0) {
+        toast({ title: 'Partial Upload', description: `${successfulUploads.length} image(s) uploaded. ${failedInThisBatchCount} failed.`, variant: 'default' });
+      } else if (filesToUpload.length > 0 && successfulUploads.length === 0) {
+         toast({ title: 'Upload Failed', description: `All ${filesToUpload.length} image(s) failed to upload.`, variant: 'destructive' });
+      }
+
+    } catch (allResultsError) {
+      console.error('ImageUploader: Error in Promise.all processing uploads:', allResultsError);
+      toast({ title: 'Upload Error', description: 'An unexpected error occurred while processing uploads.', variant: 'destructive' });
+    } finally {
+      console.log('ImageUploader: Setting isUploading to false.');
+      setIsUploading(false);
     }
-
-    const failedThisAttemptCount = attemptedUploadsCount - successfulUploads.length;
-
-    if (successfulUploads.length > 0 && failedThisAttemptCount === 0) {
-      toast({ title: 'Upload Successful', description: `${successfulUploads.length} image(s) uploaded and metadata submitted.` });
-    } else if (successfulUploads.length > 0 && failedThisAttemptCount > 0) {
-      toast({ title: 'Partial Upload', description: `${successfulUploads.length} image(s) uploaded. ${failedThisAttemptCount} failed. Check individual items and console.`, variant: 'default' });
-    } else if (attemptedUploadsCount > 0 && successfulUploads.length === 0) {
-       toast({ title: 'Upload Failed', description: `All ${attemptedUploadsCount} image(s) failed to upload. Check items and console.`, variant: 'destructive' });
-    }
-
   };
 
-  // Cleanup Object URLs when component unmounts or selectedFiles change
-  // This is important to prevent memory leaks
-  // However, direct cleanup in useEffect for selectedFiles can be tricky
-  // if previews are needed. Best to revoke on removal and unmount.
   React.useEffect(() => {
     return () => {
       selectedFiles.forEach(uploadedFile => {
