@@ -38,42 +38,40 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
     >
       <DialogContent
         key={`${image.fileId}-dialog-content`}
-        className="sm:max-w-3xl w-[95vw] max-h-[90vh] flex flex-col p-0 overflow-hidden" // No padding on DialogContent itself initially
+        className="sm:max-w-3xl w-[95vw] max-h-[90vh] flex flex-col p-0 overflow-hidden" // No padding on DialogContent itself
       >
         <DialogHeader className="p-4 sm:p-6 pb-2 sm:pb-4 shrink-0 border-b">
           <DialogTitle className="font-headline text-lg sm:text-xl truncate" title={image.originalName}>
             {image.originalName}
           </DialogTitle>
-           <DialogDescription className="sr-only">
-            A larger view of the image titled {image.originalName}.
-          </DialogDescription>
         </DialogHeader>
+        <DialogDescription className="sr-only"> {/* For accessibility, as requested by console warning */}
+          A larger view of the image titled {image.originalName}.
+        </DialogDescription>
 
         {/* This div is the main stage for the image. It should grow. It's also the relative parent. */}
         <div
           key={`${image.fileId}-image-stage`}
-          className="flex-1 min-h-0 w-full relative overflow-hidden bg-purple-500/10" // Removed p-4, this is the relative container
+          className="flex-1 min-h-0 w-full relative overflow-hidden p-2 sm:p-4 bg-background" // Padding here for around the image
         >
-            <Image
-              key={`${image.fileId}-modal-image`}
-              src={imageSrc}
-              alt={`View of ${image.originalName}`}
-              layout="fill"
-              objectFit="contain" // This will scale the image down to fit, maintaining aspect ratio, and center it
-              className="rounded-md" // Can add padding here if needed around the image itself: e.g., p-2 or p-4
-              placeholder="blur"
-              blurDataURL="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
-              data-ai-hint={image.dataAiHint || 'full view image'}
-              unoptimized={process.env.NODE_ENV === 'development'}
-              onLoad={(event) => {
-                const target = event.target as HTMLImageElement;
-                console.log(`ViewImageModal: Next/Image onLoad for src: ${target.src}. Natural dimensions: ${target.naturalWidth}x${target.naturalHeight}`);
-              }}
-              onError={(e) => {
-                const target = e.target as HTMLImageElement;
-                console.error(`ViewImageModal: Next/Image onError event for src: ${target.src}. Error:`, e);
-              }}
-            />
+          <Image
+            key={`${image.fileId}-modal-image`}
+            src={imageSrc}
+            alt={`View of ${image.originalName}`}
+            layout="fill"
+            objectFit="contain" // This will scale the image down to fit, maintaining aspect ratio, and center it
+            className="rounded-md" // Can add specific padding to image if needed, but parent has it now
+            data-ai-hint={image.dataAiHint || 'full view image'}
+            unoptimized={process.env.NODE_ENV === 'development'}
+            onLoad={(event) => {
+              const target = event.target as HTMLImageElement;
+              console.log(`ViewImageModal: Next/Image onLoad for src: ${target.src}. Natural dimensions: ${target.naturalWidth}x${target.naturalHeight}`);
+            }}
+            onError={(e) => {
+              const target = e.target as HTMLImageElement;
+              console.error(`ViewImageModal: Next/Image onError event for src: ${target.src}. Error:`, e);
+            }}
+          />
         </div>
 
         <DialogFooter className="p-4 sm:p-6 pt-2 sm:pt-4 shrink-0 border-t">
