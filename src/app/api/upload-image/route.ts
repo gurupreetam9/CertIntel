@@ -1,7 +1,7 @@
 
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { MongoClient, GridFSBucket, Db, MongoError } from 'mongodb';
+import { MongoClient, GridFSBucket, Db, MongoError, ServerApiVersion } from 'mongodb';
 import { Readable } from 'stream';
 
 const MONGODB_URI = process.env.MONGODB_URI;
@@ -16,26 +16,53 @@ async function connectToDb() {
     console.error('API Error: MONGODB_URI is not set in environment variables.');
     throw new Error('MONGODB_URI is not set in environment variables.');
   }
-  if (db && client && client.topology && client.topology.isConnected()) {
-    console.log('MongoDB: Already connected.');
-    return; 
+  // Check if the client exists and is connected
+  // Using client.topology.isConnected() is a way to check, though often just checking if db/bucket are defined is enough
+  // For simplicity, we can re-evaluate connection status based on whether `db` is defined.
+  // More robust checks might involve pinging the database if `client` exists.
+  if (db && client && client.db(DB_NAME)) { // A more direct check if client can access the db
+    try {
+        await client.db(DB_NAME).command({ ping: 1 });
+        console.log('MongoDB: Already connected and responsive.');
+        return;
+    } catch (pingError) {
+        console.warn('MongoDB: Existing client lost connection or unresponsive, will attempt to reconnect.', pingError);
+        // Clean up old client if ping fails
+        if (client) {
+            await client.close().catch(closeErr => console.error('MongoDB: Error closing unresponsive client:', closeErr));
+        }
+        client = undefined;
+        db = undefined;
+        bucket = undefined;
+    }
   }
+
   try {
     console.log('MongoDB: Attempting to connect...');
-    client = new MongoClient(MONGODB_URI);
+    client = new MongoClient(MONGODB_URI, {
+      serverApi: {
+        version: ServerApiVersion.v1,
+        strict: true,
+        deprecationErrors: true,
+      },
+      // Optionally, you could try forcing TLS 1.2 if issues persist,
+      // though the driver usually negotiates this correctly with Atlas.
+      // tls: true, // This is typically default for srv URIs
+      // tlsVersion: 'TLSv1_2', // Example for Node.js crypto TLS options
+    });
     await client.connect();
     db = client.db(DB_NAME);
     bucket = new GridFSBucket(db, { bucketName: 'images' });
     console.log('MongoDB: Connected to MongoDB and GridFS bucket initialized.');
   } catch (error: any) {
     console.error('MongoDB: Connection failed.', error);
-    // Clean up client if connection failed partially
     if (client) {
         await client.close().catch(closeErr => console.error('MongoDB: Error closing client after connection failure:', closeErr));
         client = undefined;
         db = undefined;
         bucket = undefined;
     }
+    // Rethrow the original error or a more specific one
     throw new Error(`MongoDB connection error: ${error.message}`);
   }
 }
@@ -71,9 +98,9 @@ function dataURIToBuffer(dataURI: string): { buffer: Buffer; contentType: string
 
 export async function POST(request: NextRequest) {
   try {
-    await connectToDb();
-    if (!bucket || !db) {
-      console.error('API Error: Database or GridFS bucket not initialized. connectToDb might have failed silently or not been called.');
+    await connectToDb(); // Ensure connection is established
+    if (!bucket || !db) { // Re-check after connectToDb
+      console.error('API Error: Database or GridFS bucket not initialized. connectToDb might have failed.');
       return NextResponse.json({ message: 'Server error: Database not initialized. Please check server logs.' }, { status: 500 });
     }
 
@@ -92,7 +119,7 @@ export async function POST(request: NextRequest) {
       detectedContentType = parsedData.contentType;
     } catch (parseError: any) {
       console.error('API Error: Failed to parse Data URI.', parseError);
-      return NextResponse.json({ message: `Invalid image data format: ${parseError.message}`, error: parseError.message }, { status: 400 });
+      return NextResponse.json({ message: `Invalid image data format: ${parseError.message}`, error: parseError.message, details: parseError.stack }, { status: 400 });
     }
     
     const finalContentType = explicitContentType || detectedContentType || 'application/octet-stream';
@@ -114,10 +141,10 @@ export async function POST(request: NextRequest) {
 
       const readable = Readable.from(buffer);
       readable.pipe(uploadStream)
-        .on('error', (error: MongoError) => { // Specific type for MongoDB errors
+        .on('error', (error: MongoError) => { 
           console.error('GridFS: Upload stream error:', error);
-          // Ensure a NextResponse is used with reject
-          reject(NextResponse.json({ message: 'Failed to upload image to GridFS.', error: error.message, code: error.code }, { status: 500 }));
+          // Ensure a NextResponse is used with reject by resolving the promise with it
+          resolve(NextResponse.json({ message: 'Failed to upload image to GridFS.', error: error.message, code: error.code, details: error.stack }, { status: 500 }));
         })
         .on('finish', () => {
           console.log(`GridFS: File ${filename} uploaded successfully with id ${uploadStream.id}`);
@@ -130,14 +157,17 @@ export async function POST(request: NextRequest) {
     let errorMessage = 'An unexpected error occurred during image upload.';
     let statusCode = 500;
 
-    if (error.message.includes('MONGODB_URI is not set') || error.message.includes('MongoDB connection error')) {
+    if (error.message && error.message.includes('MONGODB_URI is not set')) {
         errorMessage = `Server configuration error: ${error.message}`;
-    } else if (error.message.includes('Invalid Data URI')) {
+    } else if (error.message && error.message.includes('MongoDB connection error')) {
+        errorMessage = `Server configuration error: ${error.message}`; // This will include the SSL error message
+    } else if (error.message && error.message.includes('Invalid Data URI')) {
         errorMessage = `Bad request: ${error.message}`;
         statusCode = 400;
+    } else if (error.message) { // Catch all for other error messages
+        errorMessage = error.message;
     }
     
-    // Ensure we always try to return a JSON response
     return NextResponse.json({ message: errorMessage, error: error.message, details: error.stack }, { status: statusCode });
   }
 }
@@ -150,3 +180,4 @@ export async function POST(request: NextRequest) {
 //     },
 //   },
 // };
+
