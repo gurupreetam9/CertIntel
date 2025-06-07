@@ -1,3 +1,4 @@
+
 export const runtime = 'nodejs';
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
@@ -31,6 +32,7 @@ interface CustomParsedForm {
   };
 }
 
+// Revised form parsing using request.formData() for App Router
 const parseFormRevised = async (req: NextRequest, reqId: string): Promise<CustomParsedForm> => {
   const formData = await req.formData();
   const fields: { [key: string]: string | string[] } = {};
@@ -57,6 +59,8 @@ const parseFormRevised = async (req: NextRequest, reqId: string): Promise<Custom
         console.log(`API /api/upload-image (Req ID: ${reqId}, parseFormRevised): File '${value.name}' saved to temp path '${tempFilePath}'.`);
       } catch (error: any) {
         console.error(`API /api/upload-image (Req ID: ${reqId}, parseFormRevised): Error writing file '${value.name}' to temp. Error: ${error.message}`);
+        // If writing to temp fails, we should probably throw or handle this more gracefully
+        // For now, it will just not be added to filesOutput and handled later if 'file' field is missing
       }
     } else {
       console.log(`API /api/upload-image (Req ID: ${reqId}, parseFormRevised): Processing text field '${key}'.`);
@@ -74,6 +78,7 @@ const parseFormRevised = async (req: NextRequest, reqId: string): Promise<Custom
   console.log(`API /api/upload-image (Req ID: ${reqId}, parseFormRevised): Finished formData processing. Found ${Object.keys(filesOutput).length} file(s).`);
   return { fields, files: filesOutput };
 };
+
 
 export async function POST(request: NextRequest) {
   const reqId = Math.random().toString(36).substring(2, 9);
@@ -93,7 +98,7 @@ export async function POST(request: NextRequest) {
       console.log(`API /api/upload-image (Req ID: ${reqId}): DB connected, GridFS bucket obtained.`);
     } catch (dbError: any) {
       console.error(`API /api/upload-image (Req ID: ${reqId}): DB Connection Error.`, { message: dbError.message, name: dbError.name });
-      throw dbError; 
+      throw dbError; // Rethrow to be caught by outer try-catch
     }
     
     const { bucket } = dbConnection;
@@ -144,21 +149,53 @@ export async function POST(request: NextRequest) {
         throw new Error('Temporary PDF file disappeared before processing.');
       }
       const pdfData = new Uint8Array(await fsPromises.readFile(tempFilePath));
-      const pdfDocument = await pdfjsLib.getDocument({ data: pdfData }).promise;
-      console.log(`API /api/upload-image (Req ID: ${reqId}): PDF loaded, ${pdfDocument.numPages} page(s).`);
+      console.log(`API /api/upload-image (Req ID: ${reqId}): PDF data read from temp file. Length: ${pdfData.length}`);
+      
+      let pdfDocument;
+      try {
+        console.log(`API /api/upload-image (Req ID: ${reqId}): Calling pdfjsLib.getDocument()`);
+        pdfDocument = await pdfjsLib.getDocument({ data: pdfData }).promise;
+        console.log(`API /api/upload-image (Req ID: ${reqId}): PDF loaded, ${pdfDocument.numPages} page(s).`);
+      } catch (pdfLoadError: any) {
+        console.error(`API /api/upload-image (Req ID: ${reqId}): Error loading PDF document with pdfjsLib.getDocument:`, { message: pdfLoadError.message, name: pdfLoadError.name, stack: pdfLoadError.stack?.substring(0, 500) });
+        throw new Error(`Failed to load PDF document: ${pdfLoadError.message}`);
+      }
+
 
       for (let i = 1; i <= pdfDocument.numPages; i++) {
         const pageNumber = i;
-        console.log(`API /api/upload-image (Req ID: ${reqId}): Processing page ${pageNumber}...`);
-        const page = await pdfDocument.getPage(pageNumber);
+        console.log(`API /api/upload-image (Req ID: ${reqId}): Processing page ${pageNumber} of ${pdfDocument.numPages}...`);
+        let page;
+        try {
+          page = await pdfDocument.getPage(pageNumber);
+          console.log(`API /api/upload-image (Req ID: ${reqId}): Page ${pageNumber} obtained.`);
+        } catch (getPageError: any) {
+           console.error(`API /api/upload-image (Req ID: ${reqId}): Error getting page ${pageNumber}:`, { message: getPageError.message, name: getPageError.name });
+           // Optionally skip this page and continue, or rethrow
+           throw new Error(`Failed to get page ${pageNumber} from PDF: ${getPageError.message}`);
+        }
+        
         const viewport = page.getViewport({ scale: 2.0 }); // Adjust scale as needed for resolution
+        console.log(`API /api/upload-image (Req ID: ${reqId}): Viewport for page ${pageNumber}: width=${viewport.width}, height=${viewport.height}`);
         
         const canvas = createCanvas(viewport.width, viewport.height) as Canvas;
         const canvasContext = canvas.getContext('2d');
+        console.log(`API /api/upload-image (Req ID: ${reqId}): Canvas created for page ${pageNumber}. Rendering...`);
 
-        await page.render({ canvasContext, viewport }).promise;
-        const pngBuffer = canvas.toBuffer('image/png');
+        try {
+          await page.render({ canvasContext, viewport }).promise;
+          console.log(`API /api/upload-image (Req ID: ${reqId}): Page ${pageNumber} rendered to canvas.`);
+        } catch (renderError: any) {
+          console.error(`API /api/upload-image (Req ID: ${reqId}): Error rendering page ${pageNumber} to canvas:`, { message: renderError.message, name: renderError.name, stack: renderError.stack?.substring(0,500) });
+          page.cleanup();
+          throw new Error(`Failed to render PDF page ${pageNumber}: ${renderError.message}`);
+        }
+        
         page.cleanup(); // Release page resources
+        console.log(`API /api/upload-image (Req ID: ${reqId}): Page ${pageNumber} cleaned up. Converting canvas to PNG buffer...`);
+        
+        const pngBuffer = canvas.toBuffer('image/png');
+        console.log(`API /api/upload-image (Req ID: ${reqId}): PNG buffer created for page ${pageNumber}. Length: ${pngBuffer.length}`);
 
         const basePdfNameSecure = path.basename(actualOriginalName, path.extname(actualOriginalName)).replace(/[^a-zA-Z0-9_.-]/g, '_');
         const imageFilename = `${userId}_${Date.now()}_${basePdfNameSecure}_page_${pageNumber}.png`;
@@ -173,12 +210,12 @@ export async function POST(request: NextRequest) {
           reqIdParent: reqId,
         };
 
-        console.log(`API /api/upload-image (Req ID: ${reqId}): Creating GridFS upload stream for PDF page: ${imageFilename} with metadata:`, metadata);
+        console.log(`API /api/upload-image (Req ID: ${reqId}): Creating GridFS upload stream for PDF page: ${imageFilename}`);
         const uploadStream = bucket.openUploadStream(imageFilename, { contentType: 'image/png', metadata });
         
         await new Promise<void>((resolveStream, rejectStream) => {
           uploadStream.on('error', (err: MongoError) => {
-            console.error(`API /api/upload-image (Req ID: ${reqId}): GridFS Stream Error for PDF page ${imageFilename}:`, err);
+            console.error(`API /api/upload-image (Req ID: ${reqId}): GridFS Stream Error for PDF page ${imageFilename}:`, { message: err.message, name: err.name, code: err.code, stack: err.stack?.substring(0,300) });
             rejectStream(new Error(`GridFS upload error for ${imageFilename}: ${err.message}`));
           });
           uploadStream.on('finish', () => {
@@ -186,8 +223,13 @@ export async function POST(request: NextRequest) {
             results.push({ originalName: metadata.originalName, fileId: uploadStream.id.toString(), filename: imageFilename, pageNumber });
             resolveStream();
           });
+          console.log(`API /api/upload-image (Req ID: ${reqId}): Piping PNG buffer to GridFS for page ${pageNumber}.`);
           uploadStream.end(pngBuffer);
         });
+      }
+      if (pdfDocument && typeof pdfDocument.destroy === 'function') {
+        await pdfDocument.destroy(); // Ensure document resources are freed
+        console.log(`API /api/upload-image (Req ID: ${reqId}): PDF document destroyed.`);
       }
       console.log(`API /api/upload-image (Req ID: ${reqId}): Finished processing all PDF pages.`);
 
@@ -199,11 +241,11 @@ export async function POST(request: NextRequest) {
         userId,
         uploadedAt: new Date().toISOString(),
         sourceContentType: fileType,
-        explicitContentType: fileType,
+        explicitContentType: fileType, // Keep this if it's useful for your Flask app
         reqIdParent: reqId,
       };
 
-      console.log(`API /api/upload-image (Req ID: ${reqId}): Creating GridFS upload stream for image: ${imageFilename} with metadata:`, metadata);
+      console.log(`API /api/upload-image (Req ID: ${reqId}): Creating GridFS upload stream for image: ${imageFilename}.`);
       const uploadStream = bucket.openUploadStream(imageFilename, { contentType: fileType, metadata });
       console.log(`API /api/upload-image (Req ID: ${reqId}): GridFS upload stream created with ID: ${uploadStream.id}. Reading from temp file: ${tempFilePath}`);
       
@@ -216,11 +258,11 @@ export async function POST(request: NextRequest) {
       console.log(`API /api/upload-image (Req ID: ${reqId}): Starting to pipe readable stream to GridFS upload stream for ${imageFilename}.`);
       await new Promise<void>((resolveStream, rejectStream) => {
         readable.on('error', (err) => {
-          console.error(`API /api/upload-image (Req ID: ${reqId}): Error reading temp file ${tempFilePath} for ${imageFilename}:`, err);
+          console.error(`API /api/upload-image (Req ID: ${reqId}): Error reading temp file ${tempFilePath} for ${imageFilename}:`, { message: err.message, name: err.name, stack: err.stack?.substring(0,300) });
           rejectStream(new Error(`Error reading temporary file: ${err.message}`));
         });
         uploadStream.on('error', (err: MongoError) => {
-          console.error(`API /api/upload-image (Req ID: ${reqId}): GridFS Stream Error for image ${imageFilename}:`, err);
+          console.error(`API /api/upload-image (Req ID: ${reqId}): GridFS Stream Error for image ${imageFilename}:`, { message: err.message, name: err.name, code: err.code, stack: err.stack?.substring(0,300) });
           rejectStream(new Error(`GridFS upload error for ${imageFilename}: ${err.message}`));
         });
         uploadStream.on('finish', () => {
@@ -270,6 +312,6 @@ export async function POST(request: NextRequest) {
 
 export const config = {
   api: {
-    bodyParser: false, 
+    bodyParser: false, // Not strictly needed with App Router and request.formData()
   },
 };
