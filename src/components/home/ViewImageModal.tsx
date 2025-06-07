@@ -14,12 +14,10 @@ interface ViewImageModalProps {
 
 export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModalProps) {
   // Log when the component renders or its props change
-  console.log('ViewImageModal: Render/Update. isOpen:', isOpen, 'Image prop:', image);
+  console.log('ViewImageModal: Render/Update. isOpen:', isOpen, 'Image prop:', image ? image.fileId : 'null');
 
   if (!image) {
-    // If no image, don't render the modal content that depends on it, or render placeholder
     if (isOpen) {
-      // This case should ideally not happen if called correctly from ImageGrid
       console.warn('ViewImageModal: isOpen is true but image prop is null.');
     }
     return null; 
@@ -41,7 +39,8 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
         </DialogHeader>
         <div className="flex-grow relative my-4 flex items-center justify-center">
           {/* Set a max height and width for the image container itself */}
-          <div className="relative w-full h-full max-w-[80vw] max-h-[70vh]">
+          {/* DEBUG: Added bg-red-500/30 to visualize the container */}
+          <div className="relative w-full h-full max-w-[80vw] max-h-[70vh] bg-red-500/30">
             <Image
               key={image.fileId} // Adding a key can help if the src changes for the same modal instance
               src={imageSrc}
@@ -53,9 +52,8 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
               blurDataURL="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
               data-ai-hint={image.dataAiHint || 'full view image'}
               onError={(e) => {
-                // Target type is EventTarget, cast to HTMLImageElement if needed for specific properties
                 const target = e.target as HTMLImageElement;
-                console.error(`ViewImageModal: Next/Image onError event for src: ${target.src}. Natural width: ${target.naturalWidth}`, e);
+                console.error(`ViewImageModal: Next/Image onError event for src: ${target.src}. Natural width: ${target.naturalWidth}. Error:`, e);
               }}
               onLoadingComplete={(img) => {
                 console.log(`ViewImageModal: Next/Image onLoadingComplete for src: ${img.src}. Natural dimensions: ${img.naturalWidth}x${img.naturalHeight}`);
@@ -73,4 +71,3 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
     </Dialog>
   );
 }
-
