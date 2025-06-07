@@ -66,7 +66,7 @@ export async function GET(
     
     const responseHeaders = new Headers();
     responseHeaders.set('Content-Type', contentType);
-    // responseHeaders.set('Content-Length', fileInfo.length.toString()); // Useful for clients
+    responseHeaders.set('Content-Length', fileInfo.length.toString());
     responseHeaders.set('Cache-Control', 'public, max-age=604800, immutable'); // Cache for 1 week
 
     console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): Returning response with stream for fileId: ${objectId}`);
@@ -94,3 +94,70 @@ export async function GET(
     return NextResponse.json(errorPayload, { status });
   }
 }
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { fileId: string } }
+) {
+  const { fileId } = params;
+  const reqId = Math.random().toString(36).substring(2, 9);
+  console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): DELETE request received for fileId: ${fileId}`);
+
+  // In a real app, you'd get userId from a verified Firebase ID token in the Authorization header.
+  // For now, we'll expect it as a query parameter for simplicity in this prototype.
+  const userIdFromRequest = request.nextUrl.searchParams.get('userId');
+
+  if (!userIdFromRequest) {
+    console.warn(`API Route /api/images/[fileId] (Req ID: ${reqId}): Missing userId query parameter for DELETE.`);
+    return NextResponse.json({ message: 'Unauthorized: Missing user identification.' }, { status: 401 });
+  }
+  
+  if (!fileId || !ObjectId.isValid(fileId)) {
+    console.warn(`API Route /api/images/[fileId] (Req ID: ${reqId}): Invalid fileId for DELETE: ${fileId}`);
+    return NextResponse.json({ message: 'Invalid fileId.' }, { status: 400 });
+  }
+
+  let dbConnection;
+  try {
+    dbConnection = await connectToDb();
+    const { db, bucket } = dbConnection;
+    const objectId = new ObjectId(fileId);
+
+    // Find the file to check its metadata for ownership
+    const filesCollection = db.collection('images.files');
+    const fileMetadata = await filesCollection.findOne({ _id: objectId });
+
+    if (!fileMetadata) {
+      console.warn(`API Route /api/images/[fileId] (Req ID: ${reqId}): File not found for DELETE: ${fileId}`);
+      return NextResponse.json({ message: 'File not found.' }, { status: 404 });
+    }
+
+    // Authorization check: Ensure the user deleting owns the file
+    if (fileMetadata.metadata?.userId !== userIdFromRequest) {
+      console.warn(`API Route /api/images/[fileId] (Req ID: ${reqId}): Unauthorized DELETE attempt. User ${userIdFromRequest} tried to delete file ${fileId} owned by ${fileMetadata.metadata?.userId}.`);
+      return NextResponse.json({ message: 'Unauthorized: You do not have permission to delete this file.' }, { status: 403 });
+    }
+
+    console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): Authorized. Attempting to delete file ${fileId} from GridFS.`);
+    await bucket.delete(objectId);
+    console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): File ${fileId} deleted successfully.`);
+    
+    return NextResponse.json({ message: 'File deleted successfully.' }, { status: 200 });
+
+  } catch (error: any) {
+    console.error(`API Route /api/images/[fileId] (Req ID: ${reqId}): Error deleting image for fileId ${fileId}:`, {
+      message: error.message,
+      name: error.name,
+      stack: error.stack?.substring(0, 300),
+    });
+    let status = 500;
+    let message = 'Error deleting image.';
+    if (error.message && error.message.includes('MongoDB connection error')) {
+      message = 'Database connection error.';
+    }
+    const errorPayload = { message, error: error.message };
+    console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): Preparing to send error response for DELETE:`, errorPayload);
+    return NextResponse.json(errorPayload, { status });
+  }
+}
+

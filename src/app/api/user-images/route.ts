@@ -63,19 +63,20 @@ export async function GET(request: NextRequest) {
       }
     ).sort({ uploadDate: -1 }).toArray(); 
     
-    console.log(`API Route /api/user-images (Req ID: ${reqId}): Found ${userImages.length} images for userId ${userId}. Raw data:`, JSON.stringify(userImages.slice(0,2))); // Log first 2 results
+    console.log(`API Route /api/user-images (Req ID: ${reqId}): Found ${userImages.length} images for userId ${userId}. Raw data sample:`, JSON.stringify(userImages.slice(0,1))); // Log first result
 
     const formattedImages = userImages.map(img => ({
       fileId: img._id.toString(),
       filename: img.filename,
-      uploadDate: img.uploadDate,
+      uploadDate: img.uploadDate as string, // Assuming it's a date string or Date object
       contentType: img.contentType,
       originalName: img.metadata?.originalName || img.filename, 
       dataAiHint: img.metadata?.dataAiHint || '',
       size: img.length || 0,
+      userId: img.metadata?.userId, // Include userId from metadata
     }));
 
-    console.log(`API Route /api/user-images (Req ID: ${reqId}): Returning ${formattedImages.length} formatted images. Sample:`, JSON.stringify(formattedImages.slice(0,2)));
+    console.log(`API Route /api/user-images (Req ID: ${reqId}): Returning ${formattedImages.length} formatted images. Sample:`, JSON.stringify(formattedImages.slice(0,1)));
     return NextResponse.json(formattedImages, { status: 200 });
 
   } catch (error: any) {

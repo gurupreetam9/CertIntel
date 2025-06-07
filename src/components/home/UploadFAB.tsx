@@ -28,7 +28,7 @@ export default function UploadFAB({ onUploadSuccess }: UploadFABProps) {
           <Plus className="h-7 w-7" />
         </Button>
       }
-      onUploadProcessed={onUploadSuccess} // Pass the callback down
+      onUploadProcessed={onUploadSuccess} // This will call triggerRefresh in HomePageContent
     />
   );
 }
