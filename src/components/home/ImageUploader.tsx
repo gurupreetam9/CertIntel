@@ -13,6 +13,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { uploadFileToFirebase } from '@/lib/firebase/storage';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { generateImageDescription, type GenerateImageDescriptionOutput } from '@/ai/flows/generate-image-description';
 
 interface UploadedFile {
   file: File;
@@ -27,6 +28,21 @@ interface UploadedFile {
 interface ImageUploaderProps {
   onUploadComplete: (uploadedFiles: { originalName: string; downloadURL: string; storagePath: string }[]) => void;
   closeModal: () => void;
+}
+
+async function fileToDataUri(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error('Failed to read file as Data URI.'));
+      }
+    };
+    reader.onerror = (error) => reject(error);
+    reader.readAsDataURL(file);
+  });
 }
 
 export default function ImageUploader({ onUploadComplete, closeModal }: ImageUploaderProps) {
@@ -50,7 +66,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
           status: 'pending',
         }));
       setSelectedFiles(prev => [...prev, ...newFiles]);
-      if(event.target) event.target.value = ""; // Clear the input value to allow re-selection of the same file
+      if(event.target) event.target.value = ""; 
     }
   };
 
@@ -108,6 +124,30 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
         );
         console.log(`ImageUploader: Individual upload successful for: ${uploadedFile.file.name}. URL: ${downloadURL}`);
         setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'success', progress: 100, downloadURL, storagePath: returnedPath } : f));
+        
+        // ---- AI Description Generation ----
+        try {
+          console.log(`ImageUploader: Converting ${uploadedFile.file.name} to data URI for AI...`);
+          const dataUri = await fileToDataUri(uploadedFile.file);
+          console.log(`ImageUploader: Calling generateImageDescription for ${uploadedFile.file.name}`);
+          const descriptionResult: GenerateImageDescriptionOutput = await generateImageDescription({ photoDataUri: dataUri });
+          console.log(`ImageUploader: AI Description for ${uploadedFile.file.name}: ${descriptionResult.description}`);
+          toast({
+            title: `AI Description: ${uploadedFile.file.name}`,
+            description: descriptionResult.description.substring(0, 200) + (descriptionResult.description.length > 200 ? '...' : ''), // Truncate for toast
+            duration: 7000, 
+          });
+        } catch (aiError: any) {
+          console.error(`ImageUploader: AI description failed for ${uploadedFile.file.name}:`, aiError);
+          toast({
+            title: 'AI Description Failed',
+            description: `Could not generate description for ${uploadedFile.file.name}. ${(aiError.message || 'Unknown AI error')}`,
+            variant: 'destructive',
+            duration: 7000,
+          });
+        }
+        // ---- End AI Description Generation ----
+
         return { originalName: uploadedFile.file.name, downloadURL, storagePath: returnedPath };
       } catch (error: any) {
         console.error(`ImageUploader: Individual upload error for file: ${uploadedFile.file.name}. Error object:`, error);
@@ -120,7 +160,6 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     try {
       console.log('ImageUploader: Waiting for all upload promises to settle...');
       const results = await Promise.all(uploadPromises);
-      // Using JSON.stringify for results as it can be an array of objects/null
       console.log('ImageUploader: All upload promises settled. Results:', JSON.stringify(results)); 
       
       const successfulUploads = results.filter(r => r !== null && r.downloadURL && r.storagePath) as {originalName: string; downloadURL: string; storagePath: string}[];
@@ -130,10 +169,9 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
 
       if (successfulUploads.length > 0) {
         console.log('ImageUploader: Calling onUploadComplete with successful uploads:', successfulUploads);
-        onUploadComplete(successfulUploads); // This is async; its own error handling is in UploadModal
+        onUploadComplete(successfulUploads);
       }
 
-      // Toast logic based on batch results
       if (filesToUpload.length > 0) { 
         if (successfulUploads.length > 0 && failedInThisBatchCount === 0) {
           toast({ title: 'Upload Complete', description: `${successfulUploads.length} image(s) uploaded successfully.` });
@@ -147,8 +185,6 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
       }
 
     } catch (allResultsError) {
-      // This catch block for Promise.all itself should ideally not be hit if individual errors are caught and returned as null in the map.
-      // However, it's a safety net.
       console.error('ImageUploader: Unexpected error during Promise.all settlement or results processing:', allResultsError);
       toast({ title: 'Upload Processing Error', description: 'An unexpected error occurred while finalizing uploads. Some files may not have processed correctly.', variant: 'destructive' });
     } finally {
@@ -159,7 +195,6 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
   };
 
   React.useEffect(() => {
-    // Cleanup Object URLs on unmount
     return () => {
       console.log("ImageUploader: Component unmounting, revoking object URLs.");
       selectedFiles.forEach(uploadedFile => {
@@ -168,7 +203,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
         }
       });
     };
-  }, [selectedFiles]); // Rerun if selectedFiles changes, though the cleanup is for unmount
+  }, [selectedFiles]);
 
 
   return (
@@ -260,4 +295,3 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     </div>
   );
 }
-
