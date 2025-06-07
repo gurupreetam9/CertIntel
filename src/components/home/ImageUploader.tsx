@@ -16,10 +16,10 @@ import { useIsMobile } from '@/hooks/use-mobile';
 interface UploadedFile {
   file: File;
   previewUrl: string;
-  progress: number; // Will be 0 or 100 for MongoDB uploads for simplicity
+  progress: number;
   status: 'pending' | 'uploading' | 'success' | 'error';
   error?: string;
-  fileId?: string; // MongoDB GridFS file ID
+  fileId?: string;
 }
 
 interface ImageUploaderProps {
@@ -50,7 +50,7 @@ async function getDescriptionFromCustomAI(photoDataUri: string): Promise<{ descr
   }
   const aiEndpoint = `${aiServerBaseUrl}/describe-image`;
 
-  console.log(`ImageUploader: Calling custom AI server at ${aiEndpoint}`);
+  console.log(`ImageUploader: Calling custom AI server at ${aiEndpoint} for description.`);
   const response = await fetch(aiEndpoint, {
     method: 'POST',
     headers: {
@@ -137,12 +137,13 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     console.log('ImageUploader: isUploading state has been set to true.');
 
     const uploadPromises = filesToUpload.map(async (uploadedFile) => {
-      setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'uploading', progress: 50, error: undefined } : f)); // Progress set to 50 to show activity
+      setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'uploading', progress: 50, error: undefined } : f));
       console.log(`ImageUploader: Starting individual upload to MongoDB for: ${uploadedFile.file.name}`);
       
       try {
         const photoDataUri = await fileToDataUri(uploadedFile.file);
         
+        console.log(`ImageUploader: Sending ${uploadedFile.file.name} to /api/upload-image`);
         const response = await fetch('/api/upload-image', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -154,23 +155,27 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
           }),
         });
 
+        const responseBody = await response.json().catch(() => {
+             // If response.json() fails, it means the body wasn't valid JSON (e.g. HTML error page)
+            return { message: `Server returned non-JSON response (Status: ${response.status}). Check server logs.`, error: 'Invalid server response' };
+        });
+
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ message: 'Failed to upload and parse error from server.' }));
-          console.error(`ImageUploader: MongoDB upload failed for ${uploadedFile.file.name}. Status: ${response.status}`, errorData);
-          throw new Error(errorData.message || `Server error: ${response.status}`);
+          console.error(`ImageUploader: MongoDB upload failed for ${uploadedFile.file.name}. Status: ${response.status}`, responseBody);
+          const errorMessage = responseBody.message || `Server error: ${response.status}. Check server logs.`;
+          throw new Error(errorMessage);
         }
 
-        const result = await response.json();
+        const result = responseBody; // Already parsed
         console.log(`ImageUploader: MongoDB upload successful for: ${uploadedFile.file.name}. File ID: ${result.fileId}`);
         setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'success', progress: 100, fileId: result.fileId } : f));
         
-        // ---- Custom AI Description Generation ----
         try {
           console.log(`ImageUploader: Calling getDescriptionFromCustomAI for ${uploadedFile.file.name}`);
           const descriptionResult = await getDescriptionFromCustomAI(photoDataUri);
           console.log(`ImageUploader: Custom AI Description for ${uploadedFile.file.name}: ${descriptionResult.description}`);
           toast({
-            title: `Custom AI: ${uploadedFile.file.name}`,
+            title: `AI: ${uploadedFile.file.name}`,
             description: descriptionResult.description.substring(0, 200) + (descriptionResult.description.length > 200 ? '...' : ''),
             duration: 7000, 
           });
@@ -178,16 +183,15 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
           console.error(`ImageUploader: Custom AI description failed for ${uploadedFile.file.name}:`, customAiError);
           toast({
             title: 'Custom AI Failed',
-            description: `Could not get description from custom AI for ${uploadedFile.file.name}. ${(customAiError.message || 'Unknown custom AI error')}`,
+            description: `Could not get description for ${uploadedFile.file.name}. ${(customAiError.message || 'Unknown custom AI error')}`,
             variant: 'destructive',
             duration: 7000,
           });
         }
-        // ---- End Custom AI Description Generation ----
 
         return { originalName: uploadedFile.file.name, fileId: result.fileId };
       } catch (error: any) {
-        console.error(`ImageUploader: Individual MongoDB upload error for file: ${uploadedFile.file.name}. Error object:`, error);
+        console.error(`ImageUploader: Individual MongoDB upload error for file: ${uploadedFile.file.name}. Error:`, error.message, error);
         const errorMessage = error.message || 'Upload to MongoDB failed';
         setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'error', error: errorMessage, progress: 0 } : f));
         return null;
@@ -213,17 +217,15 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
         if (successfulUploads.length > 0 && failedInThisBatchCount === 0) {
           toast({ title: 'Upload Complete', description: `${successfulUploads.length} image(s) uploaded to database successfully.` });
         } else if (successfulUploads.length > 0 && failedInThisBatchCount > 0) {
-          toast({ title: 'Partial Upload', description: `${successfulUploads.length} image(s) uploaded to database. ${failedInThisBatchCount} failed. Check individual files for errors.`, variant: 'default' });
+          toast({ title: 'Partial Upload', description: `${successfulUploads.length} image(s) uploaded to database. ${failedInThisBatchCount} failed. Check file errors.`, variant: 'default' });
         } else if (failedInThisBatchCount > 0 && successfulUploads.length === 0) {
-           toast({ title: 'Upload Failed', description: `All ${failedInThisBatchCount} image(s) attempted in this batch failed to upload to database. Check individual files for errors.`, variant: 'destructive' });
+           toast({ title: 'Upload Failed', description: `All ${failedInThisBatchCount} image(s) in this batch failed. Check file errors & server logs.`, variant: 'destructive' });
         }
-      } else {
-        console.log('ImageUploader: No files were attempted in this batch for toast summary.');
       }
 
     } catch (allResultsError) {
       console.error('ImageUploader: Unexpected error during MongoDB Promise.all settlement or results processing:', allResultsError);
-      toast({ title: 'Upload Processing Error', description: 'An unexpected error occurred while finalizing uploads. Some files may not have processed correctly.', variant: 'destructive' });
+      toast({ title: 'Upload Processing Error', description: 'Unexpected error finalizing uploads. Some files may not have processed.', variant: 'destructive' });
     } finally {
       console.log(`ImageUploader: Entering finally block of MongoDB handleUpload. Current isUploading before set: ${isUploading}`);
       setIsUploading(false);
@@ -287,7 +289,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
                   {uploadedFile.status === 'pending' && (
                     <Card className="mt-2 bg-muted/50 border-dashed">
                       <CardHeader className="p-2">
-                        <CardTitle className="text-xs font-normal">Image Editor (Coming Soon)</CardTitle>
+                        <CardTitle className="text-xs font-normal">Image Editor (Placeholder)</CardTitle>
                       </CardHeader>
                       <CardContent className="p-2 flex gap-2">
                         <Button variant="outline" size="sm" disabled>Crop</Button>
@@ -332,5 +334,3 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     </div>
   );
 }
-
-    
