@@ -3,8 +3,8 @@
 /**
  * @fileOverview Flow to initiate sending an OTP to a user's email for verification.
  * - initiateEmailOtp: Generates an OTP, stores it with an expiry, and simulates sending it.
- * - InitiateEmailOtpInputSchema: Input schema (email).
- * - InitiateEmailOtpOutputSchema: Output schema (success/message).
+ * - InitiateEmailOtpInput: Input type for the initiateEmailOtp function.
+ * - InitiateEmailOtpOutput: Output type for the initiateEmailOtp function.
  */
 import { ai } from '@/ai/genkit';
 import { z } from 'zod'; // Using global Zod as per project setup
@@ -18,12 +18,12 @@ if (!(globalThis as any).otpStore) {
 }
 const otpStore: Record<string, { otp: string; expiresAt: number }> = (globalThis as any).otpStore;
 
-export const InitiateEmailOtpInputSchema = z.object({
+const InitiateEmailOtpInputSchema = z.object({
   email: z.string().email({ message: 'Invalid email address.' }),
 });
 export type InitiateEmailOtpInput = z.infer<typeof InitiateEmailOtpInputSchema>;
 
-export const InitiateEmailOtpOutputSchema = z.object({
+const InitiateEmailOtpOutputSchema = z.object({
   success: z.boolean(),
   message: z.string(),
 });
@@ -63,3 +63,4 @@ const initiateEmailOtpFlow = ai.defineFlow(
     return { success: true, message: 'OTP has been generated. Please check your server console for the OTP code.' };
   }
 );
+

@@ -3,8 +3,8 @@
 /**
  * @fileOverview Flow to verify an email OTP and complete user registration.
  * - verifyEmailOtpAndRegister: Verifies OTP, and if valid, creates user in Firebase Auth.
- * - VerifyEmailOtpAndRegisterInputSchema: Input schema (email, otp, password).
- * - VerifyEmailOtpAndRegisterOutputSchema: Output schema (success/message, userId).
+ * - VerifyEmailOtpAndRegisterInput: Input type for the verifyEmailOtpAndRegister function.
+ * - VerifyEmailOtpAndRegisterOutput: Output type for the verifyEmailOtpAndRegister function.
  */
 import { ai } from '@/ai/genkit';
 import { z } from 'zod'; // Using global Zod
@@ -19,14 +19,14 @@ if (!(globalThis as any).otpStore) {
 const otpStore: Record<string, { otp: string; expiresAt: number }> = (globalThis as any).otpStore;
 
 
-export const VerifyEmailOtpAndRegisterInputSchema = z.object({
+const VerifyEmailOtpAndRegisterInputSchema = z.object({
   email: z.string().email({ message: 'Invalid email address.' }),
   otp: z.string().length(6, { message: 'OTP must be 6 digits.' }),
   password: z.string().min(6, { message: 'Password must be at least 6 characters long.' }),
 });
 export type VerifyEmailOtpAndRegisterInput = z.infer<typeof VerifyEmailOtpAndRegisterInputSchema>;
 
-export const VerifyEmailOtpAndRegisterOutputSchema = z.object({
+const VerifyEmailOtpAndRegisterOutputSchema = z.object({
   success: z.boolean(),
   message: z.string(),
   userId: z.string().optional(),
