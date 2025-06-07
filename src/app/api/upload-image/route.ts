@@ -10,9 +10,8 @@ import os from 'os';
 import path from 'path';
 
 // Import pdfjs-dist and canvas for server-side PDF processing
-// Using the standard CJS build path for pdfjs-dist v4+
 const pdfjsLib = require('pdfjs-dist/build/pdf.js');
-// Specify the worker source for Node.js environment. Critical for pdfjs-dist v3+
+// Specify the worker source for Node.js environment. Critical for pdfjs-dist v4+
 pdfjsLib.GlobalWorkerOptions.workerSrc = require.resolve('pdfjs-dist/build/pdf.worker.js');
 
 import { createCanvas, type Canvas } from 'canvas';
@@ -59,8 +58,7 @@ const parseFormRevised = async (req: NextRequest, reqId: string): Promise<Custom
         console.log(`API /api/upload-image (Req ID: ${reqId}, parseFormRevised): File '${value.name}' saved to temp path '${tempFilePath}'.`);
       } catch (error: any) {
         console.error(`API /api/upload-image (Req ID: ${reqId}, parseFormRevised): Error writing file '${value.name}' to temp. Error: ${error.message}`);
-        // If writing to temp fails, we should probably throw or handle this more gracefully
-        // For now, it will just not be added to filesOutput and handled later if 'file' field is missing
+        // This error should ideally be propagated or handled to prevent issues later
       }
     } else {
       console.log(`API /api/upload-image (Req ID: ${reqId}, parseFormRevised): Processing text field '${key}'.`);
@@ -98,7 +96,7 @@ export async function POST(request: NextRequest) {
       console.log(`API /api/upload-image (Req ID: ${reqId}): DB connected, GridFS bucket obtained.`);
     } catch (dbError: any) {
       console.error(`API /api/upload-image (Req ID: ${reqId}): DB Connection Error.`, { message: dbError.message, name: dbError.name });
-      throw dbError; // Rethrow to be caught by outer try-catch
+      throw dbError; 
     }
     
     const { bucket } = dbConnection;
@@ -158,24 +156,22 @@ export async function POST(request: NextRequest) {
         console.log(`API /api/upload-image (Req ID: ${reqId}): PDF loaded, ${pdfDocument.numPages} page(s).`);
       } catch (pdfLoadError: any) {
         console.error(`API /api/upload-image (Req ID: ${reqId}): Error loading PDF document with pdfjsLib.getDocument:`, { message: pdfLoadError.message, name: pdfLoadError.name, stack: pdfLoadError.stack?.substring(0, 500) });
-        throw new Error(`Failed to load PDF document: ${pdfLoadError.message}`);
+        throw new Error(`Failed to load PDF document '${actualOriginalName}': ${pdfLoadError.message}`);
       }
-
 
       for (let i = 1; i <= pdfDocument.numPages; i++) {
         const pageNumber = i;
-        console.log(`API /api/upload-image (Req ID: ${reqId}): Processing page ${pageNumber} of ${pdfDocument.numPages}...`);
+        console.log(`API /api/upload-image (Req ID: ${reqId}): Processing PDF page ${pageNumber} of ${pdfDocument.numPages}...`);
         let page;
         try {
           page = await pdfDocument.getPage(pageNumber);
           console.log(`API /api/upload-image (Req ID: ${reqId}): Page ${pageNumber} obtained.`);
         } catch (getPageError: any) {
-           console.error(`API /api/upload-image (Req ID: ${reqId}): Error getting page ${pageNumber}:`, { message: getPageError.message, name: getPageError.name });
-           // Optionally skip this page and continue, or rethrow
-           throw new Error(`Failed to get page ${pageNumber} from PDF: ${getPageError.message}`);
+           console.error(`API /api/upload-image (Req ID: ${reqId}): Error getting page ${pageNumber} from PDF '${actualOriginalName}':`, { message: getPageError.message, name: getPageError.name });
+           throw new Error(`Failed to get page ${pageNumber} from PDF '${actualOriginalName}': ${getPageError.message}`);
         }
         
-        const viewport = page.getViewport({ scale: 2.0 }); // Adjust scale as needed for resolution
+        const viewport = page.getViewport({ scale: 2.0 });
         console.log(`API /api/upload-image (Req ID: ${reqId}): Viewport for page ${pageNumber}: width=${viewport.width}, height=${viewport.height}`);
         
         const canvas = createCanvas(viewport.width, viewport.height) as Canvas;
@@ -186,12 +182,12 @@ export async function POST(request: NextRequest) {
           await page.render({ canvasContext, viewport }).promise;
           console.log(`API /api/upload-image (Req ID: ${reqId}): Page ${pageNumber} rendered to canvas.`);
         } catch (renderError: any) {
-          console.error(`API /api/upload-image (Req ID: ${reqId}): Error rendering page ${pageNumber} to canvas:`, { message: renderError.message, name: renderError.name, stack: renderError.stack?.substring(0,500) });
+          console.error(`API /api/upload-image (Req ID: ${reqId}): Error rendering page ${pageNumber} of PDF '${actualOriginalName}' to canvas:`, { message: renderError.message, name: renderError.name, stack: renderError.stack?.substring(0,500) });
           page.cleanup();
-          throw new Error(`Failed to render PDF page ${pageNumber}: ${renderError.message}`);
+          throw new Error(`Failed to render PDF page ${pageNumber} of '${actualOriginalName}': ${renderError.message}`);
         }
         
-        page.cleanup(); // Release page resources
+        page.cleanup(); 
         console.log(`API /api/upload-image (Req ID: ${reqId}): Page ${pageNumber} cleaned up. Converting canvas to PNG buffer...`);
         
         const pngBuffer = canvas.toBuffer('image/png');
@@ -228,52 +224,56 @@ export async function POST(request: NextRequest) {
         });
       }
       if (pdfDocument && typeof pdfDocument.destroy === 'function') {
-        await pdfDocument.destroy(); // Ensure document resources are freed
+        await pdfDocument.destroy();
         console.log(`API /api/upload-image (Req ID: ${reqId}): PDF document destroyed.`);
       }
-      console.log(`API /api/upload-image (Req ID: ${reqId}): Finished processing all PDF pages.`);
+      console.log(`API /api/upload-image (Req ID: ${reqId}): Finished processing all PDF pages for '${actualOriginalName}'.`);
 
     } else if (fileType && fileType.startsWith('image/')) {
-      console.log(`API /api/upload-image (Req ID: ${reqId}): Image file type (${fileType}) detected. Uploading directly to GridFS.`);
+      console.log(`API /api/upload-image (Req ID: ${reqId}): Image file type (${fileType}) detected. Uploading directly to GridFS for file '${actualOriginalName}'.`);
       const imageFilename = `${userId}_${Date.now()}_${actualOriginalName.replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
       const metadata = {
         originalName: actualOriginalName,
         userId,
         uploadedAt: new Date().toISOString(),
         sourceContentType: fileType,
-        explicitContentType: fileType, // Keep this if it's useful for your Flask app
+        explicitContentType: fileType,
         reqIdParent: reqId,
       };
 
-      console.log(`API /api/upload-image (Req ID: ${reqId}): Creating GridFS upload stream for image: ${imageFilename}.`);
-      const uploadStream = bucket.openUploadStream(imageFilename, { contentType: fileType, metadata });
-      console.log(`API /api/upload-image (Req ID: ${reqId}): GridFS upload stream created with ID: ${uploadStream.id}. Reading from temp file: ${tempFilePath}`);
-      
-      if (!fs.existsSync(tempFilePath)) {
-        console.error(`API /api/upload-image (Req ID: ${reqId}): Temp image file not found at ${tempFilePath} before GridFS upload.`);
-        throw new Error('Temporary image file disappeared before GridFS upload.');
+      try { // Specific try-catch for image upload to GridFS
+        console.log(`API /api/upload-image (Req ID: ${reqId}): Creating GridFS upload stream for image: ${imageFilename}.`);
+        const uploadStream = bucket.openUploadStream(imageFilename, { contentType: fileType, metadata });
+        console.log(`API /api/upload-image (Req ID: ${reqId}): GridFS upload stream created with ID: ${uploadStream.id}. Reading from temp file: ${tempFilePath}`);
+        
+        if (!fs.existsSync(tempFilePath)) {
+          console.error(`API /api/upload-image (Req ID: ${reqId}): Temp image file not found at ${tempFilePath} before GridFS upload.`);
+          throw new Error('Temporary image file disappeared before GridFS upload.');
+        }
+        const readable = fs.createReadStream(tempFilePath);
+        
+        console.log(`API /api/upload-image (Req ID: ${reqId}): Starting to pipe readable stream to GridFS upload stream for ${imageFilename}.`);
+        await new Promise<void>((resolveStream, rejectStream) => {
+          readable.on('error', (err) => {
+            console.error(`API /api/upload-image (Req ID: ${reqId}): Error reading temp file ${tempFilePath} for ${imageFilename}:`, { message: err.message, name: err.name, stack: err.stack?.substring(0,300) });
+            rejectStream(new Error(`Error reading temporary file for ${imageFilename}: ${err.message}`));
+          });
+          uploadStream.on('error', (err: MongoError) => {
+            console.error(`API /api/upload-image (Req ID: ${reqId}): GridFS Stream Error for image ${imageFilename}:`, { message: err.message, name: err.name, code: err.code, stack: err.stack?.substring(0,300) });
+            rejectStream(new Error(`GridFS upload error for ${imageFilename}: ${err.message}`));
+          });
+          uploadStream.on('finish', () => {
+            console.log(`API /api/upload-image (Req ID: ${reqId}): GridFS Upload finished successfully for image: ${imageFilename}, ID: ${uploadStream.id}.`);
+            results.push({ originalName: actualOriginalName, fileId: uploadStream.id.toString(), filename: imageFilename });
+            resolveStream();
+          });
+          readable.pipe(uploadStream);
+        });
+        console.log(`API /api/upload-image (Req ID: ${reqId}): Finished piping to GridFS for ${imageFilename}.`);
+      } catch (imageProcessingError: any) {
+          console.error(`API /api/upload-image (Req ID: ${reqId}): Error during image processing/upload for '${actualOriginalName}':`, imageProcessingError.message, imageProcessingError.stack?.substring(0,500));
+          throw new Error(`Failed during image processing for '${actualOriginalName}': ${imageProcessingError.message}`);
       }
-      const readable = fs.createReadStream(tempFilePath);
-      
-      console.log(`API /api/upload-image (Req ID: ${reqId}): Starting to pipe readable stream to GridFS upload stream for ${imageFilename}.`);
-      await new Promise<void>((resolveStream, rejectStream) => {
-        readable.on('error', (err) => {
-          console.error(`API /api/upload-image (Req ID: ${reqId}): Error reading temp file ${tempFilePath} for ${imageFilename}:`, { message: err.message, name: err.name, stack: err.stack?.substring(0,300) });
-          rejectStream(new Error(`Error reading temporary file: ${err.message}`));
-        });
-        uploadStream.on('error', (err: MongoError) => {
-          console.error(`API /api/upload-image (Req ID: ${reqId}): GridFS Stream Error for image ${imageFilename}:`, { message: err.message, name: err.name, code: err.code, stack: err.stack?.substring(0,300) });
-          rejectStream(new Error(`GridFS upload error for ${imageFilename}: ${err.message}`));
-        });
-        uploadStream.on('finish', () => {
-          console.log(`API /api/upload-image (Req ID: ${reqId}): GridFS Upload finished successfully for image: ${imageFilename}, ID: ${uploadStream.id}.`);
-          results.push({ originalName: actualOriginalName, fileId: uploadStream.id.toString(), filename: imageFilename });
-          resolveStream();
-        });
-        readable.pipe(uploadStream);
-      });
-      console.log(`API /api/upload-image (Req ID: ${reqId}): Finished piping to GridFS for ${imageFilename}.`);
-
     } else {
       console.warn(`API /api/upload-image (Req ID: ${reqId}): Unsupported file type: ${fileType} for file ${actualOriginalName}. Temp path: ${tempFilePath}`);
       return NextResponse.json({ message: `Unsupported file type: ${fileType}. Please upload an image or PDF.`, errorKey: 'UNSUPPORTED_FILE_TYPE' }, { status: 415 });
@@ -283,35 +283,45 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(results, { status: 201 });
 
   } catch (error: any) {
-    console.error(`API /api/upload-image (Req ID: ${reqId}): UNHANDLED ERROR IN POST HANDLER. Name: ${error.name}, Message: ${error.message}.`);
-    console.error(`API /api/upload-image (Req ID: ${reqId}): Error stack: ${error.stack ? error.stack.substring(0,1000) : 'No stack available'}`);
+    const errorReqId = reqId || 'UNKNOWN_REQ_ID';
+    console.error(`API /api/upload-image (Req ID: ${errorReqId}): UNHANDLED ERROR IN POST HANDLER. Name: ${error.name}, Message: ${error.message}.`);
+    console.error(`API /api/upload-image (Req ID: ${errorReqId}): Error stack: ${error.stack ? error.stack.substring(0,1000) : 'No stack available'}`);
     
-    return NextResponse.json(
-      {
-        message: `Server Error: ${error.message || 'An unexpected error occurred during file upload.'}`,
-        errorKey: error.name || 'UNKNOWN_SERVER_ERROR',
-        reqId: reqId,
-        errorDetails: error.toString(),
-      },
-      { status: 500 }
-    );
+    try {
+      return NextResponse.json(
+        {
+          message: `Server Error: ${error.message || 'An unexpected error occurred during file upload.'}`,
+          errorKey: error.name || 'UNKNOWN_SERVER_ERROR',
+          reqId: errorReqId,
+          errorDetails: error.toString(),
+        },
+        { status: 500 }
+      );
+    } catch (responseError: any) {
+      console.error(`API /api/upload-image (Req ID: ${errorReqId}): CRITICAL - FAILED TO SEND JSON ERROR RESPONSE. Response Error: ${responseError.message}`);
+      return new Response(`Server Error: ${error.message || 'An unexpected error occurred.'}. Failed to format JSON error response. Req ID: ${errorReqId}`, {
+        status: 500,
+        headers: { 'Content-Type': 'text/plain' },
+      });
+    }
   } finally {
     for (const tempPath of tempFilePathsToDelete) {
         if (fs.existsSync(tempPath)) {
             try {
-                fs.unlinkSync(tempPath);
-                console.log(`API /api/upload-image (Req ID: ${reqId}): Temp file ${tempPath} deleted.`);
+                await fsPromises.unlink(tempPath);
+                console.log(`API /api/upload-image (Req ID: ${reqId || 'N/A'}): Temp file ${tempPath} deleted.`);
             } catch (unlinkError: any) {
-                console.warn(`API /api/upload-image (Req ID: ${reqId}): Could not delete temp file ${tempPath}. Error: ${unlinkError.message}`);
+                console.warn(`API /api/upload-image (Req ID: ${reqId || 'N/A'}): Could not delete temp file ${tempPath}. Error: ${unlinkError.message}`);
             }
         }
     }
-    console.log(`API /api/upload-image (Req ID: ${reqId}): Request processing finished.`);
+    console.log(`API /api/upload-image (Req ID: ${reqId || 'N/A'}): Request processing finished.`);
   }
 }
 
 export const config = {
   api: {
-    bodyParser: false, // Not strictly needed with App Router and request.formData()
+    bodyParser: false, 
   },
 };
+
