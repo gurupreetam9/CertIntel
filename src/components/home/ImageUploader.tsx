@@ -1,6 +1,7 @@
 
 'use client';
 
+import * as React from 'react'; // Added this line
 import { useState, type ChangeEvent, useRef } from 'react';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
@@ -20,7 +21,7 @@ interface UploadedFile {
   status: 'pending' | 'uploading' | 'success' | 'error';
   error?: string;
   downloadURL?: string;
-  storagePath?: string; 
+  storagePath?: string;
 }
 
 interface ImageUploaderProps {
@@ -50,10 +51,10 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
         }));
       setSelectedFiles(prev => [...prev, ...newFiles]);
       // Reset input value to allow selecting the same file again if removed and re-added
-      if(event.target) event.target.value = ""; 
+      if(event.target) event.target.value = "";
     }
   };
-  
+
   const triggerFileInput = (source: 'camera' | 'files') => {
     setUploadSource(source);
     if (fileInputRef.current) {
@@ -84,17 +85,17 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
 
     const uploadPromises = selectedFiles.map(async (uploadedFile, index) => {
       // Skip already successfully uploaded files in a batch if re-upload is attempted
-      if (uploadedFile.status === 'success') { 
-        return { 
-          originalName: uploadedFile.file.name, 
-          downloadURL: uploadedFile.downloadURL!, 
-          storagePath: uploadedFile.storagePath! 
+      if (uploadedFile.status === 'success') {
+        return {
+          originalName: uploadedFile.file.name,
+          downloadURL: uploadedFile.downloadURL!,
+          storagePath: uploadedFile.storagePath!
         };
       }
-      
+
       // Update status to uploading for this specific file
       setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'uploading', progress: 0 } : f));
-      
+
       const filePath = `images/${userId}/${Date.now()}_${uploadedFile.file.name}`;
       try {
         const { downloadURL, filePath: returnedPath } = await uploadFileToFirebase(
@@ -125,7 +126,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     if (successfulUploads.length > 0) {
       onUploadComplete(successfulUploads); // This eventually calls /api/metadata
     }
-    
+
     const failedThisAttemptCount = attemptedUploadsCount - successfulUploads.length;
 
     if (successfulUploads.length > 0 && failedThisAttemptCount === 0) {
@@ -193,7 +194,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
                 <div className="flex-grow space-y-2">
                   <p className="text-sm font-medium truncate" title={uploadedFile.file.name}>{uploadedFile.file.name}</p>
                   <p className="text-xs text-muted-foreground">{(uploadedFile.file.size / 1024 / 1024).toFixed(2)} MB</p>
-                  
+
                   {uploadedFile.status === 'pending' && (
                     <Card className="mt-2 bg-muted/50 border-dashed">
                       <CardHeader className="p-2">
@@ -205,7 +206,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
                       </CardContent>
                     </Card>
                   )}
-                  
+
                   {(uploadedFile.status === 'uploading' || (uploadedFile.status === 'success' && uploadedFile.progress < 100)) && (
                     <Progress value={uploadedFile.progress} className="w-full h-2 mt-1" />
                   )}
@@ -226,9 +227,9 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
       )}
 
       {selectedFiles.length > 0 && (
-        <Button 
-          onClick={handleUpload} 
-          disabled={isUploading || !selectedFiles.some(f => f.status === 'pending' || f.status === 'error')} 
+        <Button
+          onClick={handleUpload}
+          disabled={isUploading || !selectedFiles.some(f => f.status === 'pending' || f.status === 'error')}
           className="w-full"
         >
           {isUploading ? (
