@@ -5,7 +5,7 @@ import cv2
 import pytesseract
 from PIL import Image, UnidentifiedImageError
 from ultralytics import YOLO
-from pdf2image import convert_from_bytes 
+from pdf2image import convert_from_bytes
 import numpy as np
 import re
 import nltk
@@ -32,7 +32,7 @@ stop_words = set(stopwords.words('english'))
 course_keywords = {"course", "certification", "developer", "programming", "bootcamp", "internship", "award", "degree", "diploma", "training"}
 
 # --- Constants ---
-COHERE_API_KEY = os.getenv("COHERE_API_KEY") 
+COHERE_API_KEY = os.getenv("COHERE_API_KEY")
 
 if not COHERE_API_KEY:
     logging.warning("COHERE_API_KEY not found in environment variables. LLM fallback will not work.")
@@ -112,9 +112,8 @@ try:
         model = YOLO(YOLO_MODEL_PATH)
         logging.info(f"Successfully loaded YOLO model from: {YOLO_MODEL_PATH}")
     else:
-        # Try a common relative path if the specific one isn't found (e.g. if 'best.pt' is in the script's directory)
         script_dir_model_path = os.path.join(os.path.dirname(__file__), 'best.pt')
-        if os.path.exists(script_dir_model_path) and YOLO_MODEL_PATH == "best.pt": # only if default was used
+        if os.path.exists(script_dir_model_path) and YOLO_MODEL_PATH == "best.pt":
              model = YOLO(script_dir_model_path)
              logging.info(f"Successfully loaded YOLO model from script directory: {script_dir_model_path}")
         else:
@@ -141,7 +140,7 @@ def infer_course_text_from_image_object(pil_image_obj):
         if image_np.shape[2] == 4:
              image_np = cv2.cvtColor(image_np, cv2.COLOR_RGBA2RGB)
 
-        results = model(image_np) 
+        results = model(image_np)
         names = results[0].names
         boxes = results[0].boxes
 
@@ -149,22 +148,22 @@ def infer_course_text_from_image_object(pil_image_obj):
             for box in boxes:
                 cls_id = int(box.cls[0].item())
                 label = names[cls_id]
-                if label.lower() in ["certificatecourse", "course", "title", "name"]: 
+                if label.lower() in ["certificatecourse", "course", "title", "name"]:
                     left, top, right, bottom = map(int, box.xyxy[0].cpu().numpy())
                     cropped_pil_image = pil_image_obj.crop((left, top, right, bottom))
                     text = pytesseract.image_to_string(cropped_pil_image).strip()
                     cleaned_text = clean_unicode(text)
-                    if cleaned_text: 
+                    if cleaned_text:
                         logging.info(f"Extracted text from detected region ('{label}'): '{cleaned_text}'")
                         return cleaned_text
         else:
             logging.warning("No relevant bounding boxes detected by YOLO.")
-        
+
         logging.info("No specific course region found, attempting OCR on the whole image as fallback.")
         full_image_text = pytesseract.image_to_string(pil_image_obj).strip()
         cleaned_full_text = clean_unicode(full_image_text)
         if cleaned_full_text:
-            logging.info(f"Extracted text from full image (fallback): '{cleaned_full_text[:100]}...'") 
+            logging.info(f"Extracted text from full image (fallback): '{cleaned_full_text[:100]}...'")
             return cleaned_full_text
         return None
     except Exception as e:
@@ -178,7 +177,7 @@ def extract_course_names_from_text(text):
     for course in possible_courses:
         if re.search(r'\b' + re.escape(course.lower()) + r'\b', text_lower):
             found_courses.append(course)
-    return list(set(found_courses)) 
+    return list(set(found_courses))
 
 def get_closest_known_course(unknown_course_text):
     if not sentence_model:
@@ -197,15 +196,15 @@ def get_closest_known_course(unknown_course_text):
         return None, 0.0
 
 def filter_and_verify_course_text(text):
-    if not text or len(text) < 3: 
+    if not text or len(text) < 3:
         return []
     phrases_to_remove = ["certificate of completion", "certificate of achievement", "is awarded to", "has successfully completed"]
     temp_text = text.lower()
     for phrase in phrases_to_remove:
         temp_text = temp_text.replace(phrase, "")
-    potential_course_lines = [line.strip() for line in temp_text.split('\n') if len(line.strip()) > 4] 
+    potential_course_lines = [line.strip() for line in temp_text.split('\n') if len(line.strip()) > 4]
     identified_courses = []
-    direct_matches = extract_course_names_from_text(text) 
+    direct_matches = extract_course_names_from_text(text)
     for dm in direct_matches:
         identified_courses.append(dm)
     for line_text in potential_course_lines:
@@ -213,13 +212,13 @@ def filter_and_verify_course_text(text):
             continue
         is_known_course = False
         for pc in possible_courses:
-            if pc.lower() in line_text.lower(): 
+            if pc.lower() in line_text.lower():
                 if pc not in identified_courses: identified_courses.append(pc)
                 is_known_course = True
                 break
         if not is_known_course:
             if any(kw in line_text for kw in course_keywords) and not all(word in course_keywords for word in line_text.split()):
-                if len(line_text.split()) <= 7 and line_text not in identified_courses: 
+                if len(line_text.split()) <= 7 and line_text not in identified_courses:
                     identified_courses.append(f"{line_text.title()} [UNVERIFIED]")
     return list(set(identified_courses))
 
@@ -244,10 +243,11 @@ def query_cohere_llm_for_recommendations(completed_courses_text_list):
 
     If multiple distinct topics were completed, try to provide diverse recommendations.
     If a completed topic seems very niche or too general, try to suggest foundational courses that build upon it or broader skills.
+    IMPORTANT: Do not recommend any of the courses the user has already completed: {', '.join(completed_courses_text_list)}.
     """
     try:
         response = co.chat(model="command-r-plus", message=prompt, temperature=0.6)
-        logging.info(f"Cohere LLM raw response: {response.text[:200]}...") 
+        logging.info(f"Cohere LLM raw response: {response.text[:200]}...")
         return response.text.strip()
     except Exception as e:
         logging.error(f"Error querying Cohere LLM: {e}")
@@ -272,8 +272,12 @@ def parse_llm_recommendation_response(llm_response_text):
 
 def generate_recommendations(user_completed_courses_list, previous_results_list=None):
     recommendations_output = []
-    processed_courses = set() 
-    llm_candidate_courses = [] 
+    processed_courses = set()
+    llm_candidate_courses = []
+    
+    # Normalize the user_completed_courses_list for easier checking
+    # We'll use the clean names (without "[UNVERIFIED]") for filtering suggestions
+    normalized_completed_set = set(c.replace(" [UNVERIFIED]", "").strip().lower() for c in user_completed_courses_list)
 
     for course_name_full in user_completed_courses_list:
         is_unverified = "[UNVERIFIED]" in course_name_full
@@ -281,7 +285,6 @@ def generate_recommendations(user_completed_courses_list, previous_results_list=
         if not clean_course_name or clean_course_name in processed_courses:
             continue
 
-        # 1. Check Cache from previous_results_list for graph-like recommendations
         cached_graph_recommendation = None
         if previous_results_list:
             for prev_result_doc in previous_results_list:
@@ -290,87 +293,111 @@ def generate_recommendations(user_completed_courses_list, previous_results_list=
                     rec_type = prev_rec.get('type', '')
                     if rec_type.startswith('graph_') or rec_type.startswith('cached_graph_'):
                         if prev_rec.get('completed_course') == clean_course_name or prev_rec.get('matched_course') == clean_course_name:
-                            cached_graph_recommendation = {**prev_rec, "type": f"cached_{rec_type}"}
+                            # Filter next_courses from cache against currently completed courses
+                            filtered_next_courses = [
+                                nc for nc in prev_rec.get("next_courses", [])
+                                if nc.lower() not in normalized_completed_set
+                            ]
+                            if filtered_next_courses or not prev_rec.get("next_courses"): # Keep if next_courses was empty or still has items
+                                cached_graph_recommendation = {**prev_rec, "next_courses": filtered_next_courses, "type": f"cached_{rec_type}"}
                             break
                 if cached_graph_recommendation:
                     break
         
         if cached_graph_recommendation:
-            recommendations_output.append(cached_graph_recommendation)
+            if cached_graph_recommendation.get("next_courses"): # Only add if there are still suggestions
+                recommendations_output.append(cached_graph_recommendation)
             processed_courses.add(clean_course_name)
             if matched := cached_graph_recommendation.get('matched_course'): processed_courses.add(matched)
             logging.info(f"Using cached graph-like recommendation for '{clean_course_name}'.")
             continue
 
-        # 2. Try direct match in course_graph
         if clean_course_name in course_graph:
             entry = course_graph[clean_course_name]
-            recommendations_output.append({
-                "type": "graph_direct", "completed_course": clean_course_name,
-                "description": entry["description"], "next_courses": entry["next_courses"],
-                "url": entry.get("url", "#")
-            })
+            # Filter next_courses against all user's completed courses
+            filtered_next_courses = [
+                nc for nc in entry["next_courses"]
+                if nc.lower() not in normalized_completed_set
+            ]
+            if filtered_next_courses: # Only add recommendation if there are suggestions left
+                recommendations_output.append({
+                    "type": "graph_direct", "completed_course": clean_course_name,
+                    "description": entry["description"], "next_courses": filtered_next_courses,
+                    "url": entry.get("url", "#")
+                })
             processed_courses.add(clean_course_name)
             continue
 
-        # 3. Try similarity match in course_graph (only if not unverified)
         if not is_unverified:
             best_match, score = get_closest_known_course(clean_course_name)
             if best_match and score > 0.75 and best_match in course_graph:
                 entry = course_graph[best_match]
-                recommendations_output.append({
-                    "type": "graph_similar", "completed_course": clean_course_name,
-                    "matched_course": best_match, "similarity_score": round(score, 2),
-                    "description": entry["description"], "next_courses": entry["next_courses"],
-                    "url": entry.get("url", "#")
-                })
+                 # Filter next_courses against all user's completed courses
+                filtered_next_courses = [
+                    nc for nc in entry["next_courses"]
+                    if nc.lower() not in normalized_completed_set
+                ]
+                if filtered_next_courses: # Only add recommendation if there are suggestions left
+                    recommendations_output.append({
+                        "type": "graph_similar", "completed_course": clean_course_name,
+                        "matched_course": best_match, "similarity_score": round(score, 2),
+                        "description": entry["description"], "next_courses": filtered_next_courses,
+                        "url": entry.get("url", "#")
+                    })
                 processed_courses.add(clean_course_name)
                 processed_courses.add(best_match)
                 continue
         
         llm_candidate_courses.append(course_name_full)
 
-    # 4. LLM Fallback for remaining llm_candidate_courses
     unique_llm_inputs = list(set(c.replace(" [UNVERIFIED]", "").strip() for c in llm_candidate_courses if c.replace(" [UNVERIFIED]", "").strip()))
     
-    if unique_llm_inputs:
+    # Prepare the full list of already completed courses for the LLM prompt
+    # This ensures the LLM is explicitly told not to re-suggest these
+    llm_completed_courses_for_prompt = [c.replace(" [UNVERIFIED]", "").strip() for c in user_completed_courses_list]
+
+    if unique_llm_inputs: # Only call LLM if there are courses that weren't handled by graph
         llm_input_key = tuple(sorted(unique_llm_inputs))
         cached_llm_rec_list = None
         if previous_results_list:
             for prev_result_doc in previous_results_list:
                 actual_prev_recommendations = prev_result_doc.get('recommendations', [])
-                # Find if there's an LLM block based on the exact same input key
                 for prev_rec in actual_prev_recommendations:
                     if (prev_rec.get('type', '').startswith('llm') or prev_rec.get('type', '').startswith('cached_llm')) and \
                        tuple(sorted(prev_rec.get('based_on_courses', []))) == llm_input_key:
-                        # Found a block of LLM recommendations for this input set
-                        # Collect all such recommendations from this prev_result_doc
-                        cached_llm_output_for_key = [
-                            r for r in actual_prev_recommendations 
+                        
+                        # Filter cached LLM recommendations against currently completed courses
+                        filtered_llm_recs_from_cache = [
+                            r for r in actual_prev_recommendations
                             if (r.get('type','').startswith('llm') or r.get('type','').startswith('cached_llm')) and \
-                               tuple(sorted(r.get('based_on_courses', []))) == llm_input_key
+                               tuple(sorted(r.get('based_on_courses', []))) == llm_input_key and \
+                               (r.get("name", "").lower() not in normalized_completed_set)
                         ]
-                        if cached_llm_output_for_key:
-                             cached_llm_rec_list = cached_llm_output_for_key
+                        if filtered_llm_recs_from_cache:
+                             cached_llm_rec_list = filtered_llm_recs_from_cache
                         break 
                 if cached_llm_rec_list:
                     break
         
         if cached_llm_rec_list:
-            logging.info(f"Using cached LLM recommendations for input set: {llm_input_key}")
+            logging.info(f"Using cached and filtered LLM recommendations for input set: {llm_input_key}")
             for rec in cached_llm_rec_list:
                 recommendations_output.append({**rec, "type": f"cached_{rec.get('type', 'llm')}"})
         else:
-            logging.info(f"Querying LLM for input set: {llm_input_key}")
-            llm_response_text = query_cohere_llm_for_recommendations(unique_llm_inputs)
+            logging.info(f"Querying LLM for input set: {llm_input_key}, with completed list: {llm_completed_courses_for_prompt}")
+            # Pass the full list of completed courses to the LLM query function
+            llm_response_text = query_cohere_llm_for_recommendations(llm_completed_courses_for_prompt) # Changed input here
+            
             if llm_response_text and not llm_response_text.startswith("Error from LLM") and not llm_response_text.startswith("Cohere LLM not available"):
                 parsed_llm_recs = parse_llm_recommendation_response(llm_response_text)
                 for rec_data in parsed_llm_recs:
-                    recommendations_output.append({
-                        "type": "llm",
-                        "based_on_courses": unique_llm_inputs, 
-                        **rec_data 
-                    })
+                    # Also filter newly parsed LLM recs, just in case LLM didn't fully respect the prompt
+                    if rec_data.get("name", "").lower() not in normalized_completed_set:
+                        recommendations_output.append({
+                            "type": "llm",
+                            "based_on_courses": unique_llm_inputs, # For caching, based on what triggered this specific LLM call
+                            **rec_data 
+                        })
             else: 
                 recommendations_output.append({
                     "type": "llm_error", 
@@ -438,10 +465,8 @@ def extract_and_recommend_courses_from_image_data(
         for manual_course in additional_manual_courses:
             clean_manual_course = manual_course.strip()
             if clean_manual_course and clean_manual_course not in unique_final_course_list:
-                # Decide if manual courses should also be marked "UNVERIFIED" or trusted
-                # For now, let's assume they are trusted if manually entered.
                 unique_final_course_list.append(clean_manual_course)
-        unique_final_course_list = sorted(list(set(unique_final_course_list))) # Re-sort and unique
+        unique_final_course_list = sorted(list(set(unique_final_course_list))) 
         logging.info(f"Merged with manual courses. Final list for recommendations: {unique_final_course_list}")
 
 
@@ -467,31 +492,14 @@ if __name__ == "__main__":
             test_data.append({"bytes": img_bytes, "original_filename": f_name, "content_type": content_type})
     if test_data:
         print(f"Locally testing with {len(test_data)} images from '{test_image_folder}'...")
-        # Simulate previous_results and additional_manual_courses for local testing
-        mock_previous_results = [
-            # {
-            #     "userId": "test_user", "processedAt": "sometime",
-            #     "extracted_courses": ["HTML"],
-            #     "recommendations": [{
-            #         "type": "graph_direct", "completed_course": "HTML", 
-            #         "description": "HTML desc", "next_courses": ["CSS"], "url": "html.com"
-            #     }]
-            # },
-            # {
-            #     "userId": "test_user", "processedAt": "another_time",
-            #     "extracted_courses": ["Python", "SomeOtherCourse"],
-            #     "recommendations": [
-            #         {"type": "llm", "based_on_courses": ["Python", "SomeOtherCourse"], "name": "Advanced Python", "description":"Adv Py Desc", "url":"advpy.com"},
-            #         {"type": "llm", "based_on_courses": ["Python", "SomeOtherCourse"], "name": "Data Science Intro", "description":"DS Desc", "url":"ds.com"}
-            #     ]
-            # }
-        ]
-        mock_manual_courses = ["Advanced Statistics"] # Example manual course
+        
+        mock_previous_results = []
+        mock_manual_courses = [] 
         
         results = extract_and_recommend_courses_from_image_data(
             test_data, 
-            # previous_results_list=mock_previous_results, 
-            # additional_manual_courses=mock_manual_courses
+            previous_results_list=mock_previous_results, 
+            additional_manual_courses=mock_manual_courses
         )
         print("\n\n=== FINAL RESULTS (Local Test) ===")
         print(json.dumps(results, indent=2))
@@ -500,11 +508,9 @@ if __name__ == "__main__":
 
 # Ensure YOLO_MODEL_PATH is correct or 'best.pt' is in the right place.
 # Example: YOLO_MODEL_PATH=./models/best.pt python certificate_processor.py
-# Or ensure 'best.pt' is in the same directory as certificate_processor.py
-# or the directory from which you run the script, if YOLO_MODEL_PATH env var is not set.
 # If 'best.pt' is one level up: YOLO_MODEL_PATH=../best.pt python certificate_processor.py
 # To use environment variable: export YOLO_MODEL_PATH=/path/to/your/model/best.pt
 # then run: python certificate_processor.py
-# If the model is in the current directory and named 'best.pt', it should try to load it by default.
-# If the model path env var is NOT set, and 'best.pt' is not in current dir, it will try `os.path.join(os.path.dirname(__file__), 'best.pt')`
 # Make sure your Cohere API key is also set in environment or directly in script for testing.
+
+
