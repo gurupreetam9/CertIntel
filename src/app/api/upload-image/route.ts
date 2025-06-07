@@ -33,14 +33,16 @@ interface CustomParsedForm {
 
 // Revised form parsing using request.formData() for App Router
 const parseFormRevised = async (req: NextRequest, reqId: string): Promise<CustomParsedForm> => {
+  console.log(`API /api/upload-image (Req ID: ${reqId}, parseFormRevised): Starting formData processing.`);
   const formData = await req.formData();
   const fields: { [key: string]: string | string[] } = {};
   const filesOutput: CustomParsedForm['files'] = {};
-  console.log(`API /api/upload-image (Req ID: ${reqId}, parseFormRevised): Starting formData processing.`);
+  
 
   for (const [key, value] of formData.entries()) {
     if (value instanceof File) {
       console.log(`API /api/upload-image (Req ID: ${reqId}, parseFormRevised): Processing file field '${key}', filename: '${value.name}'.`);
+      // Sanitize original filename for use in temporary path to prevent path traversal or invalid characters
       const safeOriginalName = value.name.replace(/[^a-zA-Z0-9_.-]/g, '_');
       const tempFileName = `nextjs_temp_${reqId}_${Date.now()}_${safeOriginalName}`;
       const tempFilePath = path.join(os.tmpdir(), tempFileName);
@@ -58,6 +60,7 @@ const parseFormRevised = async (req: NextRequest, reqId: string): Promise<Custom
         console.log(`API /api/upload-image (Req ID: ${reqId}, parseFormRevised): File '${value.name}' saved to temp path '${tempFilePath}'.`);
       } catch (error: any) {
         console.error(`API /api/upload-image (Req ID: ${reqId}, parseFormRevised): Error writing file '${value.name}' to temp. Error: ${error.message}`);
+        // Add to files to delete even if write failed partially or metadata was set
         throw new Error(`Failed to write temporary file ${value.name}: ${error.message}`);
       }
     } else {
@@ -94,12 +97,13 @@ export async function POST(request: NextRequest) {
         dbConnection = await connectToDb();
         if (!dbConnection || !dbConnection.bucket || !dbConnection.db) {
           console.error(`API /api/upload-image (Req ID: ${reqId}): DB Connection Error - connectToDb returned invalid structure.`);
+          // This should be caught by the outer try-catch, but good to be explicit
           throw new Error('Server error: Database or GridFS bucket not initialized.');
         }
         console.log(`API /api/upload-image (Req ID: ${reqId}): DB connected, GridFS bucket obtained.`);
       } catch (dbError: any) {
-        console.error(`API /api/upload-image (Req ID: ${reqId}): DB Connection Error.`, { message: dbError.message, name: dbError.name });
-        throw dbError; // Re-throw to be caught by the main error handler
+        console.error(`API /api/upload-image (Req ID: ${reqId}): DB Connection Error. Name: ${dbError.name}, Message: ${dbError.message}`);
+        throw dbError; // Re-throw to be caught by the main error handler, will be wrapped in JSON
       }
       
       const { bucket } = dbConnection;
@@ -117,7 +121,7 @@ export async function POST(request: NextRequest) {
         });
         console.log(`API /api/upload-image (Req ID: ${reqId}): Form data parsed. Fields:`, Object.keys(fields), `File keys:`, Object.keys(files));
       } catch (formError: any) {
-        console.error(`API /api/upload-image (Req ID: ${reqId}): Form Parsing Error.`, { message: formError.message, name: formError.name, stack: formError.stack?.substring(0,300) });
+        console.error(`API /api/upload-image (Req ID: ${reqId}): Form Parsing Error. Name: ${formError.name}, Message: ${formError.message}`);
         throw new Error(`Failed to parse form data: ${formError.message}`);
       }
 
@@ -159,7 +163,7 @@ export async function POST(request: NextRequest) {
           pdfDocument = await pdfjsLib.getDocument({ data: pdfData }).promise;
           console.log(`API /api/upload-image (Req ID: ${reqId}): PDF ${actualOriginalName} loaded, ${pdfDocument.numPages} page(s).`);
         } catch (pdfLoadError: any) {
-          console.error(`API /api/upload-image (Req ID: ${reqId}): Error loading PDF document '${actualOriginalName}' with pdfjsLib.getDocument:`, { message: pdfLoadError.message, name: pdfLoadError.name, stack: pdfLoadError.stack?.substring(0, 500) });
+          console.error(`API /api/upload-image (Req ID: ${reqId}): Error loading PDF document '${actualOriginalName}' with pdfjsLib. Name: ${pdfLoadError.name}, Message: ${pdfLoadError.message}`);
           throw new Error(`Failed to load PDF document '${actualOriginalName}': ${pdfLoadError.message}`);
         }
 
@@ -171,12 +175,12 @@ export async function POST(request: NextRequest) {
             page = await pdfDocument.getPage(pageNumber);
             console.log(`API /api/upload-image (Req ID: ${reqId}): Page ${pageNumber} obtained for ${actualOriginalName}.`);
           } catch (getPageError: any) {
-             console.error(`API /api/upload-image (Req ID: ${reqId}): Error getting page ${pageNumber} from PDF '${actualOriginalName}':`, { message: getPageError.message, name: getPageError.name });
+             console.error(`API /api/upload-image (Req ID: ${reqId}): Error getting page ${pageNumber} from PDF '${actualOriginalName}'. Name: ${getPageError.name}, Message: ${getPageError.message}`);
              if (page && typeof page.cleanup === 'function') page.cleanup();
              throw new Error(`Failed to get page ${pageNumber} from PDF '${actualOriginalName}': ${getPageError.message}`);
           }
           
-          const viewport = page.getViewport({ scale: 2.0 }); // Using scale 2.0 for better quality
+          const viewport = page.getViewport({ scale: 2.0 });
           console.log(`API /api/upload-image (Req ID: ${reqId}): Viewport for page ${pageNumber} (${actualOriginalName}): width=${viewport.width}, height=${viewport.height}`);
           
           const canvas = createCanvas(viewport.width, viewport.height) as Canvas;
@@ -187,7 +191,7 @@ export async function POST(request: NextRequest) {
             await page.render({ canvasContext, viewport }).promise;
             console.log(`API /api/upload-image (Req ID: ${reqId}): Page ${pageNumber} (${actualOriginalName}) rendered to canvas.`);
           } catch (renderError: any) {
-            console.error(`API /api/upload-image (Req ID: ${reqId}): Error rendering page ${pageNumber} of PDF '${actualOriginalName}' to canvas:`, { message: renderError.message, name: renderError.name, stack: renderError.stack?.substring(0,500) });
+            console.error(`API /api/upload-image (Req ID: ${reqId}): Error rendering page ${pageNumber} of PDF '${actualOriginalName}' to canvas. Name: ${renderError.name}, Message: ${renderError.message}`);
             if (page && typeof page.cleanup === 'function') page.cleanup();
             throw new Error(`Failed to render PDF page ${pageNumber} of '${actualOriginalName}': ${renderError.message}`);
           }
@@ -216,7 +220,7 @@ export async function POST(request: NextRequest) {
           
           await new Promise<void>((resolveStream, rejectStream) => {
             uploadStream.on('error', (err: MongoError) => {
-              console.error(`API /api/upload-image (Req ID: ${reqId}): GridFS Stream Error for PDF page ${imageFilename}:`, { message: err.message, name: err.name, code: err.code, stack: err.stack?.substring(0,300) });
+              console.error(`API /api/upload-image (Req ID: ${reqId}): GridFS Stream Error for PDF page ${imageFilename}. Name: ${err.name}, Code: ${err.code}, Message: ${err.message}`);
               rejectStream(new Error(`GridFS upload error for ${imageFilename}: ${err.message}`));
             });
             uploadStream.on('finish', () => {
@@ -242,7 +246,7 @@ export async function POST(request: NextRequest) {
           userId,
           uploadedAt: new Date().toISOString(),
           sourceContentType: fileType,
-          explicitContentType: fileType, // Keep this for clarity that it's the direct type
+          explicitContentType: fileType, 
           reqIdParent: reqId,
         };
 
@@ -260,11 +264,11 @@ export async function POST(request: NextRequest) {
           console.log(`API /api/upload-image (Req ID: ${reqId}): Starting to pipe readable stream to GridFS upload stream for ${imageFilename}.`);
           await new Promise<void>((resolveStream, rejectStream) => {
             readable.on('error', (err) => {
-              console.error(`API /api/upload-image (Req ID: ${reqId}): Error reading temp file ${tempFilePath} for ${imageFilename}:`, { message: err.message, name: err.name, stack: err.stack?.substring(0,300) });
+              console.error(`API /api/upload-image (Req ID: ${reqId}): Error reading temp file ${tempFilePath} for ${imageFilename}. Name: ${err.name}, Message: ${err.message}`);
               rejectStream(new Error(`Error reading temporary file for ${imageFilename}: ${err.message}`));
             });
             uploadStream.on('error', (err: MongoError) => {
-              console.error(`API /api/upload-image (Req ID: ${reqId}): GridFS Stream Error for image ${imageFilename}:`, { message: err.message, name: err.name, code: err.code, stack: err.stack?.substring(0,300) });
+              console.error(`API /api/upload-image (Req ID: ${reqId}): GridFS Stream Error for image ${imageFilename}. Name: ${err.name}, Code: ${err.code}, Message: ${err.message}`);
               rejectStream(new Error(`GridFS upload error for ${imageFilename}: ${err.message}`));
             });
             uploadStream.on('finish', () => {
@@ -276,8 +280,8 @@ export async function POST(request: NextRequest) {
           });
           console.log(`API /api/upload-image (Req ID: ${reqId}): Finished piping to GridFS for ${imageFilename}.`);
         } catch (imageProcessingError: any) {
-            console.error(`API /api/upload-image (Req ID: ${reqId}): Error during image processing/upload for '${actualOriginalName}':`, imageProcessingError.message, imageProcessingError.stack?.substring(0,500));
-            throw new Error(`Failed during image processing for '${actualOriginalName}': ${imageProcessingError.message}`); // Re-throw
+            console.error(`API /api/upload-image (Req ID: ${reqId}): Error during image processing/upload for '${actualOriginalName}'. Name: ${imageProcessingError.name}, Message: ${imageProcessingError.message}`);
+            throw new Error(`Failed during image processing for '${actualOriginalName}': ${imageProcessingError.message}`); 
         }
       } else {
         console.warn(`API /api/upload-image (Req ID: ${reqId}): Unsupported file type: ${fileType} for file ${actualOriginalName}. Temp path: ${tempFilePath}`);
@@ -287,13 +291,10 @@ export async function POST(request: NextRequest) {
       console.log(`API /api/upload-image (Req ID: ${reqId}): Successfully processed file(s). Results count: ${results.length}.`);
       return NextResponse.json(results, { status: 201 });
 
-    } catch (error: any) { // This is the primary catch block
-      const errorReqId = reqId; 
-      // Log more structured error information
-      console.error(`API /api/upload-image (Req ID: ${errorReqId}): HANDLED ERROR IN POST HANDLER. Name: ${error.name}, Message: ${error.message}, Code: ${error.code || 'N/A'}.`);
-      if (process.env.NODE_ENV === 'development') {
-          const stack = error.stack || (error.cause && (error.cause as any).stack) || 'No stack available';
-          console.error(`API /api/upload-image (Req ID: ${errorReqId}): Error stack: ${stack}`);
+    } catch (error: any) { // This is the primary catch block for processing logic
+      console.error(`API /api/upload-image (Req ID: ${reqId}): HANDLED ERROR IN POST HANDLER. Name: ${error.name}, Message: ${error.message}, Code: ${error.code || 'N/A'}.`);
+      if (process.env.NODE_ENV === 'development' && error.stack) {
+          console.error(`API /api/upload-image (Req ID: ${reqId}): Error stack: ${error.stack.substring(0, 500)}...`);
       }
       
       const errorMessageToClient = (error.message && typeof error.message === 'string') 
@@ -301,18 +302,18 @@ export async function POST(request: NextRequest) {
         : 'An internal server error occurred during file upload.';
       const errorKey = (error.name && typeof error.name === 'string') 
         ? error.name 
-        : 'UNKNOWN_ERROR';
+        : 'UNKNOWN_PROCESSING_ERROR';
 
       return NextResponse.json(
         {
           message: `Server Error: ${errorMessageToClient}`,
           errorKey: errorKey,
-          reqId: errorReqId,
+          reqId: reqId, // Pass reqId to client for easier correlation
         },
         { status: 500 }
       );
     } finally {
-      console.log(`API /api/upload-image (Req ID: ${reqId}): Entering finally block. Temp files to delete:`, tempFilePathsToDelete);
+      console.log(`API /api/upload-image (Req ID: ${reqId}): Entering finally block for temp file cleanup. Temp files:`, tempFilePathsToDelete);
       for (const tempPath of tempFilePathsToDelete) {
           if (fs.existsSync(tempPath)) {
               try {
@@ -322,14 +323,17 @@ export async function POST(request: NextRequest) {
                   console.warn(`API /api/upload-image (Req ID: ${reqId}): Could not delete temp file ${tempPath}. Error: ${unlinkError.message}`);
               }
           } else {
-              console.log(`API /api/upload-image (Req ID: ${reqId}): Temp file ${tempPath} already deleted or never existed.`);
+              console.log(`API /api/upload-image (Req ID: ${reqId}): Temp file ${tempPath} already deleted or never existed (could be due to earlier error).`);
           }
       }
       console.log(`API /api/upload-image (Req ID: ${reqId}): Request processing finished (main try-finally).`);
     }
-  } catch (superError: any) { // Catch for the outer-most try (critical failures)
-    const criticalReqId = reqId || 'UNKNOWN_REQ_ID_CRITICAL';
-    console.error(`API /api/upload-image (Req ID: ${criticalReqId}): CRITICAL FAILURE IN POST HANDLER (SUPER CATCH). Name: ${superError.name}, Message: ${superError.message}. Stack: ${superError.stack}`);
+  } catch (superError: any) { // "Super catch" for critical failures (e.g., module loading, Next.js internals)
+    const criticalReqId = reqId || 'UNKNOWN_REQ_ID_CRITICAL'; // reqId might not be set if error is very early
+    console.error(`API /api/upload-image (Req ID: ${criticalReqId}): CRITICAL FAILURE IN POST HANDLER (SUPER CATCH). Name: ${superError.name}, Message: ${superError.message}.`);
+    if (process.env.NODE_ENV === 'development' && superError.stack) {
+        console.error(`API /api/upload-image (Req ID: ${criticalReqId}): Critical error stack: ${superError.stack}`);
+    }
     
     // Fallback to a very simple JSON response if all else fails.
     return new Response(
@@ -346,6 +350,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// Ensure this export config is present and correct for formData() to work with App Router
 export const config = {
   api: {
     bodyParser: false, // We are using request.formData(), so Next.js default bodyParser is not needed.
