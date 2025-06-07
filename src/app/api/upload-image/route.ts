@@ -1,4 +1,4 @@
-
+export const runtime = 'nodejs';
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { MongoError, ObjectId } from 'mongodb';
@@ -12,7 +12,8 @@ import path from 'path';
 // Using the standard CJS build path for pdfjs-dist v4+
 const pdfjsLib = require('pdfjs-dist/build/pdf.js');
 // Specify the worker source for Node.js environment. Critical for pdfjs-dist v3+
-pdfjsLib.GlobalWorkerOptions.workerSrc = require.resolve('pdfjs-dist/build/pdf.worker.mjs');
+pdfjsLib.GlobalWorkerOptions.workerSrc = require.resolve('pdfjs-dist/build/pdf.worker.js');
+
 import { createCanvas, type Canvas } from 'canvas';
 
 
