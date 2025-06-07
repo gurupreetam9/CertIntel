@@ -16,7 +16,7 @@ const parseForm = (req: NextRequest): Promise<{ fields: formidable.Fields; files
       multiples: false, 
       uploadDir: os.tmpdir(), 
       keepExtensions: true,
-      maxFileSize: 50 * 1024 * 1024, 
+      maxFileSize: 50 * 1024 * 1024, // 50MB limit
     });
     form.parse(req as any, (err, fields, files) => {
       if (err) {
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
       console.log(`API /api/upload-image (Req ID: ${reqId}): DB connected, GridFS bucket obtained.`);
     } catch (dbError: any) {
       console.error(`API /api/upload-image (Req ID: ${reqId}): DB Connection Error.`, { message: dbError.message, name: dbError.name, stack: dbError.stack?.substring(0,500) });
-      throw dbError; 
+      throw dbError; // Re-throw to be caught by main handler
     }
     
     const { bucket } = dbConnection;
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
       console.error(`API /api/upload-image (Req ID: ${reqId}): Form Parsing Error.`, { message: formError.message, name: formError.name, stack: formError.stack?.substring(0,500) });
       const specificFormError = new Error(`Failed to parse form data (Req ID: ${reqId}): ${formError.message}`);
       specificFormError.name = 'FormParsingError';
-      throw specificFormError; 
+      throw specificFormError; // Re-throw
     }
 
     const userIdField = fields.userId;
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
       console.warn(`API /api/upload-image (Req ID: ${reqId}): Missing userId or originalName. UserID: ${userId}, OriginalName: ${originalNameFromField}`);
       const missingFieldsError = new Error('Missing userId or originalName in form data.');
       missingFieldsError.name = 'MissingFieldsError';
-      throw missingFieldsError; 
+      throw missingFieldsError; // Re-throw
     }
 
     const fileArray = files.file as formidable.File[] | undefined; 
@@ -94,11 +94,11 @@ export async function POST(request: NextRequest) {
       console.warn(`API /api/upload-image (Req ID: ${reqId}): No file uploaded in 'file' field.`);
       const noFileError = new Error('No file uploaded.');
       noFileError.name = 'NoFileUploadedError';
-      throw noFileError; 
+      throw noFileError; // Re-throw
     }
     const uploadedFile = fileArray[0]; 
     const actualOriginalName = uploadedFile.originalFilename || originalNameFromField; 
-    formidableTempFilePath = uploadedFile.filepath; 
+    formidableTempFilePath = uploadedFile.filepath; // Keep track for cleanup
 
     const results: { originalName: string; fileId: string; filename: string; pageNumber?: number }[] = [];
     const fileType = uploadedFile.mimetype || clientContentType; 
@@ -108,14 +108,15 @@ export async function POST(request: NextRequest) {
     if (fileType === 'application/pdf') {
       console.log(`API /api/upload-image (Req ID: ${reqId}): Processing PDF: ${actualOriginalName} from formidable path: ${formidableTempFilePath}`);
       
+      // Create a unique temporary directory for this PDF's image outputs
       const tempImageOutputDirForThisPdf = fs.mkdtempSync(path.join(os.tmpdir(), `pdfimages-${reqId}-`));
-      pdfToImageConversionTempDirs.push(tempImageOutputDirForThisPdf); 
+      pdfToImageConversionTempDirs.push(tempImageOutputDirForThisPdf); // Keep track for cleanup
 
       const options: pdfPoppler.PdfPopConvertOptions = {
-        format: 'png', 
+        format: 'png', // Convert to PNG
         out_dir: tempImageOutputDirForThisPdf,
-        out_prefix: path.parse(actualOriginalName).name.replace(/[^a-zA-Z0-9_.-]/g, '_') + '_page', 
-        page: null, 
+        out_prefix: path.parse(actualOriginalName).name.replace(/[^a-zA-Z0-9_.-]/g, '_') + '_page', // Sanitize prefix
+        page: null, // Process all pages
       };
       
       console.log(`API /api/upload-image (Req ID: ${reqId}): Poppler options prepared:`, options);
@@ -125,22 +126,27 @@ export async function POST(request: NextRequest) {
         await pdfPoppler.convert(formidableTempFilePath, options);
         console.log(`API /api/upload-image (Req ID: ${reqId}): pdfPoppler.convert finished for ${actualOriginalName}. Checking output dir: ${tempImageOutputDirForThisPdf}`);
       } catch (pdfConvertError: any) {
-         console.error(`API /api/upload-image (Req ID: ${reqId}): pdfPoppler conversion FAILED for "${actualOriginalName}". Error:`, {
-           message: pdfConvertError.message,
-           stack: pdfConvertError.stack,
-           name: pdfConvertError.name,
-           // Include any other relevant properties from pdfConvertError if available
-           ...(pdfConvertError.stderr && { stderr: pdfConvertError.stderr }),
-           ...(pdfConvertError.status && { status: pdfConvertError.status }),
-         });
+         console.error(`API /api/upload-image (Req ID: ${reqId}): pdfPoppler conversion FAILED for "${actualOriginalName}". Error object:`, pdfConvertError);
          let errMsg = `Failed to convert PDF "${actualOriginalName}" (Req ID: ${reqId}).`;
-         if (pdfConvertError.message) errMsg += ` Poppler error: ${pdfConvertError.message.substring(0, 250)}`;
-         // More specific check for Poppler not found
-         if (pdfConvertError.message && (pdfConvertError.message.toLowerCase().includes('enoent') || pdfConvertError.message.toLowerCase().includes('pdftoppm: not found') || pdfConvertError.message.toLowerCase().includes('command not found'))) {
+         if (pdfConvertError.message) errMsg += ` Poppler error: ${String(pdfConvertError.message).substring(0, 250)}`;
+         if (pdfConvertError.stderr) errMsg += ` Stderr: ${String(pdfConvertError.stderr).substring(0, 250)}`;
+         if (pdfConvertError.status) errMsg += ` Status: ${pdfConvertError.status}`;
+
+         if (pdfConvertError.message && (
+            String(pdfConvertError.message).toLowerCase().includes('enoent') || 
+            String(pdfConvertError.message).toLowerCase().includes('pdftoppm: not found') || 
+            String(pdfConvertError.message).toLowerCase().includes('command not found') ||
+            (pdfConvertError.code && String(pdfConvertError.code).toLowerCase() === 'enoent')
+          )) {
             errMsg += " CRITICAL: 'poppler-utils' (or Poppler command-line tools like pdftoppm) are likely NOT INSTALLED or not in the system's PATH. Please install them for your OS.";
          }
          const specificPdfConvertError = new Error(errMsg);
          specificPdfConvertError.name = 'PdfConversionError';
+        (specificPdfConvertError as any).cause = pdfConvertError;
+        (specificPdfConvertError as any).originalErrorName = pdfConvertError.name;
+        (specificPdfConvertError as any).originalErrorCode = pdfConvertError.code;
+        (specificPdfConvertError as any).originalStderr = pdfConvertError.stderr;
+        (specificPdfConvertError as any).originalStatus = pdfConvertError.status;
          throw specificPdfConvertError; 
       }
       
@@ -149,6 +155,7 @@ export async function POST(request: NextRequest) {
 
       if (convertedImageFilenames.length === 0) {
         console.warn(`API /api/upload-image (Req ID: ${reqId}): No images were converted from PDF ${actualOriginalName}. This could be due to an empty/corrupt PDF or Poppler issue not throwing an error.`);
+        // Optionally throw an error or return an empty array if this is considered a failure
       }
 
       for (const imageFilename of convertedImageFilenames) {
@@ -162,10 +169,10 @@ export async function POST(request: NextRequest) {
           originalName: `${actualOriginalName} (Page ${pageNumber || 'N/A'})`,
           userId,
           uploadedAt: new Date().toISOString(),
-          sourceContentType: 'application/pdf',
-          convertedTo: 'image/png',
+          sourceContentType: 'application/pdf', // Original type was PDF
+          convertedTo: 'image/png', // Stored as PNG
           pageNumber: pageNumber,
-          reqId: reqId, 
+          reqId: reqId, // Include request ID for traceability
         };
 
         console.log(`API /api/upload-image (Req ID: ${reqId}): Uploading PDF page as "${gridFsFilename}" from path ${imagePath}`);
@@ -195,7 +202,7 @@ export async function POST(request: NextRequest) {
         userId,
         uploadedAt: new Date().toISOString(),
         sourceContentType: fileType,
-        reqId: reqId, 
+        reqId: reqId, // Include request ID
       };
 
       console.log(`API /api/upload-image (Req ID: ${reqId}): Uploading image "${imageFilename}" with contentType "${fileType}".`);
@@ -218,7 +225,7 @@ export async function POST(request: NextRequest) {
       console.warn(`API /api/upload-image (Req ID: ${reqId}): Unsupported file type: ${fileType} for file ${actualOriginalName}`);
       const unsupportedFileTypeError = new Error(`Unsupported file type: ${fileType}. Please upload an image or PDF.`);
       unsupportedFileTypeError.name = 'UnsupportedFileTypeError';
-      throw unsupportedFileTypeError; 
+      throw unsupportedFileTypeError; // Re-throw
     }
 
     console.log(`API /api/upload-image (Req ID: ${reqId}): Successfully processed. Results count: ${results.length}`);
@@ -231,33 +238,43 @@ export async function POST(request: NextRequest) {
     if (error.stack) {
         console.error(`Error Stack: ${error.stack}`);
     }
-    if (error.code) { // For errors with a 'code' property, like system errors
+    if (error.code) { 
         console.error(`Error Code: ${error.code}`);
     }
-    if (error.cause) { // If the error has a 'cause'
-        console.error(`Error Cause: ${JSON.stringify(error.cause, null, 2)}`);
+    // Check for properties from the custom PdfConversionError
+    if ((error as any).originalErrorName) console.error(`Original Error Name: ${(error as any).originalErrorName}`);
+    if ((error as any).originalErrorCode) console.error(`Original Error Code: ${(error as any).originalErrorCode}`);
+    if ((error as any).originalStderr) console.error(`Original Stderr: ${(error as any).originalStderr}`);
+    if ((error as any).originalStatus) console.error(`Original Status: ${(error as any).originalStatus}`);
+    if (error.cause) { 
+        console.error(`Error Cause: ${JSON.stringify(error.cause, Object.getOwnPropertyNames(error.cause))}`); // More detailed cause logging
     }
     console.error(`--- End of Unhandled Error Details (Req ID: ${reqId}) ---\n`);
     
-    const responseMessage = error.message || 'An unexpected critical error occurred during file upload.';
+    const responseMessage = error.message || `An unexpected critical error occurred during file upload. Req ID: ${reqId}.`;
     const errorKey = error.name || 'UNKNOWN_SERVER_ERROR';
-    const errorDetails = { // For client consumption
-        message: error.message, // Keep original message for client
-        name: error.name,
-        // Stack trace should generally not be sent to client in production for security
-        stack: process.env.NODE_ENV === 'development' ? error.stack : 'Stack trace hidden in production.',
-        reqId: reqId,
-    };
-
+    
     return NextResponse.json(
       { 
-        message: `Server Error (Req ID: ${reqId}): ${responseMessage}. Check server logs for full details.`, 
-        errorKey: errorKey, 
-        details: errorDetails 
+        message: `Server Error: ${responseMessage}. Check server logs for full details.`, 
+        errorKey: errorKey,
+        reqId: reqId,
+        errorDetails: process.env.NODE_ENV === 'development' ? {
+            name: error.name,
+            message: error.message,
+            code: error.code,
+            stack: error.stack?.substring(0, 500) + '... (truncated)', // Include part of stack in dev
+            originalErrorName: (error as any).originalErrorName,
+            originalErrorCode: (error as any).originalErrorCode,
+            originalStderr: (error as any).originalStderr,
+            originalStatus: (error as any).originalStatus,
+            cause: error.cause ? JSON.stringify(error.cause, Object.getOwnPropertyNames(error.cause)).substring(0, 500) + '...' : undefined,
+        } : undefined
       },
       { status: 500 } 
     );
   } finally {
+    // Cleanup formidable temporary file
     if (formidableTempFilePath && fs.existsSync(formidableTempFilePath)) {
       try {
         fs.unlinkSync(formidableTempFilePath);
@@ -266,6 +283,7 @@ export async function POST(request: NextRequest) {
         console.warn(`API /api/upload-image (Req ID: ${reqId}): Could not delete formidable temp file ${formidableTempFilePath}. Error: ${unlinkError.message}`);
       }
     }
+    // Cleanup pdf-poppler temporary image directories
     for (const tempDir of pdfToImageConversionTempDirs) {
       if (fs.existsSync(tempDir)) {
         try {
@@ -280,6 +298,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// Required for formidable to work correctly with Next.js API routes
 export const config = {
   api: {
     bodyParser: false,
