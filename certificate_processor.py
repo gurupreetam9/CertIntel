@@ -275,8 +275,6 @@ def generate_recommendations(user_completed_courses_list, previous_results_list=
     processed_courses = set()
     llm_candidate_courses = []
     
-    # Normalize the user_completed_courses_list for easier checking
-    # We'll use the clean names (without "[UNVERIFIED]") for filtering suggestions
     normalized_completed_set = set(c.replace(" [UNVERIFIED]", "").strip().lower() for c in user_completed_courses_list)
 
     for course_name_full in user_completed_courses_list:
@@ -291,35 +289,36 @@ def generate_recommendations(user_completed_courses_list, previous_results_list=
                 actual_prev_recommendations = prev_result_doc.get('recommendations', []) if isinstance(prev_result_doc, dict) else []
                 for prev_rec in actual_prev_recommendations:
                     rec_type = prev_rec.get('type', '')
-                    if rec_type.startswith('graph_') or rec_type.startswith('cached_graph_'):
+                    # Check if it's a graph-based recommendation from cache
+                    if rec_type.startswith('graph_'): # No "cached_" prefix check here, use original type
                         if prev_rec.get('completed_course') == clean_course_name or prev_rec.get('matched_course') == clean_course_name:
-                            # Filter next_courses from cache against currently completed courses
                             filtered_next_courses = [
                                 nc for nc in prev_rec.get("next_courses", [])
                                 if nc.lower() not in normalized_completed_set
                             ]
-                            if filtered_next_courses or not prev_rec.get("next_courses"): # Keep if next_courses was empty or still has items
-                                cached_graph_recommendation = {**prev_rec, "next_courses": filtered_next_courses, "type": f"cached_{rec_type}"}
+                            if filtered_next_courses or not prev_rec.get("next_courses"):
+                                cached_graph_recommendation = {**prev_rec, "next_courses": filtered_next_courses}
+                                # The type from prev_rec (e.g., "graph_direct") is preserved
                             break
                 if cached_graph_recommendation:
                     break
         
         if cached_graph_recommendation:
-            if cached_graph_recommendation.get("next_courses"): # Only add if there are still suggestions
-                recommendations_output.append(cached_graph_recommendation)
+            if cached_graph_recommendation.get("next_courses"):
+                recommendations_output.append(cached_graph_recommendation) # Original type is preserved
             processed_courses.add(clean_course_name)
-            if matched := cached_graph_recommendation.get('matched_course'): processed_courses.add(matched)
-            logging.info(f"Using cached graph-like recommendation for '{clean_course_name}'.")
+            if matched_course := cached_graph_recommendation.get('matched_course'):
+                 processed_courses.add(matched_course)
+            logging.info(f"Using cached graph-like recommendation for '{clean_course_name}'. Type: {cached_graph_recommendation.get('type')}")
             continue
 
         if clean_course_name in course_graph:
             entry = course_graph[clean_course_name]
-            # Filter next_courses against all user's completed courses
             filtered_next_courses = [
                 nc for nc in entry["next_courses"]
                 if nc.lower() not in normalized_completed_set
             ]
-            if filtered_next_courses: # Only add recommendation if there are suggestions left
+            if filtered_next_courses:
                 recommendations_output.append({
                     "type": "graph_direct", "completed_course": clean_course_name,
                     "description": entry["description"], "next_courses": filtered_next_courses,
@@ -332,12 +331,11 @@ def generate_recommendations(user_completed_courses_list, previous_results_list=
             best_match, score = get_closest_known_course(clean_course_name)
             if best_match and score > 0.75 and best_match in course_graph:
                 entry = course_graph[best_match]
-                 # Filter next_courses against all user's completed courses
                 filtered_next_courses = [
                     nc for nc in entry["next_courses"]
                     if nc.lower() not in normalized_completed_set
                 ]
-                if filtered_next_courses: # Only add recommendation if there are suggestions left
+                if filtered_next_courses:
                     recommendations_output.append({
                         "type": "graph_similar", "completed_course": clean_course_name,
                         "matched_course": best_match, "similarity_score": round(score, 2),
@@ -352,55 +350,52 @@ def generate_recommendations(user_completed_courses_list, previous_results_list=
 
     unique_llm_inputs = list(set(c.replace(" [UNVERIFIED]", "").strip() for c in llm_candidate_courses if c.replace(" [UNVERIFIED]", "").strip()))
     
-    # Prepare the full list of already completed courses for the LLM prompt
-    # This ensures the LLM is explicitly told not to re-suggest these
     llm_completed_courses_for_prompt = [c.replace(" [UNVERIFIED]", "").strip() for c in user_completed_courses_list]
 
-    if unique_llm_inputs: # Only call LLM if there are courses that weren't handled by graph
+    if unique_llm_inputs:
         llm_input_key = tuple(sorted(unique_llm_inputs))
-        cached_llm_rec_list = None
+        cached_llm_rec_list_for_output = [] # Store the actual recs to be outputted
+        
+        found_in_cache = False
         if previous_results_list:
             for prev_result_doc in previous_results_list:
                 actual_prev_recommendations = prev_result_doc.get('recommendations', [])
+                # Find if this set of inputs was previously processed by LLM
+                current_llm_recs_from_this_doc = []
+                is_relevant_cached_doc = False
                 for prev_rec in actual_prev_recommendations:
-                    if (prev_rec.get('type', '').startswith('llm') or prev_rec.get('type', '').startswith('cached_llm')) and \
+                    # Check if it's an LLM-type recommendation and matches the input course set
+                    if prev_rec.get('type', '').startswith('llm') and \
                        tuple(sorted(prev_rec.get('based_on_courses', []))) == llm_input_key:
-                        
-                        # Filter cached LLM recommendations against currently completed courses
-                        filtered_llm_recs_from_cache = [
-                            r for r in actual_prev_recommendations
-                            if (r.get('type','').startswith('llm') or r.get('type','').startswith('cached_llm')) and \
-                               tuple(sorted(r.get('based_on_courses', []))) == llm_input_key and \
-                               (r.get("name", "").lower() not in normalized_completed_set)
-                        ]
-                        if filtered_llm_recs_from_cache:
-                             cached_llm_rec_list = filtered_llm_recs_from_cache
-                        break 
-                if cached_llm_rec_list:
-                    break
-        
-        if cached_llm_rec_list:
+                        is_relevant_cached_doc = True
+                        # Filter this specific cached recommendation name against all currently completed courses
+                        if prev_rec.get("name", "").lower() not in normalized_completed_set:
+                            current_llm_recs_from_this_doc.append(prev_rec) # Add the original recommendation
+                
+                if is_relevant_cached_doc: # If this prev_doc had LLM recs for this input key
+                    cached_llm_rec_list_for_output.extend(current_llm_recs_from_this_doc)
+                    found_in_cache = True # Mark that we found relevant cached LLM results
+                    break # Stop searching other previous documents once relevant cached LLM recs are found and filtered
+
+        if found_in_cache:
             logging.info(f"Using cached and filtered LLM recommendations for input set: {llm_input_key}")
-            for rec in cached_llm_rec_list:
-                recommendations_output.append({**rec, "type": f"cached_{rec.get('type', 'llm')}"})
+            recommendations_output.extend(cached_llm_rec_list_for_output) # Add the already filtered list
         else:
             logging.info(f"Querying LLM for input set: {llm_input_key}, with completed list: {llm_completed_courses_for_prompt}")
-            # Pass the full list of completed courses to the LLM query function
-            llm_response_text = query_cohere_llm_for_recommendations(llm_completed_courses_for_prompt) # Changed input here
+            llm_response_text = query_cohere_llm_for_recommendations(llm_completed_courses_for_prompt)
             
             if llm_response_text and not llm_response_text.startswith("Error from LLM") and not llm_response_text.startswith("Cohere LLM not available"):
                 parsed_llm_recs = parse_llm_recommendation_response(llm_response_text)
                 for rec_data in parsed_llm_recs:
-                    # Also filter newly parsed LLM recs, just in case LLM didn't fully respect the prompt
                     if rec_data.get("name", "").lower() not in normalized_completed_set:
                         recommendations_output.append({
-                            "type": "llm",
-                            "based_on_courses": unique_llm_inputs, # For caching, based on what triggered this specific LLM call
+                            "type": "llm", # Original type
+                            "based_on_courses": unique_llm_inputs,
                             **rec_data 
                         })
             else: 
                 recommendations_output.append({
-                    "type": "llm_error", 
+                    "type": "llm_error", # Original type
                     "message": llm_response_text, 
                     "based_on_courses": unique_llm_inputs
                 })
@@ -514,3 +509,6 @@ if __name__ == "__main__":
 # Make sure your Cohere API key is also set in environment or directly in script for testing.
 
 
+
+
+    
