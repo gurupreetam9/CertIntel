@@ -7,7 +7,50 @@ import formidable from 'formidable';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import pdfPoppler from 'pdf-poppler';
+
+// Import pdfjs-dist and canvas for server-side PDF processing
+// Using the standard CJS build path for pdfjs-dist v4+
+const pdfjsLib = require('pdfjs-dist/build/pdf.js');
+// Specify the worker source for Node.js environment. Critical for pdfjs-dist v3+
+pdfjsLib.GlobalWorkerOptions.workerSrc = require.resolve('pdfjs-dist/build/pdf.worker.mjs');
+
+import { createCanvas, type Canvas } from 'canvas';
+
+// Helper class to adapt Node.js Canvas to pdfjs-dist
+class NodeCanvasFactory {
+  create(width: number, height: number) {
+    if (width <= 0 || height <= 0) {
+      throw new Error(`Invalid canvas dimensions: ${width}x${height}`);
+    }
+    const canvas = createCanvas(width, height);
+    const context = canvas.getContext('2d');
+    return {
+      canvas: canvas as unknown as HTMLCanvasElement, // Cast to expected type
+      context,
+    };
+  }
+
+  reset(canvasAndContext: { canvas: HTMLCanvasElement; context: any }, width: number, height: number) {
+    if (width <= 0 || height <= 0) {
+      throw new Error(`Invalid canvas dimensions for reset: ${width}x${height}`);
+    }
+    if (canvasAndContext.canvas) {
+      (canvasAndContext.canvas as unknown as Canvas).width = width;
+      (canvasAndContext.canvas as unknown as Canvas).height = height;
+    }
+  }
+
+  destroy(canvasAndContext: { canvas: HTMLCanvasElement; context: any }) {
+    if (canvasAndContext.canvas) {
+      // Zero out the width and height to release memory associated with the C++ Canvas
+      (canvasAndContext.canvas as unknown as Canvas).width = 0;
+      (canvasAndContext.canvas as unknown as Canvas).height = 0;
+    }
+    (canvasAndContext.canvas as any) = null;
+    (canvasAndContext.context as any) = null;
+  }
+}
+
 
 // Helper to make formidable work with Next.js Edge/Node.js runtime
 const parseForm = (req: NextRequest): Promise<{ fields: formidable.Fields; files: formidable.Files }> => {
@@ -37,7 +80,6 @@ export async function POST(request: NextRequest) {
   console.log(`API /api/upload-image (Req ID: ${reqId}): POST request received.`);
   
   let formidableTempFilePath: string | undefined; 
-  const pdfToImageConversionTempDirs: string[] = []; 
 
   try {
     let dbConnection;
@@ -52,8 +94,8 @@ export async function POST(request: NextRequest) {
       }
       console.log(`API /api/upload-image (Req ID: ${reqId}): DB connected, GridFS bucket obtained.`);
     } catch (dbError: any) {
-      console.error(`API /api/upload-image (Req ID: ${reqId}): DB Connection Error.`, { message: dbError.message, name: dbError.name, stack: dbError.stack?.substring(0,500) });
-      throw dbError; // Re-throw to be caught by main handler
+      console.error(`API /api/upload-image (Req ID: ${reqId}): DB Connection Error.`, { message: dbError.message, name: dbError.name });
+      throw dbError; 
     }
     
     const { bucket } = dbConnection;
@@ -65,13 +107,13 @@ export async function POST(request: NextRequest) {
       const parsedForm = await parseForm(request);
       fields = parsedForm.fields;
       files = parsedForm.files;
-      const uploadedFile = files.file ? ((files.file as formidable.File[])[0] as formidable.File) : null;
-      console.log(`API /api/upload-image (Req ID: ${reqId}): Form data parsed. Fields: ${Object.keys(fields).join(', ')}. File: ${uploadedFile ? uploadedFile.originalFilename : 'No file field'}`);
+      const uploadedFilePreview = files.file ? ((files.file as formidable.File[])[0] as formidable.File) : null;
+      console.log(`API /api/upload-image (Req ID: ${reqId}): Form data parsed. Fields: ${Object.keys(fields).join(', ')}. File: ${uploadedFilePreview ? uploadedFilePreview.originalFilename : 'No file field'}`);
     } catch (formError: any) {
-      console.error(`API /api/upload-image (Req ID: ${reqId}): Form Parsing Error.`, { message: formError.message, name: formError.name, stack: formError.stack?.substring(0,500) });
+      console.error(`API /api/upload-image (Req ID: ${reqId}): Form Parsing Error.`, { message: formError.message, name: formError.name });
       const specificFormError = new Error(`Failed to parse form data (Req ID: ${reqId}): ${formError.message}`);
       specificFormError.name = 'FormParsingError';
-      throw specificFormError; // Re-throw
+      throw specificFormError;
     }
 
     const userIdField = fields.userId;
@@ -86,7 +128,7 @@ export async function POST(request: NextRequest) {
       console.warn(`API /api/upload-image (Req ID: ${reqId}): Missing userId or originalName. UserID: ${userId}, OriginalName: ${originalNameFromField}`);
       const missingFieldsError = new Error('Missing userId or originalName in form data.');
       missingFieldsError.name = 'MissingFieldsError';
-      throw missingFieldsError; // Re-throw
+      throw missingFieldsError;
     }
 
     const fileArray = files.file as formidable.File[] | undefined; 
@@ -94,11 +136,11 @@ export async function POST(request: NextRequest) {
       console.warn(`API /api/upload-image (Req ID: ${reqId}): No file uploaded in 'file' field.`);
       const noFileError = new Error('No file uploaded.');
       noFileError.name = 'NoFileUploadedError';
-      throw noFileError; // Re-throw
+      throw noFileError;
     }
     const uploadedFile = fileArray[0]; 
     const actualOriginalName = uploadedFile.originalFilename || originalNameFromField; 
-    formidableTempFilePath = uploadedFile.filepath; // Keep track for cleanup
+    formidableTempFilePath = uploadedFile.filepath; 
 
     const results: { originalName: string; fileId: string; filename: string; pageNumber?: number }[] = [];
     const fileType = uploadedFile.mimetype || clientContentType; 
@@ -107,90 +149,80 @@ export async function POST(request: NextRequest) {
 
     if (fileType === 'application/pdf') {
       console.log(`API /api/upload-image (Req ID: ${reqId}): Processing PDF: ${actualOriginalName} from formidable path: ${formidableTempFilePath}`);
-      
-      // Create a unique temporary directory for this PDF's image outputs
-      const tempImageOutputDirForThisPdf = fs.mkdtempSync(path.join(os.tmpdir(), `pdfimages-${reqId}-`));
-      pdfToImageConversionTempDirs.push(tempImageOutputDirForThisPdf); // Keep track for cleanup
+      const data = new Uint8Array(fs.readFileSync(formidableTempFilePath));
+      const pdfDocument = await pdfjsLib.getDocument(data).promise;
+      console.log(`API /api/upload-image (Req ID: ${reqId}): PDF "${actualOriginalName}" loaded. Num pages: ${pdfDocument.numPages}`);
+      const canvasFactory = new NodeCanvasFactory();
 
-      const options: pdfPoppler.PdfPopConvertOptions = {
-        format: 'png', // Convert to PNG
-        out_dir: tempImageOutputDirForThisPdf,
-        out_prefix: path.parse(actualOriginalName).name.replace(/[^a-zA-Z0-9_.-]/g, '_') + '_page', // Sanitize prefix
-        page: null, // Process all pages
-      };
-      
-      console.log(`API /api/upload-image (Req ID: ${reqId}): Poppler options prepared:`, options);
+      for (let i = 1; i <= pdfDocument.numPages; i++) {
+        let canvasAndContext: any = null; // Declare here to ensure it's in scope for finally
+        try {
+            const page = await pdfDocument.getPage(i);
+            const viewport = page.getViewport({ scale: 1.5 }); // Adjust scale as needed
+            
+            console.log(`API /api/upload-image (Req ID: ${reqId}): Processing page ${i} of "${actualOriginalName}". Viewport: ${viewport.width}x${viewport.height}`);
+            
+            canvasAndContext = canvasFactory.create(viewport.width, viewport.height);
+            
+            const renderContext = {
+              canvasContext: canvasAndContext.context,
+              viewport: viewport,
+              canvasFactory: canvasFactory,
+            };
+            
+            await page.render(renderContext).promise;
+            console.log(`API /api/upload-image (Req ID: ${reqId}): Page ${i} rendered to canvas.`);
+            
+            const imageBuffer = (canvasAndContext.canvas as unknown as Canvas).toBuffer('image/png');
+            page.cleanup(); // Important to free memory used by the page
+            
+            const gridFsFilename = `${userId}_${Date.now()}_${path.parse(actualOriginalName).name.replace(/[^a-zA-Z0-9_.-]/g, '_')}_page_${i}.png`;
+            const metadata = {
+              originalName: `${actualOriginalName} (Page ${i})`,
+              userId,
+              uploadedAt: new Date().toISOString(),
+              sourceContentType: 'application/pdf',
+              convertedTo: 'image/png',
+              pageNumber: i,
+              reqId: reqId,
+            };
 
-      try {
-        console.log(`API /api/upload-image (Req ID: ${reqId}): Calling pdfPoppler.convert for ${formidableTempFilePath}. Output dir: ${options.out_dir}, Prefix: ${options.out_prefix}`);
-        await pdfPoppler.convert(formidableTempFilePath, options);
-        console.log(`API /api/upload-image (Req ID: ${reqId}): pdfPoppler.convert finished for ${actualOriginalName}. Checking output dir: ${tempImageOutputDirForThisPdf}`);
-      } catch (pdfConvertError: any) {
-         console.error(`API /api/upload-image (Req ID: ${reqId}): pdfPoppler conversion FAILED for "${actualOriginalName}". Error object:`, pdfConvertError);
-         let errMsg = `Failed to convert PDF "${actualOriginalName}" (Req ID: ${reqId}).`;
-         if (pdfConvertError.message) errMsg += ` Poppler error: ${String(pdfConvertError.message).substring(0, 250)}`;
-         if (pdfConvertError.stderr) errMsg += ` Stderr: ${String(pdfConvertError.stderr).substring(0, 250)}`;
-         if (pdfConvertError.status) errMsg += ` Status: ${pdfConvertError.status}`;
-
-         if (pdfConvertError.message && (
-            String(pdfConvertError.message).toLowerCase().includes('enoent') || 
-            String(pdfConvertError.message).toLowerCase().includes('pdftoppm: not found') || 
-            String(pdfConvertError.message).toLowerCase().includes('command not found') ||
-            (pdfConvertError.code && String(pdfConvertError.code).toLowerCase() === 'enoent')
-          )) {
-            errMsg += " CRITICAL: 'poppler-utils' (or Poppler command-line tools like pdftoppm) are likely NOT INSTALLED or not in the system's PATH. Please install them for your OS.";
-         }
-         const specificPdfConvertError = new Error(errMsg);
-         specificPdfConvertError.name = 'PdfConversionError';
-        (specificPdfConvertError as any).cause = pdfConvertError;
-        (specificPdfConvertError as any).originalErrorName = pdfConvertError.name;
-        (specificPdfConvertError as any).originalErrorCode = pdfConvertError.code;
-        (specificPdfConvertError as any).originalStderr = pdfConvertError.stderr;
-        (specificPdfConvertError as any).originalStatus = pdfConvertError.status;
-         throw specificPdfConvertError; 
-      }
-      
-      const convertedImageFilenames = fs.readdirSync(tempImageOutputDirForThisPdf).filter(f => f.startsWith(options.out_prefix!) && f.endsWith(`.${options.format}`));
-      console.log(`API /api/upload-image (Req ID: ${reqId}): Found ${convertedImageFilenames.length} converted image file(s). Names: ${convertedImageFilenames.join(', ')}`);
-
-      if (convertedImageFilenames.length === 0) {
-        console.warn(`API /api/upload-image (Req ID: ${reqId}): No images were converted from PDF ${actualOriginalName}. This could be due to an empty/corrupt PDF or Poppler issue not throwing an error.`);
-        // Optionally throw an error or return an empty array if this is considered a failure
-      }
-
-      for (const imageFilename of convertedImageFilenames) {
-        const imagePath = path.join(tempImageOutputDirForThisPdf, imageFilename);
-        
-        const pageNumberMatch = imageFilename.match(/_page-(\d+)\.png$/i);
-        const pageNumber = pageNumberMatch ? parseInt(pageNumberMatch[1], 10) : undefined;
-
-        const gridFsFilename = `${userId}_${Date.now()}_${path.parse(actualOriginalName).name.replace(/[^a-zA-Z0-9_.-]/g, '_')}_page_${pageNumber || 'unknown'}.png`;
-        const metadata = {
-          originalName: `${actualOriginalName} (Page ${pageNumber || 'N/A'})`,
-          userId,
-          uploadedAt: new Date().toISOString(),
-          sourceContentType: 'application/pdf', // Original type was PDF
-          convertedTo: 'image/png', // Stored as PNG
-          pageNumber: pageNumber,
-          reqId: reqId, // Include request ID for traceability
-        };
-
-        console.log(`API /api/upload-image (Req ID: ${reqId}): Uploading PDF page as "${gridFsFilename}" from path ${imagePath}`);
-        const uploadStream = bucket.openUploadStream(gridFsFilename, { contentType: 'image/png', metadata });
-        const readable = fs.createReadStream(imagePath);
-
-        await new Promise<void>((resolveStream, rejectStream) => {
-          readable.pipe(uploadStream)
-            .on('error', (err: MongoError) => { 
-              console.error(`API /api/upload-image (Req ID: ${reqId}): GridFS Stream Error for PDF page ${gridFsFilename}:`, err);
-              rejectStream(new Error(`GridFS upload error for ${gridFsFilename} (Req ID: ${reqId}): ${err.message}`));
-            })
-            .on('finish', () => {
-              console.log(`API /api/upload-image (Req ID: ${reqId}): GridFS Upload finished for PDF page: ${gridFsFilename}, ID: ${uploadStream.id}`);
-              results.push({ originalName: metadata.originalName, fileId: uploadStream.id.toString(), filename: gridFsFilename, pageNumber });
-              resolveStream();
+            console.log(`API /api/upload-image (Req ID: ${reqId}): Uploading PDF page as "${gridFsFilename}"`);
+            const uploadStream = bucket.openUploadStream(gridFsFilename, { contentType: 'image/png', metadata });
+            
+            await new Promise<void>((resolveStream, rejectStream) => {
+              uploadStream.write(imageBuffer, (err) => {
+                if (err) {
+                  console.error(`API /api/upload-image (Req ID: ${reqId}): GridFS Stream Write Error for PDF page ${gridFsFilename}:`, err);
+                  rejectStream(new Error(`GridFS write error for ${gridFsFilename} (Req ID: ${reqId}): ${(err as Error).message}`));
+                  return;
+                }
+                uploadStream.end((errEnd) => {
+                  if (errEnd) {
+                    console.error(`API /api/upload-image (Req ID: ${reqId}): GridFS Stream End Error for PDF page ${gridFsFilename}:`, errEnd);
+                    rejectStream(new Error(`GridFS end error for ${gridFsFilename} (Req ID: ${reqId}): ${(errEnd as Error).message}`));
+                    return;
+                  }
+                  console.log(`API /api/upload-image (Req ID: ${reqId}): GridFS Upload finished for PDF page: ${gridFsFilename}, ID: ${uploadStream.id}`);
+                  results.push({ originalName: metadata.originalName, fileId: uploadStream.id.toString(), filename: gridFsFilename, pageNumber: i });
+                  resolveStream();
+                });
+              });
             });
-        });
+        } finally {
+            if (canvasAndContext && canvasAndContext.canvas) {
+                // canvasFactory.destroy(canvasAndContext); // Release canvas resources
+                // console.log(`API /api/upload-image (Req ID: ${reqId}): Canvas resources for page ${i} destroyed.`);
+                 // Attempt to destroy canvas to free memory if it exists
+                 if (canvasAndContext.canvas) {
+                    (canvasAndContext.canvas as unknown as Canvas).width = 0;
+                    (canvasAndContext.canvas as unknown as Canvas).height = 0;
+                    (canvasAndContext.canvas as any) = null; // Help GC
+                    (canvasAndContext.context as any) = null; // Help GC
+                    console.log(`API /api/upload-image (Req ID: ${reqId}): Canvas for page ${i} explicitly zeroed out.`);
+                }
+            }
+        }
       }
       console.log(`API /api/upload-image (Req ID: ${reqId}): PDF ${actualOriginalName} processed into ${results.length} page(s).`);
 
@@ -202,7 +234,7 @@ export async function POST(request: NextRequest) {
         userId,
         uploadedAt: new Date().toISOString(),
         sourceContentType: fileType,
-        reqId: reqId, // Include request ID
+        reqId: reqId,
       };
 
       console.log(`API /api/upload-image (Req ID: ${reqId}): Uploading image "${imageFilename}" with contentType "${fileType}".`);
@@ -225,7 +257,7 @@ export async function POST(request: NextRequest) {
       console.warn(`API /api/upload-image (Req ID: ${reqId}): Unsupported file type: ${fileType} for file ${actualOriginalName}`);
       const unsupportedFileTypeError = new Error(`Unsupported file type: ${fileType}. Please upload an image or PDF.`);
       unsupportedFileTypeError.name = 'UnsupportedFileTypeError';
-      throw unsupportedFileTypeError; // Re-throw
+      throw unsupportedFileTypeError;
     }
 
     console.log(`API /api/upload-image (Req ID: ${reqId}): Successfully processed. Results count: ${results.length}`);
@@ -236,18 +268,13 @@ export async function POST(request: NextRequest) {
     console.error(`Error Type: ${error.name}`);
     console.error(`Error Message: ${error.message}`);
     if (error.stack) {
-        console.error(`Error Stack: ${error.stack}`);
+        console.error(`Error Stack: ${error.stack.substring(0, 1000)}...`); // Log more of the stack
     }
     if (error.code) { 
         console.error(`Error Code: ${error.code}`);
     }
-    // Check for properties from the custom PdfConversionError
-    if ((error as any).originalErrorName) console.error(`Original Error Name: ${(error as any).originalErrorName}`);
-    if ((error as any).originalErrorCode) console.error(`Original Error Code: ${(error as any).originalErrorCode}`);
-    if ((error as any).originalStderr) console.error(`Original Stderr: ${(error as any).originalStderr}`);
-    if ((error as any).originalStatus) console.error(`Original Status: ${(error as any).originalStatus}`);
     if (error.cause) { 
-        console.error(`Error Cause: ${JSON.stringify(error.cause, Object.getOwnPropertyNames(error.cause))}`); // More detailed cause logging
+        console.error(`Error Cause:`, error.cause);
     }
     console.error(`--- End of Unhandled Error Details (Req ID: ${reqId}) ---\n`);
     
@@ -263,18 +290,13 @@ export async function POST(request: NextRequest) {
             name: error.name,
             message: error.message,
             code: error.code,
-            stack: error.stack?.substring(0, 500) + '... (truncated)', // Include part of stack in dev
-            originalErrorName: (error as any).originalErrorName,
-            originalErrorCode: (error as any).originalErrorCode,
-            originalStderr: (error as any).originalStderr,
-            originalStatus: (error as any).originalStatus,
+            stack: error.stack?.substring(0, 500) + '... (truncated)',
             cause: error.cause ? JSON.stringify(error.cause, Object.getOwnPropertyNames(error.cause)).substring(0, 500) + '...' : undefined,
         } : undefined
       },
       { status: 500 } 
     );
   } finally {
-    // Cleanup formidable temporary file
     if (formidableTempFilePath && fs.existsSync(formidableTempFilePath)) {
       try {
         fs.unlinkSync(formidableTempFilePath);
@@ -283,26 +305,12 @@ export async function POST(request: NextRequest) {
         console.warn(`API /api/upload-image (Req ID: ${reqId}): Could not delete formidable temp file ${formidableTempFilePath}. Error: ${unlinkError.message}`);
       }
     }
-    // Cleanup pdf-poppler temporary image directories
-    for (const tempDir of pdfToImageConversionTempDirs) {
-      if (fs.existsSync(tempDir)) {
-        try {
-          fs.rmSync(tempDir, { recursive: true, force: true });
-          console.log(`API /api/upload-image (Req ID: ${reqId}): Poppler temp output directory ${tempDir} and its contents deleted.`);
-        } catch (rmError: any) {
-          console.warn(`API /api/upload-image (Req ID: ${reqId}): Could not delete poppler temp output directory ${tempDir}. Error: ${rmError.message}`);
-        }
-      }
-    }
     console.log(`API /api/upload-image (Req ID: ${reqId}): Request processing finished.`);
   }
 }
 
-// Required for formidable to work correctly with Next.js API routes
 export const config = {
   api: {
     bodyParser: false,
   },
 };
-
-    

@@ -27,15 +27,15 @@ export interface UserImage {
   originalName: string;
   dataAiHint?: string;
   size: number;
-  userId?: string; // Added for delete authorization on client (though server is main auth)
+  userId?: string; 
 }
 
 interface ImageGridProps {
   images: UserImage[];
   isLoading: boolean;
   error: string | null;
-  onImageDeleted: () => void; // Callback to refresh grid after deletion
-  currentUserId: string | null; // ID of the currently logged-in user
+  onImageDeleted: () => void; 
+  currentUserId: string | null; 
 }
 
 export default function ImageGrid({ images, isLoading, error, onImageDeleted, currentUserId }: ImageGridProps) {
@@ -89,7 +89,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
         title: 'Image Deleted',
         description: `"${imageToDelete.originalName}" has been successfully deleted.`,
       });
-      onImageDeleted(); // Refresh the grid
+      onImageDeleted(); 
     } catch (err: any) {
       toast({
         title: 'Error Deleting Image',

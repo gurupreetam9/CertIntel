@@ -282,7 +282,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
                         src={uploadedFile.previewUrl} 
                         alt={`Preview ${uploadedFile.file.name}`} 
                         fill
-                        sizes="(max-width: 640px) 96px, 128px" // Small size for preview
+                        sizes="(max-width: 640px) 96px, 128px"
                         className="object-cover"
                         data-ai-hint="uploaded file preview" 
                       />
