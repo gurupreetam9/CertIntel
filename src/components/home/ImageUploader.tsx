@@ -50,7 +50,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
           status: 'pending',
         }));
       setSelectedFiles(prev => [...prev, ...newFiles]);
-      if(event.target) event.target.value = "";
+      if(event.target) event.target.value = ""; // Clear the input value to allow re-selection of the same file
     }
   };
 
@@ -77,30 +77,28 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
   };
 
   const handleUpload = async () => {
-    if (!userId || selectedFiles.length === 0) {
-      console.log('ImageUploader: Upload skipped, no user or no files selected.');
+    if (!userId) {
+      toast({ title: 'Authentication Error', description: 'User not authenticated. Please log in.', variant: 'destructive' });
+      console.log('ImageUploader: Upload skipped, no user ID.');
       return;
     }
-
-    console.log('ImageUploader: handleUpload started.');
-    setIsUploading(true);
-
+    
     const filesToUpload = selectedFiles.filter(f => f.status === 'pending' || f.status === 'error');
     if (filesToUpload.length === 0) {
       console.log('ImageUploader: No files in pending/error state to upload.');
-      setIsUploading(false);
-      toast({ title: 'No new files to upload', description: 'All selected files have already been processed or are not in a pending state.'});
+      toast({ title: 'No New Files', description: 'No new files or files with errors to attempt uploading.'});
       return;
     }
-
-    console.log(`ImageUploader: Attempting to upload ${filesToUpload.length} files.`);
+    
+    console.log(`ImageUploader: handleUpload called. Current isUploading before starting: ${isUploading}. Attempting to upload ${filesToUpload.length} files.`);
+    setIsUploading(true);
+    console.log('ImageUploader: isUploading state has been set to true.');
 
     const uploadPromises = filesToUpload.map(async (uploadedFile) => {
-      setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'uploading', progress: 0 } : f));
-
+      setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'uploading', progress: 0, error: undefined } : f));
+      console.log(`ImageUploader: Starting individual upload for: ${uploadedFile.file.name}`);
       const filePath = `images/${userId}/${Date.now()}_${uploadedFile.file.name}`;
       try {
-        console.log(`ImageUploader: Starting upload for: ${uploadedFile.file.name} to path: ${filePath}`);
         const { downloadURL, filePath: returnedPath } = await uploadFileToFirebase(
           uploadedFile.file,
           filePath,
@@ -108,56 +106,69 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
             setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, progress } : f));
           }
         );
-        console.log(`ImageUploader: Upload successful for: ${uploadedFile.file.name}. URL: ${downloadURL}`);
+        console.log(`ImageUploader: Individual upload successful for: ${uploadedFile.file.name}. URL: ${downloadURL}`);
         setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'success', progress: 100, downloadURL, storagePath: returnedPath } : f));
         return { originalName: uploadedFile.file.name, downloadURL, storagePath: returnedPath };
       } catch (error: any) {
-        console.error(`ImageUploader: Upload error for file: ${uploadedFile.file.name}`, error);
+        console.error(`ImageUploader: Individual upload error for file: ${uploadedFile.file.name}. Error object:`, error);
         const errorMessage = error.friendlyMessage || error.message || 'Upload failed';
-        setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'error', error: errorMessage } : f));
+        setSelectedFiles(prev => prev.map(f => f.file.name === uploadedFile.file.name ? { ...f, status: 'error', error: errorMessage, progress: 0 } : f));
         return null;
       }
     });
 
     try {
-      console.log('ImageUploader: Waiting for all uploads to complete...');
+      console.log('ImageUploader: Waiting for all upload promises to settle...');
       const results = await Promise.all(uploadPromises);
-      console.log('ImageUploader: All upload promises settled. Results:', results);
+      // Using JSON.stringify for results as it can be an array of objects/null
+      console.log('ImageUploader: All upload promises settled. Results:', JSON.stringify(results)); 
       
       const successfulUploads = results.filter(r => r !== null && r.downloadURL && r.storagePath) as {originalName: string; downloadURL: string; storagePath: string}[];
       const failedInThisBatchCount = filesToUpload.length - successfulUploads.length;
 
+      console.log(`ImageUploader: Successful uploads in this batch: ${successfulUploads.length}, Failed in this batch: ${failedInThisBatchCount}`);
+
       if (successfulUploads.length > 0) {
         console.log('ImageUploader: Calling onUploadComplete with successful uploads:', successfulUploads);
-        onUploadComplete(successfulUploads);
+        onUploadComplete(successfulUploads); // This is async; its own error handling is in UploadModal
       }
 
-      if (successfulUploads.length > 0 && failedInThisBatchCount === 0) {
-        toast({ title: 'Upload Successful', description: `${successfulUploads.length} image(s) uploaded.` });
-      } else if (successfulUploads.length > 0 && failedInThisBatchCount > 0) {
-        toast({ title: 'Partial Upload', description: `${successfulUploads.length} image(s) uploaded. ${failedInThisBatchCount} failed.`, variant: 'default' });
-      } else if (filesToUpload.length > 0 && successfulUploads.length === 0) {
-         toast({ title: 'Upload Failed', description: `All ${filesToUpload.length} image(s) failed to upload.`, variant: 'destructive' });
+      // Toast logic based on batch results
+      if (filesToUpload.length > 0) { 
+        if (successfulUploads.length > 0 && failedInThisBatchCount === 0) {
+          toast({ title: 'Upload Complete', description: `${successfulUploads.length} image(s) uploaded successfully.` });
+        } else if (successfulUploads.length > 0 && failedInThisBatchCount > 0) {
+          toast({ title: 'Partial Upload', description: `${successfulUploads.length} image(s) uploaded. ${failedInThisBatchCount} failed. Check individual files for errors.`, variant: 'default' });
+        } else if (failedInThisBatchCount > 0 && successfulUploads.length === 0) {
+           toast({ title: 'Upload Failed', description: `All ${failedInThisBatchCount} image(s) attempted in this batch failed to upload. Check individual files for errors.`, variant: 'destructive' });
+        }
+      } else {
+        console.log('ImageUploader: No files were attempted in this batch for toast summary.');
       }
 
     } catch (allResultsError) {
-      console.error('ImageUploader: Error in Promise.all processing uploads:', allResultsError);
-      toast({ title: 'Upload Error', description: 'An unexpected error occurred while processing uploads.', variant: 'destructive' });
+      // This catch block for Promise.all itself should ideally not be hit if individual errors are caught and returned as null in the map.
+      // However, it's a safety net.
+      console.error('ImageUploader: Unexpected error during Promise.all settlement or results processing:', allResultsError);
+      toast({ title: 'Upload Processing Error', description: 'An unexpected error occurred while finalizing uploads. Some files may not have processed correctly.', variant: 'destructive' });
     } finally {
-      console.log('ImageUploader: Setting isUploading to false.');
+      console.log(`ImageUploader: Entering finally block of handleUpload. Current isUploading before set: ${isUploading}`);
       setIsUploading(false);
+      console.log('ImageUploader: isUploading state has been set to false.');
     }
   };
 
   React.useEffect(() => {
+    // Cleanup Object URLs on unmount
     return () => {
+      console.log("ImageUploader: Component unmounting, revoking object URLs.");
       selectedFiles.forEach(uploadedFile => {
         if (uploadedFile.previewUrl) {
           URL.revokeObjectURL(uploadedFile.previewUrl);
         }
       });
     };
-  }, [selectedFiles]);
+  }, [selectedFiles]); // Rerun if selectedFiles changes, though the cleanup is for unmount
 
 
   return (
@@ -249,3 +260,4 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     </div>
   );
 }
+
