@@ -13,23 +13,24 @@ let bucket: GridFSBucket | undefined;
 
 async function connectToDb() {
   if (!MONGODB_URI) {
-    console.error('API Error: MONGODB_URI is not set in environment variables.');
+    console.error('MongoDB Connect Error: MONGODB_URI is not set in environment variables.');
     throw new Error('MONGODB_URI is not set in environment variables.');
   }
 
-  if (db && client && client.db(DB_NAME)) {
+  if (client && db && bucket) {
     try {
+      // Ping the database to ensure the client is still connected and responsive
       await client.db(DB_NAME).command({ ping: 1 });
-      console.log('MongoDB: Already connected and responsive.');
+      console.log('MongoDB: Re-using existing active connection.');
       return;
     } catch (pingError: any) {
-      console.warn('MongoDB: Existing client lost connection or unresponsive, will attempt to reconnect.', { message: pingError.message, stack: pingError.stack });
+      console.warn('MongoDB: Existing client lost connection or unresponsive, will attempt to reconnect.', { message: pingError.message });
       if (client) {
         try {
           await client.close();
           console.log('MongoDB: Closed unresponsive client.');
         } catch (closeErr: any) {
-          console.error('MongoDB: Error closing unresponsive client:', { message: closeErr.message, stack: closeErr.stack });
+          console.error('MongoDB: Error closing unresponsive client:', { message: closeErr.message });
         }
       }
       client = undefined;
@@ -46,24 +47,28 @@ async function connectToDb() {
         strict: true,
         deprecationErrors: true,
       },
+      // Consider adding connection timeout options if needed
+      // connectTimeoutMS: 10000, // 10 seconds
+      // socketTimeoutMS: 45000, // 45 seconds
     });
     await client.connect();
     db = client.db(DB_NAME);
     bucket = new GridFSBucket(db, { bucketName: 'images' });
-    console.log('MongoDB: Successfully connected to MongoDB and GridFS bucket initialized.');
+    console.log(`MongoDB: Successfully connected to database "${DB_NAME}" and GridFS bucket "images" initialized.`);
   } catch (error: any) {
-    console.error('MongoDB: Connection failed.', { errorMessage: error.message, errorType: error.constructor.name, stack: error.stack, fullError: error });
+    console.error('MongoDB: Connection failed.', { errorMessage: error.message, errorType: error.constructor.name, fullError: error });
     if (client) {
       try {
         await client.close();
         console.log('MongoDB: Closed client after connection failure.');
       } catch (closeErr: any) {
-        console.error('MongoDB: Error closing client after connection failure:', { message: closeErr.message, stack: closeErr.stack });
+        console.error('MongoDB: Error closing client after connection failure:', { message: closeErr.message });
       }
-      client = undefined;
-      db = undefined;
-      bucket = undefined;
     }
+    client = undefined;
+    db = undefined;
+    bucket = undefined;
+    // Re-throw a more generic error to be caught by the POST handler
     throw new Error(`MongoDB connection error: ${error.message || 'Failed to connect to database.'}`);
   }
 }
@@ -92,25 +97,41 @@ function dataURIToBuffer(dataURI: string): { buffer: Buffer; contentType: string
         filenameExtension = parts[1];
     }
   }
-  console.log(`Data URI parsed: contentType=${contentType}, extension=${filenameExtension}, bufferLength=${buffer.length}`);
+  // console.log(`Data URI parsed: contentType=${contentType}, extension=${filenameExtension}, bufferLength=${buffer.length}`);
   return { buffer, contentType, filenameExtension };
 }
 
 
 export async function POST(request: NextRequest) {
   console.log('API Route /api/upload-image: POST request received.');
+  
+  if (!MONGODB_URI) {
+    const errorMsg = 'Server configuration error: MONGODB_URI is not set. Please check server logs and .env.local file.';
+    console.error(`API Error: ${errorMsg}`);
+    const errorPayload = { message: errorMsg, error: 'Missing MONGODB_URI' };
+    console.log('API Error (MONGODB_URI): Preparing to send error response:', errorPayload);
+    return NextResponse.json(errorPayload, { status: 500 });
+  }
+
   try {
     await connectToDb(); 
     if (!bucket || !db) { 
-      console.error('API Error: Database or GridFS bucket not initialized. connectToDb might have failed.');
-      return NextResponse.json({ message: 'Server error: Database not initialized. Please check server logs.' }, { status: 500 });
+      const errorMsg = 'Server error: Database or GridFS bucket not initialized. connectToDb might have failed or MONGODB_URI is invalid.';
+      console.error(`API Error: ${errorMsg}`);
+      const errorPayload = { message: errorMsg, error: 'DB_INITIALIZATION_FAILURE' };
+      console.log('API Error (DB Init): Preparing to send error response:', errorPayload);
+      return NextResponse.json(errorPayload, { status: 500 });
     }
 
-    const { photoDataUri, originalName, userId, contentType: explicitContentType } = await request.json();
+    const requestBody = await request.json();
+    const { photoDataUri, originalName, userId, contentType: explicitContentType } = requestBody;
 
     if (!photoDataUri || !originalName || !userId) {
-      console.warn('API Warning: Missing required fields in request body.', { photoDataUri: !!photoDataUri, originalName: !!originalName, userId: !!userId });
-      return NextResponse.json({ message: 'Missing required fields: photoDataUri, originalName, or userId.' }, { status: 400 });
+      const errorMsg = 'Missing required fields: photoDataUri, originalName, or userId.';
+      console.warn(`API Warning: ${errorMsg}`, { photoDataUri: !!photoDataUri, originalName: !!originalName, userId: !!userId });
+      const errorPayload = { message: errorMsg, error: 'MISSING_FIELDS' };
+      console.log('API Warning (Missing Fields): Preparing to send error response:', errorPayload);
+      return NextResponse.json(errorPayload, { status: 400 });
     }
 
     let buffer: Buffer;
@@ -120,22 +141,25 @@ export async function POST(request: NextRequest) {
       buffer = parsedData.buffer;
       detectedContentType = parsedData.contentType;
     } catch (parseError: any) {
-      console.error('API Error: Failed to parse Data URI.', { message: parseError.message, stack: parseError.stack });
-      return NextResponse.json({ message: `Invalid image data format: ${parseError.message}`, error: parseError.message, details: parseError.stack }, { status: 400 });
+      const errorMsg = `Invalid image data format: ${parseError.message}`;
+      console.error('API Error: Failed to parse Data URI.', { message: parseError.message });
+      const errorPayload = { message: errorMsg, error: 'DATA_URI_PARSE_ERROR', details: String(parseError.message) };
+      console.log('API Error (Data URI Parse): Preparing to send error response:', errorPayload);
+      return NextResponse.json(errorPayload, { status: 400 });
     }
     
     const finalContentType = explicitContentType || detectedContentType || 'application/octet-stream';
     const filename = `${userId}_${Date.now()}_${originalName.replace(/\s+/g, '_')}`; 
     
-    console.log(`GridFS: Attempting to upload ${filename} with contentType ${finalContentType}`);
+    console.log(`GridFS: Attempting to upload "${filename}" with contentType "${finalContentType}"`);
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const uploadStream = bucket!.openUploadStream(filename, { 
         contentType: finalContentType,
         metadata: {
           originalName,
           userId,
-          uploadedAt: new Date(),
+          uploadedAt: new Date().toISOString(),
           sourceContentType: detectedContentType,
           explicitContentType,
         },
@@ -144,31 +168,54 @@ export async function POST(request: NextRequest) {
       const readable = Readable.from(buffer);
       readable.pipe(uploadStream)
         .on('error', (error: MongoError) => { 
-          console.error('GridFS: Upload stream error:', { message: error.message, code: error.code, stack: error.stack, fullError: error });
-          resolve(NextResponse.json({ message: 'Failed to upload image to GridFS.', error: error.message, code: error.code, details: error.stack }, { status: 500 }));
+          const errorMsg = 'Failed to upload image to GridFS.';
+          console.error(`GridFS Stream Error for ${filename}:`, { message: error.message, code: error.code, mongoErrorName: error.name });
+          const errorPayload = { 
+            message: errorMsg, 
+            error: 'GRIDFS_UPLOAD_STREAM_ERROR', 
+            details: String(error.message || 'Unknown GridFS stream error'),
+            mongoErrorCode: String(error.code || 'N/A')
+          };
+          console.log('API Error (GridFS Stream): Preparing to send error response:', errorPayload);
+          resolve(NextResponse.json(errorPayload, { status: 500 }));
         })
         .on('finish', () => {
-          console.log(`GridFS: File ${filename} uploaded successfully with id ${uploadStream.id}`);
-          resolve(NextResponse.json({ message: 'Image uploaded successfully to MongoDB GridFS.', fileId: uploadStream.id.toString() }, { status: 201 }));
+          console.log(`GridFS: File "${filename}" (ID: ${uploadStream.id}) uploaded successfully.`);
+          resolve(NextResponse.json({ 
+            message: 'Image uploaded successfully to MongoDB GridFS.', 
+            fileId: uploadStream.id.toString(),
+            filename: filename
+          }, { status: 201 }));
         });
     });
 
   } catch (error: any) {
-    console.error('API Error: Unhandled error in POST /api/upload-image.', { message: error.message, type: error.constructor.name, stack: error.stack });
-    let errorMessage = 'An unexpected error occurred during image upload.';
-    let statusCode = 500;
-
-    if (error.message && error.message.includes('MONGODB_URI is not set')) {
-        errorMessage = `Server configuration error: ${error.message}`;
-    } else if (error.message && error.message.includes('MongoDB connection error')) {
-        errorMessage = `Server configuration error: ${error.message}`; 
-    } else if (error.message && error.message.includes('Invalid Data URI')) {
-        errorMessage = `Bad request: ${error.message}`;
-        statusCode = 400;
-    } else if (error.message) { 
-        errorMessage = error.message;
-    }
+    const generalErrorMsg = 'An unexpected error occurred during image upload processing.';
+    console.error('API Error (Outer Catch): Unhandled error in POST /api/upload-image.', { 
+        errorMessage: error.message, 
+        errorType: error.constructor?.name, 
+        errorStack: error.stack 
+    });
     
-    return NextResponse.json({ message: errorMessage, error: error.message, details: error.stack }, { status: statusCode });
+    let displayMessage = generalErrorMsg;
+    if (error.message && typeof error.message === 'string') {
+        if (error.message.includes('MONGODB_URI is not set')) {
+            displayMessage = `Server configuration error: ${error.message}`;
+        } else if (error.message.includes('MongoDB connection error')) {
+            displayMessage = `Database connection issue: ${error.message}`; 
+        } else if (error.message.includes('Invalid Data URI')) {
+            displayMessage = `Bad request: ${error.message}`;
+        } else {
+            displayMessage = error.message; // Use the specific error message if available
+        }
+    }
+
+    const errorPayload = { 
+        message: displayMessage, 
+        error: 'UNHANDLED_SERVER_ERROR',
+        details: String(error.message || 'No specific error message available')
+    };
+    console.log('API Error (Outer Catch): Preparing to send error response:', errorPayload);
+    return NextResponse.json(errorPayload, { status: 500 });
   }
 }
