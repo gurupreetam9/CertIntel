@@ -33,6 +33,7 @@ export async function connectToDb(): Promise<ConnectionResult> {
 
   if (client && dbInstance && bucketInstance) {
     try {
+      // Check if the existing client is still connected and the server is responsive.
       await client.db(DB_NAME).command({ ping: 1 });
       console.log(`MongoDB (connectToDb-${connectionId}): Re-using existing active connection for DB: ${DB_NAME}.`);
       return { client, db: dbInstance, bucket: bucketInstance };
@@ -61,12 +62,13 @@ export async function connectToDb(): Promise<ConnectionResult> {
         strict: true,
         deprecationErrors: true,
       },
-      connectTimeoutMS: 30000, // Increased from 10000 to 30000
-      socketTimeoutMS: 45000,  // Can also increase this, e.g., to 45000
+      connectTimeoutMS: 30000, 
+      socketTimeoutMS: 45000,
+      serverSelectionTimeoutMS: 30000, // Explicitly set server selection timeout
     });
 
-    console.log(`MongoDB (connectToDb-${connectionId}): Connecting to new client... (timeout set to 30s)`);
-    await newClient.connect();
+    console.log(`MongoDB (connectToDb-${connectionId}): Connecting to new client... (connectTimeoutMS: 30s, serverSelectionTimeoutMS: 30s)`);
+    await newClient.connect(); // This method establishes the connection.
     console.log(`MongoDB (connectToDb-${connectionId}): New client connected successfully.`);
 
     const newDbInstance = newClient.db(DB_NAME);
@@ -75,6 +77,7 @@ export async function connectToDb(): Promise<ConnectionResult> {
     const newBucketInstance = new GridFSBucket(newDbInstance, { bucketName: 'images' });
     console.log(`MongoDB (connectToDb-${connectionId}): Initialized GridFS bucket "images".`);
 
+    // Store the new client and instances globally for reuse.
     client = newClient;
     dbInstance = newDbInstance;
     bucketInstance = newBucketInstance;
@@ -82,6 +85,11 @@ export async function connectToDb(): Promise<ConnectionResult> {
     console.log(`MongoDB (connectToDb-${connectionId}): Successfully established new connection to database "${DB_NAME}" and GridFS bucket "images".`);
     return { client, db: dbInstance, bucket: bucketInstance };
   } catch (error: any) {
+    let detailedErrorMessage = `MongoDB connection error: ${error.message || 'Failed to connect to database and initialize resources.'}`;
+    if (error.name === 'MongoServerSelectionError' || (error.message && error.message.toLowerCase().includes('server selection timed out'))) {
+        detailedErrorMessage += "\nCRITICAL CHECK: Ensure your current IP address is whitelisted in MongoDB Atlas 'Network Access' settings. This is the most common cause for server selection timeouts.";
+    }
+    
     console.error(`MongoDB (connectToDb-${connectionId}): DATABASE CONNECTION FAILED. Details:`, {
         errorMessage: error.message,
         errorCode: error.code,
@@ -89,7 +97,10 @@ export async function connectToDb(): Promise<ConnectionResult> {
         errorLabels: error.errorLabels,
         isTransient: error.hasErrorLabel && error.hasErrorLabel('TransientTransactionError'),
         isNetworkError: error.hasErrorLabel && error.hasErrorLabel('NetworkError'),
+        advice: "If this is a MongoServerSelectionError, VERIFY MONGODB ATLAS IP ACCESS LIST."
     });
+
+    // Clean up the client if connection failed
     if (client) {
       try {
         await client.close();
@@ -101,6 +112,6 @@ export async function connectToDb(): Promise<ConnectionResult> {
     client = undefined;
     dbInstance = undefined;
     bucketInstance = undefined;
-    throw new Error(`MongoDB connection error: ${error.message || 'Failed to connect to database and initialize resources.'}`);
+    throw new Error(detailedErrorMessage); // Throw the more detailed message
   }
 }
