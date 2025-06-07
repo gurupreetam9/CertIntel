@@ -4,9 +4,10 @@ from flask_cors import CORS
 import os
 import io
 import logging
-from pymongo import MongoClient
+from pymongo import MongoClient, DESCENDING # Added DESCENDING
 from gridfs import GridFS
 from dotenv import load_dotenv
+from datetime import datetime # Added datetime
 
 # Load environment variables from .env file
 load_dotenv()
@@ -28,52 +29,53 @@ DB_NAME = os.getenv("MONGODB_DB_NAME", "imageverse_db")
 
 if not MONGODB_URI:
     app.logger.critical("MONGODB_URI is not set. Please set it in your .env file or environment variables.")
-    # Potentially exit or raise an error if you want to prevent the app from starting
-    # For now, it will allow starting but fail on API calls.
 
 mongo_client = None
 db = None
 fs = None
+course_data_collection = None # New collection instance
 
 try:
     if MONGODB_URI:
         mongo_client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000) # 5 second timeout
-        # The ismaster command is cheap and does not require auth.
         mongo_client.admin.command('ismaster') 
         db = mongo_client[DB_NAME]
-        fs = GridFS(db, collection="images") # GridFS bucket for 'images' collection
-        app.logger.info(f"Successfully connected to MongoDB: {DB_NAME} and GridFS bucket 'images'.")
+        fs = GridFS(db, collection="images") 
+        course_data_collection = db["course_data"] # Initialize course_data collection
+        # Optional: Create index for faster queries on userId and processedAt for course_data
+        # course_data_collection.create_index([("userId", 1), ("processedAt", -1)])
+        app.logger.info(f"Successfully connected to MongoDB: {DB_NAME}, GridFS bucket 'images', and collection 'course_data'.")
     else:
         app.logger.warning("MONGODB_URI not found, MongoDB connection will not be established.")
 except Exception as e:
-    app.logger.error(f"Failed to connect to MongoDB: {e}")
-    mongo_client = None # Ensure client is None if connection failed
+    app.logger.error(f"Failed to connect to MongoDB or initialize collections: {e}")
+    mongo_client = None 
+    db = None
+    fs = None
+    course_data_collection = None
 
 
 @app.route('/api/process-certificates', methods=['POST'])
 def process_certificates_from_db():
-    # Corrected conditional check
-    if mongo_client is None or db is None or fs is None:
+    if mongo_client is None or db is None or fs is None: # Explicitly check against None
         app.logger.error("MongoDB connection not available for /api/process-certificates.")
-        return jsonify({"error": "Database connection is not available. Check server logs."}), 503 # Service Unavailable
+        return jsonify({"error": "Database connection is not available. Check server logs."}), 503
 
     data = request.get_json()
     user_id = data.get("userId")
+    additional_manual_courses = data.get("additionalManualCourses", []) # For future frontend use
 
     if not user_id:
         app.logger.warning("User ID not provided in request to /api/process-certificates.")
         return jsonify({"error": "User ID (userId) not provided"}), 400
 
-    app.logger.info(f"Processing certificates for userId: {user_id}")
+    app.logger.info(f"Processing certificates for userId: {user_id}. Manual courses: {additional_manual_courses}")
 
     try:
-        # Find file metadata in 'images.files' for this user
         user_image_files_cursor = db.images.files.find({"metadata.userId": user_id})
         
         image_data_for_processing = []
-        count = 0
         for file_doc in user_image_files_cursor:
-            count += 1
             file_id = file_doc["_id"]
             original_filename = file_doc.get("metadata", {}).get("originalName", file_doc["filename"])
             content_type = file_doc.get("contentType", "application/octet-stream")
@@ -88,23 +90,54 @@ def process_certificates_from_db():
                 "bytes": image_bytes,
                 "original_filename": original_filename,
                 "content_type": content_type,
-                "file_id": str(file_id) # For logging/debugging
+                "file_id": str(file_id) 
             })
         
         app.logger.info(f"Found {len(image_data_for_processing)} certificate images in GridFS for user {user_id}.")
 
-        if not image_data_for_processing:
+        previous_results_list = []
+        if course_data_collection is not None:
+            try:
+                # Fetch all previous results, sorted by most recent. Can be limited later.
+                raw_previous_docs = list(course_data_collection.find({"userId": user_id}).sort("processedAt", DESCENDING))
+                # The stored document itself is the 'previous_result' structure expected by the processor
+                previous_results_list = raw_previous_docs 
+                app.logger.info(f"Fetched {len(previous_results_list)} previous course_data records for user {user_id}.")
+            except Exception as e:
+                app.logger.error(f"Error fetching previous course_data for user {user_id}: {e}")
+                # Continue without previous results if fetching fails
+
+        if not image_data_for_processing and not additional_manual_courses:
+             # If no images and no manual courses, return early
             return jsonify({
-                "message": "No certificate images found in the database for this user.",
+                "message": "No certificate images found in the database and no manual courses provided for this user.",
                 "extracted_courses": [],
                 "recommendations": []
             }), 200
 
-        # Call the refactored processing function
-        # This function now needs to handle a list of image data objects
-        processing_result = extract_and_recommend_courses_from_image_data(image_data_for_processing)
+        processing_result = extract_and_recommend_courses_from_image_data(
+            image_data_list=image_data_for_processing,
+            previous_results_list=previous_results_list,
+            additional_manual_courses=additional_manual_courses
+        )
         
-        app.logger.info(f"Successfully processed certificates for user {user_id}. Result: {processing_result}")
+        app.logger.info(f"Successfully processed certificates for user {user_id}.")
+
+        # Store the new result in course_data collection if successful and collection exists
+        if course_data_collection is not None and \
+           (processing_result.get("extracted_courses") or processing_result.get("recommendations")):
+            try:
+                data_to_store = {
+                    "userId": user_id,
+                    "processedAt": datetime.utcnow(),
+                    **processing_result 
+                }
+                insert_result = course_data_collection.insert_one(data_to_store)
+                app.logger.info(f"Stored processing result for user {user_id} in course_data. Inserted ID: {insert_result.inserted_id}")
+            except Exception as e:
+                app.logger.error(f"Error storing result to course_data for user {user_id}: {e}")
+                # Don't fail the request if storing fails, just log it.
+        
         return jsonify(processing_result)
 
     except Exception as e:
@@ -112,8 +145,4 @@ def process_certificates_from_db():
         return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
 
 if __name__ == '__main__':
-    # Make sure to run with `flask run` or `python app.py` in debug mode for development
-    # The port and debug settings here are for direct `python app.py` execution.
-    # When deploying, use a proper WSGI server like Gunicorn or Waitress.
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)), debug=True)
-
