@@ -52,7 +52,8 @@ except Exception as e:
 
 @app.route('/api/process-certificates', methods=['POST'])
 def process_certificates_from_db():
-    if not mongo_client or not db or not fs:
+    # Corrected conditional check
+    if mongo_client is None or db is None or fs is None:
         app.logger.error("MongoDB connection not available for /api/process-certificates.")
         return jsonify({"error": "Database connection is not available. Check server logs."}), 503 # Service Unavailable
 
@@ -115,3 +116,4 @@ if __name__ == '__main__':
     # The port and debug settings here are for direct `python app.py` execution.
     # When deploying, use a proper WSGI server like Gunicorn or Waitress.
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)), debug=True)
+
