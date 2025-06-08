@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info } from 'lucide-react';
+import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info, CheckCircle, ListChecks, Wand2 } from 'lucide-react';
 import NextImage from 'next/image';
 import Link from 'next/link';
 import { useState, useCallback, useEffect } from 'react';
@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
+// --- TypeScript Interfaces ---
 interface LLMSuggestion {
   name: string;
   description: string;
@@ -23,6 +24,7 @@ interface LLMSuggestion {
 interface UserProcessedCourseData {
   identified_course_name: string;
   description_from_graph?: string | null;
+  ai_description?: string | null; // New field for AI generated description of the identified course
   llm_suggestions: LLMSuggestion[];
   llm_error?: string | null;
 }
@@ -30,120 +32,203 @@ interface UserProcessedCourseData {
 interface FailedExtractionImage {
   file_id: string;
   original_filename: string;
-  reason?: string; 
+  reason?: string;
 }
 
-interface CertificateProcessingResult {
-  user_processed_data?: UserProcessedCourseData[];
-  processed_image_file_ids?: string[];
+// For Phase 1 (OCR only) response
+interface OcrPhaseResult {
+  successfully_extracted_courses?: string[];
   failed_extraction_images?: FailedExtractionImage[];
-  llm_error_summary?: string | null; 
-  error?: string; 
-  message?: string; 
+  processed_image_file_ids?: string[]; // IDs of all images attempted in OCR phase
+  error?: string;
+  message?: string;
 }
+
+// For Phase 2 (Suggestions) response - this is also the final structure
+interface SuggestionsPhaseResult {
+  user_processed_data?: UserProcessedCourseData[];
+  llm_error_summary?: string | null;
+  error?: string;
+  message?: string; // General messages from backend
+}
+
+type ProcessingPhase = 'initial' | 'manualNaming' | 'processingSuggestions' | 'results';
+
 
 function AiFeaturePageContent() {
   const flaskServerBaseUrl = process.env.NEXT_PUBLIC_FLASK_SERVER_URL || 'http://localhost:5000';
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [result, setResult] = useState<CertificateProcessingResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [manualCoursesInput, setManualCoursesInput] = useState<string>('');
   const { toast } = useToast();
   const { userId, user } = useAuth();
 
-  const [imagesForManualNaming, setImagesForManualNaming] = useState<FailedExtractionImage[] | null>(null);
-  const [manualNamesForImages, setManualNamesForImages] = useState<{ [key: string]: string }>({});
+  // State Management
+  const [phase, setPhase] = useState<ProcessingPhase>('initial');
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  
+  const [generalManualCoursesInput, setGeneralManualCoursesInput] = useState<string>('');
+  
+  // Data from OCR phase (Phase 1)
+  const [ocrSuccessfullyExtracted, setOcrSuccessfullyExtracted] = useState<string[]>([]);
+  const [ocrFailedImages, setOcrFailedImages] = useState<FailedExtractionImage[]>([]);
+  const [ocrProcessedImageFileIds, setOcrProcessedImageFileIds] = useState<string[]>([]);
 
-  useEffect(() => {
-    console.log("Current imagesForManualNaming state:", imagesForManualNaming);
-  }, [imagesForManualNaming]);
+  // User input for failed images during 'manualNaming' phase
+  const [manualNamesForFailedImages, setManualNamesForFailedImages] = useState<{ [key: string]: string }>({});
+  
+  // Final result from suggestions phase (Phase 2)
+  const [finalResult, setFinalResult] = useState<SuggestionsPhaseResult | null>(null);
+
 
   const handleManualNameChange = (fileId: string, name: string) => {
-    setManualNamesForImages(prev => ({ ...prev, [fileId]: name }));
+    setManualNamesForFailedImages(prev => ({ ...prev, [fileId]: name }));
   };
 
-  const handleProcessUserCertificates = useCallback(async () => {
+  const resetToInitialState = () => {
+    setPhase('initial');
+    setIsLoading(false);
+    setError(null);
+    // setGeneralManualCoursesInput(''); // Optionally keep this
+    setOcrSuccessfullyExtracted([]);
+    setOcrFailedImages([]);
+    setOcrProcessedImageFileIds([]);
+    setManualNamesForFailedImages({});
+    setFinalResult(null);
+  };
+
+  const handlePrimaryButtonClick = useCallback(async () => {
     if (!userId) {
-      toast({
-        title: 'Authentication Required',
-        description: 'Please log in to process your certificates.',
-        variant: 'destructive',
-      });
+      toast({ title: 'Authentication Required', variant: 'destructive' });
       return;
     }
 
     setIsLoading(true);
-    setResult(null); 
-    setError(null); 
-    setImagesForManualNaming(null); // Clear previous failed images UI *before* new request
-                                   // Also ensures that if the new response has no failed images, the section is gone.
-
-    const generalManualCourses = manualCoursesInput
-      .split(',')
-      .map(course => course.trim())
-      .filter(course => course.length > 0);
-    
-    const specificManualNamesForFailedImages = Object.values(manualNamesForImages)
-      .map(name => name.trim())
-      .filter(name => name.length > 0);
-      
-    const combinedManualCourses = [...new Set([...generalManualCourses, ...specificManualNamesForFailedImages])];
-    
-    // Clear specific manual names *state* for next round; general input remains as is.
-    setManualNamesForImages({}); 
-
+    setError(null);
     const endpoint = `${flaskServerBaseUrl}/api/process-certificates`;
-    try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, additionalManualCourses: combinedManualCourses }),
-      });
 
-      const responseData: CertificateProcessingResult = await response.json();
-      console.log('Response from Flask server:', responseData);
-
-      if (!response.ok) {
-        const errorMessage = responseData?.error || `Server error: ${response.status}`;
-        throw new Error(errorMessage);
-      }
+    if (phase === 'initial' || phase === 'results') { // Start or restart OCR phase
+      resetToInitialState(); // Clear everything for a fresh start or restart
+      setPhase('initial'); // Explicitly set to initial if restarting from results
       
-      setResult(responseData); 
+      const generalManualCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
 
-      if (responseData.failed_extraction_images && responseData.failed_extraction_images.length > 0) {
-        setImagesForManualNaming(responseData.failed_extraction_images);
-        toast({
-          title: 'Action Required for Some Certificates',
-          description: `${responseData.failed_extraction_images.length} certificate(s) could not be automatically identified or OCR failed. Please review the "Name Unidentified Certificates" section below. You can name them and click "Process My Certificates" again.`,
-          variant: 'default', // Using default, not destructive, as it's an informative action step.
-          duration: 10000, // Longer duration
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            userId, 
+            mode: 'ocr_only',
+            additionalManualCourses: generalManualCourses 
+          }),
         });
-      } else {
-        // Ensure it's cleared if the API call was successful but returned no failed images this time.
-        setImagesForManualNaming(null);
+        const data: OcrPhaseResult = await response.json();
+
+        if (!response.ok || data.error) {
+          throw new Error(data.error || `Server error: ${response.status}`);
+        }
+        
+        setOcrSuccessfullyExtracted(data.successfully_extracted_courses || []);
+        setOcrFailedImages(data.failed_extraction_images || []);
+        setOcrProcessedImageFileIds(data.processed_image_file_ids || []);
+
+        if (data.failed_extraction_images && data.failed_extraction_images.length > 0) {
+          setPhase('manualNaming');
+          toast({
+            title: 'Action Required',
+            description: `${data.failed_extraction_images.length} certificate(s) need manual naming. Please review below.`,
+            duration: 7000
+          });
+        } else if ((data.successfully_extracted_courses && data.successfully_extracted_courses.length > 0) || generalManualCourses.length > 0) {
+          // No OCR failures, but there are courses to process for suggestions
+          // Automatically trigger the suggestions phase
+          setPhase('processingSuggestions'); // Intermediate state before calling suggestions
+          // Use a brief timeout to allow state update before calling the next phase function
+          setTimeout(() => handlePrimaryButtonClick(), 0); 
+        } else {
+          toast({ title: 'Nothing to Process', description: data.message || 'No courses extracted and no manual courses provided.' });
+          setPhase('initial'); // Stay initial or go to a specific "empty" state
+        }
+
+      } catch (err: any) {
+        setError(err.message || 'Failed OCR phase.');
+        toast({ title: 'OCR Phase Failed', description: err.message, variant: 'destructive' });
+        setPhase('initial');
+      } finally {
+        setIsLoading(false); // Loading for OCR phase ends here
       }
 
-      if (responseData.error) { 
-        toast({ title: 'Processing Error', description: responseData.error, variant: 'destructive' });
-        setError(responseData.error);
-      } else if (responseData.message && !responseData.user_processed_data?.length && (!responseData.failed_extraction_images || responseData.failed_extraction_images.length === 0)) {
-         toast({ title: 'Processing Info', description: responseData.message });
-      } else if (responseData.user_processed_data?.length) {
-         toast({ title: 'Processing Successful', description: `Processed ${responseData.user_processed_data.length} identified course(s)/topic(s).` });
-      }
+    } else if (phase === 'manualNaming' || phase === 'processingSuggestions') { // Trigger suggestions phase
+      setPhase('processingSuggestions'); // Ensure phase is set
+      const userProvidedNamesForFailures = Object.values(manualNamesForFailedImages).map(name => name.trim()).filter(name => name.length > 0);
+      const generalManualCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
       
-      if (responseData.llm_error_summary) {
-        toast({title: "LLM Warning", description: responseData.llm_error_summary, variant: "destructive", duration: 7000});
+      const allKnownCourses = [
+        ...new Set([
+          ...ocrSuccessfullyExtracted, 
+          ...userProvidedNamesForFailures,
+          ...generalManualCourses
+        ])
+      ].filter(name => name.length > 0);
+
+      if (allKnownCourses.length === 0) {
+        toast({ title: 'No Courses', description: 'No courses available to get suggestions for.', variant: 'destructive' });
+        setIsLoading(false);
+        setPhase('initial'); // Or back to 'manualNaming' if ocrFailedImages still exist
+        return;
       }
 
-    } catch (err: any) {
-      const displayError = err.message || 'Failed to connect to the AI service.';
-      setError(displayError);
-      toast({ title: 'API Call Failed', description: displayError, variant: 'destructive' });
-    } finally {
-      setIsLoading(false);
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            userId, 
+            mode: 'suggestions_only',
+            knownCourseNames: allKnownCourses
+            // additionalManualCourses is implicitly included in knownCourseNames by frontend logic
+          }),
+        });
+        const data: SuggestionsPhaseResult = await response.json();
+
+        if (!response.ok || data.error) {
+          throw new Error(data.error || `Server error: ${response.status}`);
+        }
+
+        setFinalResult(data);
+        setPhase('results');
+        if (data.user_processed_data && data.user_processed_data.length > 0) {
+          toast({ title: 'Suggestions Generated', description: `AI suggestions and descriptions generated for ${data.user_processed_data.length} course(s).` });
+        } else if (data.message) {
+           toast({ title: 'Processing Info', description: data.message });
+        }
+        if (data.llm_error_summary) {
+          toast({ title: "LLM Warning", description: data.llm_error_summary, variant: "destructive", duration: 7000 });
+        }
+
+      } catch (err: any) {
+        setError(err.message || 'Failed suggestions phase.');
+        toast({ title: 'Suggestions Phase Failed', description: err.message, variant: 'destructive' });
+        setPhase('initial'); // Or a more specific error state
+      } finally {
+        setIsLoading(false); // Loading for suggestions phase ends here
+      }
     }
-  }, [userId, flaskServerBaseUrl, manualCoursesInput, manualNamesForImages, toast]); 
+  }, [userId, flaskServerBaseUrl, phase, generalManualCoursesInput, ocrSuccessfullyExtracted, manualNamesForFailedImages, toast]);
+
+  // Determine button text and icon
+  let buttonText = "Process Certificates for OCR";
+  let ButtonIcon = ListChecks;
+  if (phase === 'manualNaming') {
+    buttonText = "Proceed with AI Suggestions";
+    ButtonIcon = Wand2;
+  } else if (phase === 'processingSuggestions') {
+    buttonText = "Generating Suggestions...";
+    ButtonIcon = Loader2; // Will be animated by className
+  } else if (phase === 'results') {
+    buttonText = "Start New Processing";
+    ButtonIcon = ListChecks;
+  }
+
 
   return (
     <div className="container mx-auto px-4 py-8 md:px-6 lg:px-8 flex flex-col h-[calc(100vh-var(--header-height,4rem)-1px)]">
@@ -157,59 +242,58 @@ function AiFeaturePageContent() {
       </div>
       
       <p className="mb-4 text-muted-foreground">
-        Process uploaded certificates to extract course names and get AI-powered learning suggestions.
-        Add any missed courses manually below (comma-separated). Server: <code className="font-code">{flaskServerBaseUrl}</code>.
+        Process uploaded certificates. Phase 1: OCR. Phase 2: Manual naming for OCR failures (if any). Phase 3: AI Suggestions.
+        Server: <code className="font-code">{flaskServerBaseUrl}</code>.
       </p>
 
-      <div className="space-y-4 mb-6">
-        <div className="space-y-2">
-          <Label htmlFor="manualCourses">Manually Add Courses (comma-separated, if not naming specific images below)</Label>
+      {/* --- General Manual Courses Input - Always Visible (or conditionally based on phase) --- */}
+      { (phase === 'initial' || phase === 'manualNaming') && (
+        <div className="space-y-2 mb-6">
+          <Label htmlFor="generalManualCourses">Manually Add Courses (comma-separated, processed with others)</Label>
           <Textarea
-            id="manualCourses"
+            id="generalManualCourses"
             placeholder="e.g., Advanced Python, Introduction to Docker"
-            value={manualCoursesInput}
-            onChange={(e) => setManualCoursesInput(e.target.value)}
+            value={generalManualCoursesInput}
+            onChange={(e) => setGeneralManualCoursesInput(e.target.value)}
             className="min-h-[80px]"
+            disabled={isLoading || phase === 'processingSuggestions' || phase === 'results'}
           />
         </div>
-        <Button onClick={handleProcessUserCertificates} disabled={isLoading || !user} className="w-full sm:w-auto">
-          {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
-          Process My Certificates
-        </Button>
-         {!user && <p className="text-sm text-destructive">Please log in to process certificates.</p>}
-      </div>
+      )}
 
+      <Button onClick={handlePrimaryButtonClick} disabled={isLoading || !user || phase === 'processingSuggestions'} className="w-full sm:w-auto mb-6">
+        <ButtonIcon className={`mr-2 h-4 w-4 ${isLoading || phase === 'processingSuggestions' ? 'animate-spin' : ''}`} />
+        {buttonText}
+      </Button>
+      {!user && <p className="text-sm text-destructive mb-6">Please log in to process certificates.</p>}
       {error && (
         <Card className="mb-6 border-destructive bg-destructive/10">
-          <CardHeader><CardTitle className="text-destructive">Error</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-destructive flex items-center"><AlertTriangle className="mr-2"/>Error</CardTitle></CardHeader>
           <CardContent><p>{error}</p></CardContent>
         </Card>
       )}
 
-      {/* Section for naming unidentified certificates */}
-      {imagesForManualNaming && imagesForManualNaming.length > 0 && (
+      {/* --- Phase: Manual Naming for OCR Failures --- */}
+      {phase === 'manualNaming' && ocrFailedImages.length > 0 && (
         <Card className="my-6 border-amber-500 bg-amber-500/10">
           <CardHeader>
             <CardTitle className="text-xl font-headline text-amber-700 flex items-center">
               <AlertTriangle className="mr-2 h-5 w-5" /> Name Unidentified Certificates
             </CardTitle>
             <CardDescription>
-              We couldn&apos;t automatically identify course names from the following certificate images, or OCR failed. 
-              Please review each, enter the course name if known, and then click &quot;Process My Certificates&quot; again to include them.
+              OCR failed for {ocrFailedImages.length} image(s). Please provide the course name for each.
+              These names will be used to get AI suggestions in the next step.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 max-h-96 overflow-y-auto pr-2">
-            {imagesForManualNaming.map(img => (
+            {ocrFailedImages.map(img => (
               <div key={img.file_id} className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-3 border rounded-md bg-background/50 shadow-sm">
                 <div className="relative w-full sm:w-24 h-32 sm:h-24 rounded-md overflow-hidden shrink-0 border">
                    {img.file_id !== 'N/A' ? (
                      <NextImage 
                       src={`/api/images/${img.file_id}`} 
                       alt={`Certificate: ${img.original_filename}`}
-                      fill
-                      sizes="(max-width: 640px) 100vw, 96px"
-                      className="object-contain"
-                      data-ai-hint="certificate needs naming"
+                      fill sizes="(max-width: 640px) 100vw, 96px" className="object-contain" data-ai-hint="certificate needs naming"
                      />
                    ) : (
                      <div className="w-full h-full bg-muted flex items-center justify-center text-xs text-muted-foreground">No Preview (ID missing)</div>
@@ -221,10 +305,11 @@ function AiFeaturePageContent() {
                   <Input
                     type="text"
                     placeholder="Enter course name for this image"
-                    value={manualNamesForImages[img.file_id] || ''}
+                    value={manualNamesForFailedImages[img.file_id] || ''}
                     onChange={(e) => handleManualNameChange(img.file_id, e.target.value)}
                     className="w-full mt-1"
                     aria-label={`Manual course name for ${img.original_filename}`}
+                    disabled={isLoading}
                   />
                 </div>
               </div>
@@ -232,25 +317,42 @@ function AiFeaturePageContent() {
           </CardContent>
         </Card>
       )}
+      
+      {/* --- Displaying Successfully OCR'd courses during manualNaming phase for context --- */}
+      {phase === 'manualNaming' && ocrSuccessfullyExtracted.length > 0 && (
+        <Card className="mb-6 border-green-500 bg-green-500/10">
+            <CardHeader>
+                <CardTitle className="text-lg font-headline text-green-700 flex items-center">
+                    <CheckCircle className="mr-2 h-5 w-5" /> Successfully OCR'd Courses
+                </CardTitle>
+                <CardDescription>
+                    These courses were identified by OCR and will be included when you proceed to get AI suggestions.
+                </CardDescription>
+            </CardHeader>
+            <CardContent>
+                <ul className="list-disc pl-5 text-sm text-green-700">
+                    {ocrSuccessfullyExtracted.map(course => <li key={course}>{course}</li>)}
+                </ul>
+            </CardContent>
+        </Card>
+      )}
 
-      {/* Main results display area */}
-      {result && (
+
+      {/* --- Phase: Results Display Area --- */}
+      {phase === 'results' && finalResult && (
         <div className="flex-grow border border-border rounded-lg shadow-md overflow-y-auto p-4 bg-card space-y-6">
-          <h2 className="text-2xl font-headline mb-4 border-b pb-2">Processing Result:</h2>
+          <h2 className="text-2xl font-headline mb-4 border-b pb-2">Processed Result & AI Suggestions:</h2>
           
-          {result.processed_image_file_ids && result.processed_image_file_ids.length > 0 && (
+          {ocrProcessedImageFileIds.length > 0 && ( // Show images processed in OCR phase
             <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-3 font-headline">Processed Certificate Images This Run:</h3>
+              <h3 className="text-lg font-semibold mb-3 font-headline">Certificate Images Considered in this Run:</h3>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                {result.processed_image_file_ids.map(fileId => (
+                {ocrProcessedImageFileIds.map(fileId => (
                   <div key={`processed-${fileId}`} className="aspect-[4/3] relative rounded-md overflow-hidden border shadow-sm">
                     <NextImage 
-                      src={`/api/images/${fileId}`} 
-                      alt={`Processed certificate image ${fileId}`}
-                      fill
-                      sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 20vw"
-                      className="object-contain"
-                      data-ai-hint="certificate image"
+                      src={`/api/images/${fileId}`} alt={`Processed certificate image ${fileId}`}
+                      fill sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 20vw"
+                      className="object-contain" data-ai-hint="certificate image"
                     />
                      <a href={`/api/images/${fileId}`} target="_blank" rel="noopener noreferrer" className="absolute top-1 right-1 bg-black/50 text-white p-1 rounded-full hover:bg-black/70 transition-colors" title="Open image in new tab">
                        <ExternalLink className="w-3 h-3"/>
@@ -261,40 +363,38 @@ function AiFeaturePageContent() {
             </div>
           )}
 
-          {result.message && !result.user_processed_data?.length && (!result.failed_extraction_images || result.failed_extraction_images.length === 0) && (
+          {finalResult.message && !finalResult.user_processed_data?.length && (
             <Card className="bg-blue-500/10 border-blue-500">
-              <CardHeader className="flex-row items-center gap-2">
-                <Info className="w-5 h-5 text-blue-700" />
-                <CardTitle className="text-blue-700 text-lg">Information</CardTitle>
-              </CardHeader>
-              <CardContent><p className="text-blue-700">{result.message}</p></CardContent>
+              <CardHeader className="flex-row items-center gap-2"><Info className="w-5 h-5 text-blue-700" /><CardTitle className="text-blue-700 text-lg">Information</CardTitle></CardHeader>
+              <CardContent><p className="text-blue-700">{finalResult.message}</p></CardContent>
             </Card>
           )}
           
-          {result.llm_error_summary && (
+          {finalResult.llm_error_summary && (
              <Card className="border-amber-500 bg-amber-500/10">
-              <CardHeader className="flex-row items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-amber-700" />
-                <CardTitle className="text-amber-700 text-lg">LLM Warning</CardTitle>
-              </CardHeader>
-              <CardContent><p className="text-amber-700">{result.llm_error_summary}</p></CardContent>
+              <CardHeader className="flex-row items-center gap-2"><AlertTriangle className="w-5 h-5 text-amber-700" /><CardTitle className="text-amber-700 text-lg">LLM Warning</CardTitle></CardHeader>
+              <CardContent><p className="text-amber-700">{finalResult.llm_error_summary}</p></CardContent>
             </Card>
           )}
 
-          {result.user_processed_data && result.user_processed_data.length > 0 && (
+          {finalResult.user_processed_data && finalResult.user_processed_data.length > 0 ? (
             <div className="space-y-6">
               <h3 className="text-lg font-semibold font-headline">Identified Courses & AI Suggestions:</h3>
-              {result.user_processed_data.map((identifiedCourseData, index) => (
+              {finalResult.user_processed_data.map((identifiedCourseData, index) => (
                 <Card key={`identified-${index}`} className="bg-background/50 shadow-inner">
                   <CardHeader>
                     <CardTitle className="text-xl font-headline text-primary">
                       {identifiedCourseData.identified_course_name}
                     </CardTitle>
                     {identifiedCourseData.description_from_graph && (
-                      <CardDescription className="pt-1 text-sm">
-                        {identifiedCourseData.description_from_graph}
-                      </CardDescription>
+                      <CardDescription className="pt-1 text-sm italic">Graph Description: {identifiedCourseData.description_from_graph}</CardDescription>
                     )}
+                    {identifiedCourseData.ai_description && (
+                      <CardDescription className="pt-1 text-sm">AI Description: {identifiedCourseData.ai_description}</CardDescription>
+                    )}
+                     {!identifiedCourseData.description_from_graph && !identifiedCourseData.ai_description && (
+                        <CardDescription className="pt-1 text-sm italic">No description available for this course.</CardDescription>
+                     )}
                   </CardHeader>
                   <CardContent className="space-y-3">
                     <h4 className="font-semibold text-md">AI Suggested Next Steps:</h4>
@@ -323,13 +423,12 @@ function AiFeaturePageContent() {
                 </Card>
               ))}
             </div>
+          ) : (
+            phase === 'results' && <p className="text-muted-foreground italic">No comprehensive suggestions were generated in this run.</p>
           )}
           <div className="mt-6 pt-4 border-t">
             <Label htmlFor="rawJsonOutput" className="text-xs text-muted-foreground">Raw JSON Output (for debugging):</Label>
-            <Textarea
-              id="rawJsonOutput"
-              readOnly
-              value={JSON.stringify(result, null, 2)}
+            <Textarea id="rawJsonOutput" readOnly value={JSON.stringify(finalResult, null, 2)}
               className="w-full h-auto min-h-[150px] text-xs font-code bg-muted/30 resize-none mt-1"
               aria-label="Raw processing result JSON"
             />
@@ -337,7 +436,7 @@ function AiFeaturePageContent() {
         </div>
       )}
        <p className="mt-4 text-xs text-muted-foreground">
-        Note: Verify Flask server URL in <code className="font-code">.env.local</code> and ensure server/DB connectivity.
+        Note: Ensure Flask server URL is correct and backend services (DB, AI) are operational.
       </p>
     </div>
   );
@@ -350,8 +449,7 @@ export default function AiFeaturePage() {
     </ProtectedPage>
   );
 }
-    
-
-    
-
-    
+```
+</content>
+  </change>
+</changes>
