@@ -289,8 +289,12 @@ def parse_llm_recommendation_response(llm_response_text):
         logging.warning(f"LLM response is empty, an error, or indicates no courses were provided: {llm_response_text}")
         return recommendations
 
+    # Strip leading list-like characters (e.g., '-', '*') and outer whitespace
+    cleaned_response_text = re.sub(r"^\s*[-\*\d\.\)]+\s*", "", llm_response_text.strip())
+    logging.info(f"LLM Parser: Cleaned response text (first 100 chars): '{cleaned_response_text[:100]}'")
+
     # Split the entire response into blocks, where each block starts with "Completed Course:"
-    raw_blocks = re.split(r"(?=Completed Course:)", llm_response_text.strip())
+    raw_blocks = re.split(r"(?=Completed Course:)", cleaned_response_text)
     logging.info(f"LLM Parser: Split into {len(raw_blocks)} raw_blocks. First block preview: '{raw_blocks[0][:100] if raw_blocks else 'N/A'}'...")
 
     for raw_block in raw_blocks:
@@ -299,62 +303,59 @@ def parse_llm_recommendation_response(llm_response_text):
             if block_text: 
                 logging.warning(f"LLM Parser: Skipping unexpected text segment in LLM response: '{block_text[:100]}...'")
             continue
-
-        lines = block_text.split('\n')
-        if not lines:
-            logging.warning("LLM Parser: Encountered an empty block_text that somehow passed startswith check. Skipping.")
-            continue
             
-        completed_course_line = lines[0].strip()
-        
-        completed_course_match = re.match(r"Completed Course:\s*(.*)", completed_course_line, re.IGNORECASE)
-        if not completed_course_match:
-            logging.warning(f"LLM Parser: Could not parse completed course from line: '{completed_course_line}'")
+        completed_course_line_match = re.match(r"Completed Course:\s*(.*?)(?:\n|$)", block_text, re.IGNORECASE)
+        if not completed_course_line_match:
+            logging.warning(f"LLM Parser: Could not parse completed course from start of block: '{block_text[:100]}'")
             continue
         
-        original_completed_course_name = completed_course_match.group(1).strip()
+        original_completed_course_name = completed_course_line_match.group(1).strip()
         if not original_completed_course_name:
-            logging.warning(f"LLM Parser: Empty completed course name parsed from line: '{completed_course_line}'")
+            logging.warning(f"LLM Parser: Empty completed course name parsed from block start: '{block_text[:100]}'")
             continue
         
         logging.info(f"LLM Parser: Processing suggestions for completed course: '{original_completed_course_name}'")
         
-        # Process suggestion lines
-        i = 1
-        while i < len(lines):
-            suggested_course_line = lines[i].strip()
-            suggested_course_match = re.match(r"Suggested Course:\s*(.*)", suggested_course_line, re.IGNORECASE)
-            
-            if suggested_course_match:
-                suggested_name = suggested_course_match.group(1).strip()
-                
-                if suggested_name.lower() == "none":
-                    logging.info(f"LLM Parser: LLM indicated 'None' for completed course: '{original_completed_course_name}'")
-                    i += 1 
-                    continue 
+        # Use regex to find all "Suggested Course: ... URL: ..." pairs within the current block_text
+        # This regex looks for "Suggested Course:", captures the name, then looks for "URL:", and captures the URL.
+        # It allows various separators (newlines, hyphens, spaces) between the course name and "URL:".
+        suggestions_in_block = re.findall(
+            r"Suggested Course:\s*(.*?)(?:\s*\n+\s*|\s*-\s*|\s+)URL:\s*(https?://\S+)",
+            block_text, # Search within the current block
+            re.IGNORECASE | re.DOTALL # DOTALL allows . to match newlines if course name spans lines
+        )
+        
+        logging.info(f"LLM Parser: Found {len(suggestions_in_block)} suggestions in block for '{original_completed_course_name}' using regex. Suggestions: {suggestions_in_block}")
 
-                url = None
-                if i + 1 < len(lines):
-                    url_line = lines[i+1].strip()
-                    url_match = re.match(r"URL:\s*(.*)", url_line, re.IGNORECASE)
-                    if url_match:
-                        url = url_match.group(1).strip()
-                        i += 1 
-                
-                if suggested_name and url and (url.startswith("http://") or url.startswith("https://")):
-                    recommendations.append({
-                        "original_completed_course": original_completed_course_name,
-                        "name": suggested_name,
-                        "url": url,
-                    })
-                    logging.info(f"LLM Parser: Added suggestion: '{suggested_name}' with URL for '{original_completed_course_name}'")
-                elif suggested_name: 
-                    logging.warning(f"LLM Parser: Suggestion '{suggested_name}' (based on '{original_completed_course_name}') is missing a valid URL. URL line found: '{url_line if i+1 < len(lines) else 'N/A'}'. Skipping this suggestion.")
-            
-            i += 1 
+        if not suggestions_in_block: # Check for "Suggested Course: None" if regex found nothing
+            if re.search(r"Suggested Course:\s*None", block_text, re.IGNORECASE):
+                 logging.info(f"LLM Parser: LLM indicated 'None' for completed course: '{original_completed_course_name}' (found by fallback).")
+                 continue # Move to the next block
 
-    if not recommendations and llm_response_text.strip() and len(raw_blocks) > 0 and (raw_blocks[0].strip() if raw_blocks[0] else "").startswith("Completed Course:"):
-        logging.warning(f"LLM Parser: LLM response was non-empty and seemed to contain course blocks, but no recommendations were successfully parsed. Text fragment: {llm_response_text[:500]}...")
+        for suggested_name, url in suggestions_in_block:
+            suggested_name = suggested_name.strip()
+            url = url.strip()
+
+            # The "Suggested Course: None" case should ideally be caught by the regex if it's the only suggestion.
+            # However, if it's mixed or the regex fails for it, this direct check can be a fallback.
+            if suggested_name.lower() == "none":
+                logging.info(f"LLM Parser: LLM indicated 'None' for completed course: '{original_completed_course_name}' (parsed from regex match).")
+                continue # Skip this specific "None" suggestion
+
+            if suggested_name and url: # URL already validated by regex to start with http/https
+                recommendations.append({
+                    "original_completed_course": original_completed_course_name,
+                    "name": suggested_name,
+                    "url": url,
+                    "description": "", # Description not part of this new prompt format
+                    "next_courses": [], # next_courses not part of this new prompt format for sub-suggestions
+                })
+                logging.info(f"LLM Parser: Added suggestion: '{suggested_name}' with URL for '{original_completed_course_name}'")
+            elif suggested_name:
+                logging.warning(f"LLM Parser: Suggestion '{suggested_name}' (based on '{original_completed_course_name}') found by regex but URL was invalid or not captured. URL part: '{url}'. Skipping this suggestion.")
+    
+    if not recommendations and cleaned_response_text and (raw_blocks[0].strip() if raw_blocks and raw_blocks[0] else "").startswith("Completed Course:"):
+        logging.warning(f"LLM Parser: LLM response was non-empty and seemed to contain course blocks, but no recommendations were successfully parsed. Cleaned text fragment: {cleaned_response_text[:500]}...")
         
     return recommendations
 
@@ -408,7 +409,7 @@ def generate_recommendations(user_completed_courses_list, previous_results_list=
                 continue 
     
     unique_llm_prompt_context_courses = sorted(list(set(c.replace(" [UNVERIFIED]", "").strip() for c in user_completed_courses_list)))
-    llm_results_appended = False
+    llm_results_appended = False # Flag to track if any LLM result (success or specific error) was added
 
     if unique_llm_prompt_context_courses:
         logging.info(f"Querying LLM with context: {unique_llm_prompt_context_courses}")
@@ -419,33 +420,34 @@ def generate_recommendations(user_completed_courses_list, previous_results_list=
                                 llm_response_text.strip().lower() == "cohere llm not available." or \
                                 llm_response_text.strip().lower() == "no completed courses provided to llm for recommendations."
 
+        parsed_llm_recs = []
         if not is_llm_error_response:
             logging.info(f"Attempting to parse LLM response: '{llm_response_text[:500]}...'")
             parsed_llm_recs = parse_llm_recommendation_response(llm_response_text)
             
             if parsed_llm_recs:
                 for rec_data in parsed_llm_recs:
-                    suggested_course_name = rec_data.get("name")
-                    # Ensure original_completed_course is also present as it's key for display
+                    # Ensure original_completed_course is key for display context
                     original_completed = rec_data.get("original_completed_course")
+                    suggested_course_name = rec_data.get("name")
+
+                    # Filter out suggestions that are already completed by the user
                     if suggested_course_name and original_completed and suggested_course_name.lower().strip() not in normalized_completed_set:
                         recommendations_output.append({
                             "type": "llm", 
-                            "completed_course": original_completed, 
-                            "name": suggested_course_name, 
-                            "url": rec_data.get("url"),   
-                            "description": "", 
-                            "next_courses": [],
+                            "completed_course": original_completed, # The user's course that this suggestion is FOR
+                            "name": suggested_course_name,         # The actual suggested course by LLM
+                            "url": rec_data.get("url"),            # URL for the suggested course
+                            "description": rec_data.get("description", ""), # Description for the suggested_course_name
+                            "next_courses": rec_data.get("next_courses", []), # Further next_courses for suggested_course_name
                         })
                         llm_results_appended = True 
                     elif suggested_course_name: 
                         logging.info(f"LLM suggested course '{suggested_course_name}' (based on '{original_completed}') which is already in user's completed list or was empty/invalid. Skipping.")
                 
-                if not llm_results_appended and parsed_llm_recs:
-                    # This means parser found items, but all were filtered (e.g., duplicates)
+                if not llm_results_appended and parsed_llm_recs: # Parser found items, but all were filtered
                     logging.info(f"LLM parser returned {len(parsed_llm_recs)} items, but all were filtered out (e.g. duplicates or missing required fields).")
-                    # To avoid falling into the generic error block below, we can consider this "handled" if items were parsed.
-                    # The user just won't see these specific suggestions.
+                    # If all parsed items were filtered, we still consider it a "parsing attempt occurred"
             # If parsed_llm_recs is empty (parser found nothing), llm_results_appended remains False.
 
         # If after attempting LLM processing (query and parse), no successful LLM recommendations were added:
@@ -466,6 +468,7 @@ def generate_recommendations(user_completed_courses_list, previous_results_list=
                 "name": "LLM Status", # Generic name for error/status entries
                 "url": "#" 
             })
+            # llm_results_appended = True # Mark that an error object was appended
             
     return recommendations_output
 
@@ -609,5 +612,7 @@ if __name__ == "__main__":
         print(json.dumps(results, indent=2))
     else:
         print(f"No images found in '{test_image_folder}' to test.")
+
+    
 
     
