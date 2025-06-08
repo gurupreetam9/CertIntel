@@ -19,7 +19,7 @@ import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { sendPasswordReset, updateUserProfileName } from '@/lib/firebase/auth';
-import { useTheme } from '@/hooks/themeContextManager'; // Still import, but it's simplified
+import { useTheme } from '@/hooks/themeContextManager';
 
 const profileFormSchema = z.object({
   displayName: z.string().min(1, 'Display name cannot be empty.').max(50, 'Display name is too long.'),
@@ -29,7 +29,7 @@ type ProfileFormValues = z.infer<typeof profileFormSchema>;
 function ProfileSettingsPageContent() {
   const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
-  const { theme, setTheme } = useTheme(); // Will get fixed 'light' theme and no-op setTheme
+  const { theme, setTheme } = useTheme();
 
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSendingReset, setIsSendingReset] = useState(false);
@@ -76,9 +76,10 @@ function ProfileSettingsPageContent() {
   };
 
   const toggleTheme = () => {
-    // setTheme will be a no-op from the simplified context
-    setTheme(theme === 'light' ? 'dark' : 'light'); // This call will trigger the console.log in the no-op setTheme
-    toast({ title: "Theme Toggle (Diagnostic Mode)", description: "Theme is currently fixed. This toggle is for testing."});
+    setTheme(theme === 'light' ? 'dark' : 'light');
+     if (process.env.NODE_ENV === 'development') {
+      toast({ title: "Theme Toggle (Diagnostic Mode)", description: "Theme functionality is currently simplified. This toggle is for testing."});
+    }
   };
 
   if (authLoading || !user) {
@@ -99,7 +100,7 @@ function ProfileSettingsPageContent() {
       </div>
 
       <div className="space-y-8">
-        <Card>
+        <Card id="personal-information">
           <CardHeader>
             <CardTitle className="text-xl font-headline flex items-center"><UserCircle className="mr-2" /> Personal Information</CardTitle>
             <CardDescription>Manage your personal details.</CardDescription>
@@ -147,7 +148,7 @@ function ProfileSettingsPageContent() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card id="account-settings">
           <CardHeader>
             <CardTitle className="text-xl font-headline flex items-center"><KeyRound className="mr-2" /> Account Settings</CardTitle>
             <CardDescription>Manage your account security and preferences.</CardDescription>
@@ -173,9 +174,8 @@ function ProfileSettingsPageContent() {
                 <Switch
                   id="dark-mode-toggle"
                   checked={theme === 'dark'} 
-                  onCheckedChange={toggleTheme} // This will attempt to call the no-op setTheme
+                  onCheckedChange={toggleTheme}
                   aria-label="Toggle dark mode"
-                  // Switch is not disabled to allow testing the no-op setTheme
                 />
               </div>
               <p className="text-xs text-muted-foreground mt-2">

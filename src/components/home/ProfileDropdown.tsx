@@ -1,7 +1,7 @@
 
 'use client';
 
-import Link from 'next/link'; // Added Link import
+import Link from 'next/link';
 import { LogOut, User as UserIcon, Settings, LifeBuoy } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -43,7 +43,8 @@ export default function ProfileDropdown() {
 
   if (!user) return null;
 
-  const userInitial = user.email ? user.email.charAt(0).toUpperCase() : '?';
+  const userInitial = user.displayName ? user.displayName.charAt(0).toUpperCase() : (user.email ? user.email.charAt(0).toUpperCase() : '?');
+
 
   return (
     <DropdownMenu>
@@ -70,13 +71,13 @@ export default function ProfileDropdown() {
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
           <DropdownMenuItem asChild className="cursor-pointer">
-            <Link href="/profile-settings">
+            <Link href="/profile-settings#personal-information">
               <UserIcon className="mr-2 h-4 w-4" />
               <span>Profile</span>
             </Link>
           </DropdownMenuItem>
           <DropdownMenuItem asChild className="cursor-pointer">
-            <Link href="/profile-settings">
+            <Link href="/profile-settings#account-settings">
               <Settings className="mr-2 h-4 w-4" />
               <span>Settings</span>
             </Link>
