@@ -316,21 +316,27 @@ def parse_llm_detailed_suggestions_response(llm_response_text):
             if suggestions_blob.lower() == "no specific suggestions available for this course.":
                 logging.info(f"LLM Parser: No specific suggestions for '{identified_course_name}'.")
             else:
-                # Split suggestions within the blob. Each suggestion starts with "- Name:"
-                individual_suggestion_blocks = re.split(r'\n-\s*Name:', suggestions_blob)
+                # Split suggestions within the blob. Each suggestion starts with "- Name:" or "Name:"
+                # Allow for optional leading hyphen and space
+                individual_suggestion_blocks = re.split(r'\n(?:-\s*)?Name:', suggestions_blob)
                 
                 for i, sug_block_part in enumerate(individual_suggestion_blocks):
-                    if i == 0 and sug_block_part.strip() == "": # First element might be empty if split begins with delimiter
-                         if not suggestions_blob.strip().startswith("- Name:"): # Handle if the first suggestion doesn't have the leading '-'
-                            sug_block_part = suggestions_blob 
+                    sug_block_part_cleaned = sug_block_part.strip()
+                    if i == 0 and not sug_block_part_cleaned : # First element might be empty if split begins with delimiter
+                         if not suggestions_blob.strip().lower().startswith("name:"): # Handle if the first suggestion doesn't have the leading '-'
+                            # This means the first part is the actual first suggestion block
+                            pass
                          else: 
-                            continue
+                            continue # Skip empty first element
                     
-                    # Re-add "- Name:" if it was removed by split, or handle case where it's the very first item
-                    full_sug_block = sug_block_part if (i == 0 and not suggestions_blob.strip().startswith("- Name:")) else "- Name:" + sug_block_part
-                    full_sug_block = full_sug_block.strip()
+                    # Re-add "Name:" if it was removed by split, or handle case where it's the very first item
+                    # and the blob itself didn't start with "Name:" (e.g., just the name directly)
+                    full_sug_block = sug_block_part_cleaned
+                    if not sug_block_part_cleaned.lower().startswith("name:"):
+                        full_sug_block = "Name: " + sug_block_part_cleaned
 
-                    sug_name_match = re.search(r"-\s*Name:\s*(.*?)\n", full_sug_block, re.IGNORECASE)
+
+                    sug_name_match = re.search(r"Name:\s*(.*?)\n", full_sug_block, re.IGNORECASE)
                     sug_desc_match = re.search(r"Description:\s*(.*?)\n", full_sug_block, re.IGNORECASE | re.DOTALL)
                     sug_url_match = re.search(r"URL:\s*(https?://\S+)", full_sug_block, re.IGNORECASE)
 
@@ -341,7 +347,7 @@ def parse_llm_detailed_suggestions_response(llm_response_text):
                             "url": sug_url_match.group(1).strip()
                         })
                     else:
-                        logging.warning(f"LLM Parser: Could not parse full suggestion (name, desc, or URL missing) in block for '{identified_course_name}'. Suggestion block part: '{full_sug_block[:100]}...'")
+                        logging.warning(f"LLM Parser: Could not parse full suggestion (name, desc, or URL missing) in block for '{identified_course_name}'. Suggestion block part: '{full_sug_block[:100]}...' Name_match: {bool(sug_name_match)}, Desc_match: {bool(sug_desc_match)}, URL_match: {bool(sug_url_match)}")
         else:
             logging.warning(f"LLM Parser: 'Suggested Next Courses:' section not found or malformed for '{identified_course_name}'.")
 
@@ -350,7 +356,7 @@ def parse_llm_detailed_suggestions_response(llm_response_text):
             "ai_description": ai_description,
             "llm_suggestions": current_suggestions
         })
-        logging.info(f"LLM Parser: Parsed '{identified_course_name}', AI Desc: '{ai_description}', Suggestions: {len(current_suggestions)}")
+        logging.info(f"LLM Parser: Parsed '{identified_course_name}', AI Desc: {'Present' if ai_description else 'None'}, Suggestions: {len(current_suggestions)}")
 
     return parsed_results
 
@@ -380,6 +386,7 @@ def process_images_for_ocr(image_data_list):
             if image_data['content_type'] == 'application/pdf':
                 if not os.getenv("POPPLER_PATH") and not shutil.which("pdftoppm"):
                     failure_reason = "Poppler (PDF tool) not found. Cannot process PDF."
+                    logging.error(failure_reason + f" for file {original_filename_for_failure}. Check POPPLER_PATH or if pdftoppm is in PATH.")
                     conversion_or_load_failed = True
                 else:
                     pdf_pages = convert_from_bytes(image_data['bytes'], dpi=300, poppler_path=os.getenv("POPPLER_PATH"))
@@ -411,8 +418,8 @@ def process_images_for_ocr(image_data_list):
                 })
             continue
         
-        if not pil_images_to_process: # Should not happen if conversion_or_load_failed is false, but as a safeguard
-            failure_reason = "No image content available after loading (e.g., empty PDF)."
+        if not pil_images_to_process: 
+            failure_reason = "No image content available after loading (e.g., empty PDF or unreadable image)."
             logging.warning(f"{failure_reason} for {original_filename_for_failure}.")
             if current_file_id != 'N/A' and not any(f['file_id'] == current_file_id for f in failed_extraction_images):
                  failed_extraction_images.append({
@@ -423,12 +430,12 @@ def process_images_for_ocr(image_data_list):
         current_file_texts_extracted = []
         ocr_had_some_text_for_this_file = False
         for i, pil_img in enumerate(pil_images_to_process):
-            try: # Ensure image is in RGB
-                if pil_img.mode == 'RGBA': pil_img = pil_img.convert('RGB')
-                elif pil_img.mode == 'P': pil_img = pil_img.convert('RGB') 
-                elif pil_img.mode == 'L': pil_img = pil_img.convert('RGB') 
+            page_identifier = f"page {i+1} of " if len(pil_images_to_process) > 1 else ""
+            try: 
+                if pil_img.mode not in ['RGB', 'L']: # Convert if not RGB or Grayscale
+                    pil_img = pil_img.convert('RGB')
             except Exception as img_convert_err:
-                logging.warning(f"Could not convert image mode for page {i} of {original_filename_for_failure}: {img_convert_err}")
+                logging.warning(f"Could not convert image mode for {page_identifier}{original_filename_for_failure}: {img_convert_err}")
                 continue 
 
             course_text = infer_course_text_from_image_object(pil_img)
@@ -439,7 +446,7 @@ def process_images_for_ocr(image_data_list):
         if ocr_had_some_text_for_this_file:
             all_extracted_raw_texts.extend(current_file_texts_extracted)
         else: 
-            failure_reason = "OCR could not extract any text from the image content."
+            failure_reason = "OCR could not extract any usable text from the image content."
             logging.warning(f"{failure_reason} for {original_filename_for_failure}")
             if current_file_id != 'N/A' and not any(f['file_id'] == current_file_id for f in failed_extraction_images):
                 failed_extraction_images.append({
@@ -453,49 +460,43 @@ def process_images_for_ocr(image_data_list):
     
     successfully_extracted_courses = sorted(list(set(processed_course_mentions)))
     logging.info(f"OCR Phase: Successfully extracted courses: {successfully_extracted_courses}")
-    logging.info(f"OCR Phase: Failed extraction images: {len(failed_extraction_images)}")
+    logging.info(f"OCR Phase: Failed extraction images count: {len(failed_extraction_images)}")
+    if failed_extraction_images: logging.debug(f"OCR Phase: Failed extraction image details: {failed_extraction_images}")
+
 
     return {
         "successfully_extracted_courses": successfully_extracted_courses,
         "failed_extraction_images": failed_extraction_images,
-        "processed_image_file_ids": list(set(processed_image_file_ids)) # Return IDs of all images attempted in this OCR run
+        "processed_image_file_ids": list(set(processed_image_file_ids)) 
     }
 
 
 def generate_suggestions_from_known_courses(
     all_known_course_names,
-    previous_user_data_list=None
+    previous_user_data_list=None # This is a list of user_processed_data items
 ):
     """
     Phase 2: Generates detailed suggestions based on a list of known course names.
-    Uses caching and LLM calls.
+    Uses caching and LLM calls. Returns a structure for each known course.
     """
-    user_processed_data_output = []
-    llm_error_summary_for_output = None
+    user_processed_data_output = [] # This will be a list of dicts, one for each course in all_known_course_names
+    llm_error_summary_for_output = None # General error if LLM call fails for the batch
     
-    # Build cache from previous full run data
-    cached_suggestions_map = {}
+    cached_data_map = {}
     if previous_user_data_list:
-        for prev_item_block in previous_user_data_list: # This is now a list of blocks from user_course_processing_collection
-            # Assuming prev_item_block has 'identified_course_name', 'ai_description', 'llm_suggestions'
-            if "identified_course_name" in prev_item_block:
-                 cached_suggestions_map[prev_item_block["identified_course_name"]] = {
-                     "ai_description": prev_item_block.get("ai_description"),
-                     "llm_suggestions": prev_item_block.get("llm_suggestions", [])
-                 }
-    logging.info(f"Suggestions Phase: Built cache map from previous data: {len(cached_suggestions_map)} entries.")
+        for prev_item in previous_user_data_list: # Each item is a full block for an identified course
+            if "identified_course_name" in prev_item:
+                 cached_data_map[prev_item["identified_course_name"]] = prev_item # Cache the whole block
+    logging.info(f"Suggestions Phase: Built cache map from previous data with {len(cached_data_map)} entries.")
 
     courses_to_query_llm_for = []
+    # First, process courses that might be in cache
     for course_name in all_known_course_names:
-        if course_name in cached_suggestions_map:
+        # Check cache using the exact course_name (which might include [UNVERIFIED])
+        if course_name in cached_data_map:
             logging.info(f"Suggestions Phase: Cache hit for '{course_name}'. Using cached data.")
-            user_processed_data_output.append({
-                "identified_course_name": course_name,
-                "description_from_graph": course_graph.get(course_name.replace(" [UNVERIFIED]", ""), {}).get("description"),
-                "ai_description": cached_suggestions_map[course_name]["ai_description"],
-                "llm_suggestions": cached_suggestions_map[course_name]["llm_suggestions"],
-                "llm_error": None # From cache, so assume no new error
-            })
+            # Add the entire cached block for this course
+            user_processed_data_output.append(cached_data_map[course_name])
         else:
             courses_to_query_llm_for.append(course_name)
     
@@ -506,48 +507,55 @@ def generate_suggestions_from_known_courses(
         if "error" in llm_response_data:
             llm_error_summary_for_output = llm_response_data["error"]
             logging.error(f"Suggestions Phase: LLM query failed for batch: {llm_error_summary_for_output}")
-            # Add error entry for all courses that were supposed to be queried
+            # For courses that were supposed to be queried but LLM failed, create error entries
             for course_name in courses_to_query_llm_for:
                 user_processed_data_output.append({
                     "identified_course_name": course_name,
                     "description_from_graph": course_graph.get(course_name.replace(" [UNVERIFIED]", ""), {}).get("description"),
                     "ai_description": None,
                     "llm_suggestions": [],
-                    "llm_error": llm_error_summary_for_output
+                    "llm_error": llm_error_summary_for_output # Assign batch error to each
                 })
         elif "text" in llm_response_data:
             parsed_llm_items = parse_llm_detailed_suggestions_response(llm_response_data["text"])
-            if not parsed_llm_items and courses_to_query_llm_for: # LLM responded but parsing failed
-                 llm_error_summary_for_output = "LLM response received but no valid items could be parsed. Check format. See server logs."
-                 logging.warning(llm_error_summary_for_output)
             
+            # Map parsed LLM items by their identified_course_name for easy lookup
             parsed_items_map = {item["identified_course_name"]: item for item in parsed_llm_items}
 
+            if not parsed_llm_items and courses_to_query_llm_for:
+                 llm_error_summary_for_output = "LLM response received but no valid items could be parsed. Check LLM output format and server logs."
+                 logging.warning(f"Suggestions Phase: {llm_error_summary_for_output}")
+
+
             for course_name in courses_to_query_llm_for:
-                llm_item_for_course = parsed_items_map.get(course_name.replace(" [UNVERIFIED]", "")) # Match cleaned name
+                # Try to match with the name LLM would have used (without [UNVERIFIED])
+                llm_item_for_course = parsed_items_map.get(course_name.replace(" [UNVERIFIED]", ""))
                 
                 if llm_item_for_course:
                     user_processed_data_output.append({
-                        "identified_course_name": course_name, # Keep original name with [UNVERIFIED] if present
+                        "identified_course_name": course_name, # Use original name (with [UNVERIFIED] if present)
                         "description_from_graph": course_graph.get(course_name.replace(" [UNVERIFIED]", ""), {}).get("description"),
                         "ai_description": llm_item_for_course["ai_description"],
                         "llm_suggestions": llm_item_for_course["llm_suggestions"],
-                        "llm_error": None
+                        "llm_error": None # Successfully processed by LLM
                     })
-                else: # LLM was queried, but this specific course was not in its parsed response
-                    error_msg_for_course = f"LLM was queried for '{course_name}', but no specific data was returned/parsed for it."
-                    if llm_error_summary_for_output and "parsing failed" in llm_error_summary_for_output.lower():
-                         error_msg_for_course = llm_error_summary_for_output # Use general parsing error
-                    logging.warning(error_msg_for_course)
+                else: 
+                    # LLM was queried, but this specific course was not in its parsed response
+                    # Or parsing failed to produce any items
+                    error_msg_for_this_course = f"LLM was queried, but no specific data was returned or parsed for '{course_name}'."
+                    if llm_error_summary_for_output and "parsed" in llm_error_summary_for_output: # If general parsing error, use that
+                        error_msg_for_this_course = llm_error_summary_for_output
+                    
+                    logging.warning(error_msg_for_this_course)
                     user_processed_data_output.append({
                         "identified_course_name": course_name,
                         "description_from_graph": course_graph.get(course_name.replace(" [UNVERIFIED]", ""), {}).get("description"),
                         "ai_description": None,
                         "llm_suggestions": [],
-                        "llm_error": error_msg_for_course
+                        "llm_error": error_msg_for_this_course
                     })
-        else: # Unexpected LLM response structure
-            llm_error_summary_for_output = "Unexpected response structure from LLM."
+        else: # Unexpected LLM response structure (neither "text" nor "error")
+            llm_error_summary_for_output = "Unexpected response structure from LLM query function."
             logging.error(f"Suggestions Phase: {llm_error_summary_for_output}")
             for course_name in courses_to_query_llm_for:
                  user_processed_data_output.append({
@@ -556,12 +564,12 @@ def generate_suggestions_from_known_courses(
                     "ai_description": None, "llm_suggestions": [], "llm_error": llm_error_summary_for_output
                 })
     
-    # Sort final output by identified_course_name for consistency
+    # Sort final output by identified_course_name for consistency, if needed by frontend
     user_processed_data_output.sort(key=lambda x: x.get("identified_course_name", "").lower())
 
     return {
         "user_processed_data": user_processed_data_output,
-        "llm_error_summary": llm_error_summary_for_output # General error from the batch LLM call
+        "llm_error_summary": llm_error_summary_for_output # This is the general error from the batch LLM call if any
     }
 
 
@@ -570,62 +578,70 @@ def extract_and_recommend_courses_from_image_data(
     image_data_list=None, 
     mode='ocr_only', # 'ocr_only' or 'suggestions_only'
     known_course_names=None, # Used in 'suggestions_only' mode
-    previous_user_data_list=None, # Used for caching in 'suggestions_only' mode
+    previous_user_data_list=None, # Used for caching in 'suggestions_only' mode (list of user_processed_data items)
     additional_manual_courses=None # General manual courses from textarea
 ):
     if mode == 'ocr_only':
-        if not image_data_list:
+        # Ensure additional_manual_courses is a list
+        current_additional_manual_courses = additional_manual_courses if isinstance(additional_manual_courses, list) else []
+
+        if not image_data_list and not current_additional_manual_courses: # If no images and no general manual courses
+            logging.info("OCR Phase: No images and no general manual courses provided. Returning empty handed.")
             return {
                 "successfully_extracted_courses": [], 
                 "failed_extraction_images": [],
-                "processed_image_file_ids": []
+                "processed_image_file_ids": [] 
+                # "message": "No certificate images found in DB and no manual courses provided for OCR." # Optional: add message
             }
         
-        ocr_results = process_images_for_ocr(image_data_list)
+        # Ensure image_data_list is a list, even if empty, for process_images_for_ocr
+        current_image_data_list = image_data_list if isinstance(image_data_list, list) else []
+        ocr_results = process_images_for_ocr(current_image_data_list)
         
         # Add general manual courses to the successfully_extracted_courses list for this phase
-        # This is so frontend can see them immediately if it wants to
+        # This is so frontend can see them immediately if it wants to (e.g. for consolidating for phase 2)
         current_successful_courses = ocr_results.get("successfully_extracted_courses", [])
-        if additional_manual_courses:
-            for manual_course in additional_manual_courses:
+        if current_additional_manual_courses:
+            for manual_course in current_additional_manual_courses:
                 clean_manual_course = manual_course.strip()
                 if clean_manual_course and clean_manual_course not in current_successful_courses:
                     current_successful_courses.append(clean_manual_course)
             ocr_results["successfully_extracted_courses"] = sorted(list(set(current_successful_courses)))
 
+        logging.info(f"OCR Phase complete. Successfully extracted: {len(ocr_results.get('successfully_extracted_courses',[]))}, Failed images: {len(ocr_results.get('failed_extraction_images',[]))}")
         return ocr_results
 
     elif mode == 'suggestions_only':
-        if not known_course_names and not additional_manual_courses:
+        final_known_names_for_suggestions = known_course_names if isinstance(known_course_names, list) else []
+        
+        # Note: additional_manual_courses should have been consolidated into known_course_names by frontend before calling this mode.
+        # If not, you might want to add them here too like in 'ocr_only' mode, but typically frontend handles the consolidated list for phase 2.
+        # For safety, let's ensure it's robust:
+        current_additional_manual_courses = additional_manual_courses if isinstance(additional_manual_courses, list) else []
+        if current_additional_manual_courses:
+            for manual_course in current_additional_manual_courses:
+                clean_manual_course = manual_course.strip()
+                if clean_manual_course and clean_manual_course not in final_known_names_for_suggestions:
+                    final_known_names_for_suggestions.append(clean_manual_course)
+        
+        final_known_names_for_suggestions = sorted(list(set(filter(None, final_known_names_for_suggestions))))
+
+
+        if not final_known_names_for_suggestions:
+            logging.warning("Suggestions Phase: No course names provided for suggestion generation.")
             return {
                 "user_processed_data": [], 
                 "llm_error_summary": "No course names provided for suggestion generation."
             }
         
-        # Consolidate known_course_names and additional_manual_courses
-        final_known_names = list(set(known_course_names or []))
-        if additional_manual_courses:
-            for manual_course in additional_manual_courses:
-                clean_manual_course = manual_course.strip()
-                if clean_manual_course and clean_manual_course not in final_known_names:
-                    final_known_names.append(clean_manual_course)
-        final_known_names = sorted(list(set(final_known_names)))
+        logging.info(f"Suggestions Phase: Generating suggestions for {len(final_known_names_for_suggestions)} consolidated known courses: {final_known_names_for_suggestions}")
         
-        if not final_known_names: # If after consolidation, it's still empty
-             return {
-                "user_processed_data": [], 
-                "llm_error_summary": "No course names available after consolidation for suggestion generation."
-            }
-
-        logging.info(f"Suggestions Phase: Generating suggestions for consolidated known courses: {final_known_names}")
+        current_previous_user_data_list = previous_user_data_list if isinstance(previous_user_data_list, list) else None
         suggestion_results = generate_suggestions_from_known_courses(
-            final_known_names,
-            previous_user_data_list
+            final_known_names_for_suggestions,
+            current_previous_user_data_list
         )
-        # processed_image_file_ids are not directly relevant here as OCR was done in a previous step
-        # The frontend holds the IDs from the ocr_only phase if it needs to display them.
-        # However, for the final DB storage, we might want to associate all image IDs that contributed.
-        # For now, this function focuses on suggestion generation.
+        logging.info(f"Suggestions Phase complete. Processed data items: {len(suggestion_results.get('user_processed_data',[]))}, LLM summary: {suggestion_results.get('llm_error_summary')}")
         return suggestion_results
 
     else:
@@ -640,10 +656,16 @@ if __name__ == "__main__":
     test_image_folder = "test_images_for_failed_extraction" 
     if not os.path.exists(test_image_folder): os.makedirs(test_image_folder)
     
-    blank_image_path = os.path.join(test_image_folder, "blank_image.png")
-    # ... (rest of the local testing setup as before, but adapt to call new modes)
+    # Create a dummy blank image for testing failed OCR
+    try:
+        blank_image_path = os.path.join(test_image_folder, "blank_image.png")
+        if not os.path.exists(blank_image_path):
+            img = Image.new('RGB', (60, 30), color = 'white')
+            img.save(blank_image_path)
+    except Exception as e:
+        logging.error(f"Could not create blank test image: {e}")
 
-    # Test OCR Only Mode
+
     print("\n--- Testing OCR Only Mode ---")
     test_img_data = []
     if os.path.exists(blank_image_path):
@@ -652,48 +674,59 @@ if __name__ == "__main__":
             "bytes": img_bytes, "original_filename": "blank_image.png", 
             "content_type": "image/png", "file_id": "blank_id_1"
         })
+    
     # Add a dummy Python certificate image data for testing successful OCR
-    # (Create a simple image with "Python Course" text for this to work)
-    # python_img_path = os.path.join(test_image_folder, "python_cert.png") 
-    # if os.path.exists(python_img_path):
-    #    with open(python_img_path, "rb") as f: py_bytes = f.read()
-    #    test_img_data.append({"bytes": py_bytes, "original_filename": "python_cert.png", "content_type": "image/png", "file_id": "python_id_1"})
+    # You would need to create a simple image with "Python Course" text named "python_cert.png" in the test_image_folder
+    python_img_path = os.path.join(test_image_folder, "python_cert.png") 
+    if os.path.exists(python_img_path):
+       with open(python_img_path, "rb") as f: py_bytes = f.read()
+       test_img_data.append({"bytes": py_bytes, "original_filename": "python_cert.png", "content_type": "image/png", "file_id": "python_id_1"})
+    else:
+        logging.warning(f"Test image 'python_cert.png' not found in '{test_image_folder}'. OCR success test for it will be skipped.")
 
 
     ocr_results = extract_and_recommend_courses_from_image_data(
         image_data_list=test_img_data,
         mode='ocr_only',
-        additional_manual_courses=["Manual Test Course"]
+        additional_manual_courses=["Manual Test Course 1"]
     )
     print("OCR Results (Local Test):")
     print(json.dumps(ocr_results, indent=2))
 
-    # Test Suggestions Only Mode (using results from OCR or mocked)
-    print("\n--- Testing Suggestions Only Mode ---")
+    print("\n--- Testing Suggestions Only Mode (using results from OCR or mocked) ---")
     known_courses_for_suggestions = ocr_results.get("successfully_extracted_courses", [])
-    if not known_courses_for_suggestions: # Fallback if OCR yielded nothing
-        known_courses_for_suggestions = ["Python", "Introduction to AI [UNVERIFIED]", "Manual Test Course"] 
-    
+    # Ensure there's something to test suggestions with
+    if not any("Python" in s for s in known_courses_for_suggestions): # If python_cert.png didn't exist/work
+        known_courses_for_suggestions.append("Python")
+    if not any("AI Intro" in s for s in known_courses_for_suggestions):
+         known_courses_for_suggestions.append("Introduction to AI [UNVERIFIED]")
+
+
     # Mock previous data for caching test
-    mock_previous_run = [
+    mock_previous_run_data = [
         {
-            "identified_course_name": "Python",
-            "description_from_graph": "Python is versatile...",
-            "ai_description": "AI desc for Python from cache.",
-            "llm_suggestions": [{"name": "Cached Flask", "description": "Flask from cache.", "url": "http://cached.com/flask"}],
+            "identified_course_name": "Python", # Exact match to one of the known courses
+            "description_from_graph": course_graph.get("Python",{}).get("description"),
+            "ai_description": "This is a cached AI description for Python.",
+            "llm_suggestions": [
+                {"name": "Cached Advanced Python", "description": "Deep dive into Python from cache.", "url": "http://example.com/cached-adv-python"},
+                {"name": "Cached Web Dev with Python", "description": "Web dev using Python from cache.", "url": "http://example.com/cached-web-python"}
+            ],
             "llm_error": None
         }
     ]
 
     suggestion_results = extract_and_recommend_courses_from_image_data(
         mode='suggestions_only',
-        known_course_names=known_courses_for_suggestions,
-        previous_user_data_list=mock_previous_run 
+        known_course_names=known_courses_for_suggestions, # This list comes from OCR + manual naming of failures + general manual
+        previous_user_data_list=mock_previous_run_data, # This is the `user_processed_data` part of a previous run
+        additional_manual_courses=["Manual Test Course 2"] # Test consolidation in suggestions_only mode too
     )
     print("\nSuggestion Results (Local Test):")
     print(json.dumps(suggestion_results, indent=2))
 
-    print("\n--- Testing LLM Detailed Suggestion Parsing ---")
+
+    print("\n--- Testing LLM Detailed Suggestion Parsing (already in file) ---")
     mock_llm_text = """
 Identified Course: Python
 AI Description: Python is a versatile, high-level programming language known for its readability and extensive libraries.
@@ -715,7 +748,7 @@ Suggested Next Courses:
   Description: Server-side JavaScript with Node.js.
   URL: https://nodejs.org
 ---
-Identified Course: Obscure Topic [UNVERIFIED]
+Identified Course: Obscure Topic
 AI Description: No AI description available.
 Suggested Next Courses:
 No specific suggestions available for this course.
@@ -725,683 +758,15 @@ No specific suggestions available for this course.
     print(json.dumps(parsed_data, indent=2))
 
     if not COHERE_API_KEY:
-        print("\nNOTE: Cohere API key not set. LLM calls were skipped in tests.")
-</content>
-  </change>
-  <change>
-    <file>/app.py</file>
-    <content><![CDATA[
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import os
-import logging
-from pymongo import MongoClient, DESCENDING
-from gridfs import GridFS
-from dotenv import load_dotenv
-from datetime import datetime
-import json
+        print("\nNOTE: Cohere API key not set. LLM calls were skipped in relevant tests.")
+        print("To fully test, set COHERE_API_KEY in your .env file.")
 
-# --- Initial Setup ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-app_logger = logging.getLogger(__name__)
-app_logger.info("Flask app.py: Script execution started.")
-
-load_dotenv()
-app_logger.info(f"Flask app.py: .env loaded: {'Yes' if os.getenv('MONGODB_URI') else 'No (or MONGODB_URI not set)'}")
-
-from certificate_processor import extract_and_recommend_courses_from_image_data
-
-app = Flask(__name__)
-CORS(app)
-app_logger.info("Flask app instance created.")
-
-# --- MongoDB Setup ---
-MONGODB_URI = os.getenv("MONGODB_URI")
-DB_NAME = os.getenv("MONGODB_DB_NAME", "imageverse_db")
-
-if not MONGODB_URI:
-    app.logger.critical("MONGODB_URI is not set. Please set it in your .env file or environment variables.")
-
-mongo_client = None
-db = None
-fs_images = None 
-user_course_processing_collection = None 
-
-try:
-    if MONGODB_URI:
-        app.logger.info(f"Attempting to connect to MongoDB with URI (first part): {MONGODB_URI.split('@')[0] if '@' in MONGODB_URI else 'URI_FORMAT_UNEXPECTED'}")
-        mongo_client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000) 
-        mongo_client.admin.command('ismaster') 
-        db = mongo_client[DB_NAME]
-        fs_images = GridFS(db, collection="images") 
-        user_course_processing_collection = db["user_course_processing_results"]
-        app.logger.info(f"Successfully connected to MongoDB: {DB_NAME}, GridFS bucket 'images', and collection 'user_course_processing_results'.")
+    # Test Poppler check (optional, shows log if not found)
+    if not os.getenv("POPPLER_PATH") and not shutil.which("pdftoppm"):
+        logging.warning("Local test: Poppler (pdftoppm) not found in POPPLER_PATH env var or system PATH. PDF processing in tests might be skipped or log errors.")
     else:
-        app.logger.warning("MONGODB_URI not found, MongoDB connection will not be established.")
-except Exception as e:
-    app.logger.error(f"Failed to connect to MongoDB or initialize collections: {e}")
-    mongo_client = None 
-    db = None
-    fs_images = None
-    user_course_processing_collection = None
+        logging.info("Local test: Poppler (pdftoppm) seems to be available.")
 
-POPPLER_PATH = os.getenv("POPPLER_PATH", None)
-if POPPLER_PATH: app_logger.info(f"Flask app.py: POPPLER_PATH found: {POPPLER_PATH}")
-else: app_logger.info("Flask app.py: POPPLER_PATH not set.")
-
-
-@app.route('/', methods=['GET'])
-def health_check():
-    app_logger.info("Flask /: Health check endpoint hit.")
-    return jsonify({"status": "Flask server is running", "message": "Welcome to ImageVerse Flask API!"}), 200
-
-
-@app.route('/api/process-certificates', methods=['POST'])
-def process_certificates_from_db():
-    req_id_cert = datetime.now().strftime('%Y%m%d%H%M%S%f')
-    app_logger.info(f"Flask /api/process-certificates (Req ID: {req_id_cert}): Received request.")
-    
-    if mongo_client is None or db is None or fs_images is None or user_course_processing_collection is None:
-        app_logger.error(f"Flask (Req ID: {req_id_cert}): MongoDB connection or required collection not available.")
-        return jsonify({"error": "Database connection or required collection is not available."}), 503
-
-    data = request.get_json()
-    user_id = data.get("userId")
-    processing_mode = data.get("mode", "ocr_only") # 'ocr_only' or 'suggestions_only'
-    
-    # For 'ocr_only' mode
-    additional_manual_courses_general = data.get("additionalManualCourses", []) # General manual courses from textarea
-
-    # For 'suggestions_only' mode
-    known_course_names_from_frontend = data.get("knownCourseNames", []) # All resolved names for suggestion phase
-                                                                       # This list already includes OCR'd, manually named for failures, and general manual.
-
-    if not user_id:
-        app_logger.warning(f"Flask (Req ID: {req_id_cert}): User ID not provided.")
-        return jsonify({"error": "User ID (userId) not provided"}), 400
-
-    app_logger.info(f"Flask (Req ID: {req_id_cert}): Processing for userId: {user_id}, Mode: {processing_mode}.")
-    app_logger.info(f"Flask (Req ID: {req_id_cert}): General Manual Courses: {additional_manual_courses_general}")
-    app_logger.info(f"Flask (Req ID: {req_id_cert}): Known Course Names for Suggestions: {known_course_names_from_frontend}")
-
-
-    try:
-        image_data_for_processing = []
-        if processing_mode == 'ocr_only': # Fetch images only if we need to OCR them
-            user_image_files_cursor = db.images.files.find({"metadata.userId": user_id})
-            for file_doc in user_image_files_cursor:
-                file_id = file_doc["_id"]
-                original_filename = file_doc.get("metadata", {}).get("originalName", file_doc["filename"])
-                content_type = file_doc.get("contentType", "application/octet-stream") 
-                
-                app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Fetching file: ID={file_id}, Name={original_filename}")
-                grid_out = fs_images.get(file_id)
-                image_bytes = grid_out.read()
-                grid_out.close()
-                
-                effective_content_type = file_doc.get("metadata", {}).get("sourceContentType", content_type)
-                if file_doc.get("metadata", {}).get("convertedTo"): 
-                     effective_content_type = file_doc.get("metadata", {}).get("convertedTo")
-
-                image_data_for_processing.append({
-                    "bytes": image_bytes, "original_filename": original_filename, 
-                    "content_type": effective_content_type, "file_id": str(file_id) 
-                })
-            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Found {len(image_data_for_processing)} images for OCR.")
-
-        # --- Call the main processing function based on mode ---
-        processing_result_dict = {}
-        latest_previous_user_data_list = [] # For caching in suggestions_only mode
-
-        if processing_mode == 'ocr_only':
-            if not image_data_for_processing and not additional_manual_courses_general:
-                 app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): No images and no general manual courses. Returning empty handed.")
-                 return jsonify({
-                    "successfully_extracted_courses": [],
-                    "failed_extraction_images": [],
-                    "processed_image_file_ids": [],
-                    "message": "No certificate images found in DB and no manual courses provided for OCR."
-                 }), 200
-            
-            processing_result_dict = extract_and_recommend_courses_from_image_data(
-                image_data_list=image_data_for_processing,
-                mode='ocr_only',
-                additional_manual_courses=additional_manual_courses_general
-            )
-            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): OCR processing complete.")
-            # No DB storage in this phase
-
-        elif processing_mode == 'suggestions_only':
-            if not known_course_names_from_frontend: # This list should already include general manual courses
-                return jsonify({"user_processed_data": [], "llm_error_summary": "No course names provided for suggestion generation."}), 200
-
-            # Fetch latest *structured* processing result for this user to use as cache
-            try:
-                latest_doc = user_course_processing_collection.find_one(
-                    {"userId": user_id},
-                    sort=[("processedAt", DESCENDING)],
-                    projection={"user_processed_data": 1, "processed_image_file_ids": 1} 
-                )
-                if latest_doc and "user_processed_data" in latest_doc:
-                    latest_previous_user_data_list = latest_doc["user_processed_data"]
-                    app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Fetched 'user_processed_data' from latest record for cache.")
-                else:
-                    app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): No previous processed data found for cache.")
-            except Exception as e:
-                app_logger.error(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Error fetching latest processed data: {e}")
-
-            processing_result_dict = extract_and_recommend_courses_from_image_data(
-                mode='suggestions_only',
-                known_course_names=known_course_names_from_frontend,
-                previous_user_data_list=latest_previous_user_data_list
-            )
-            app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Suggestion processing complete.")
-
-            # --- Store results in MongoDB for 'suggestions_only' mode ---
-            current_processed_data_for_db = processing_result_dict.get("user_processed_data", [])
-            should_store_new_result = True # Default to store
-
-            if latest_previous_user_data_list: # Compare if previous data exists
-                # Simplified comparison: if the set of identified course names is the same,
-                # and the number of suggestions per course is roughly similar, consider it "same enough" to skip storage.
-                # This avoids overly complex deep dict comparison for now.
-                prev_course_names = set(item['identified_course_name'] for item in latest_previous_user_data_list)
-                curr_course_names = set(item['identified_course_name'] for item in current_processed_data_for_db)
-                
-                if prev_course_names == curr_course_names:
-                    # Basic check on suggestion counts if names match
-                    # This is a heuristic, can be made more robust
-                    prev_sug_counts = sum(len(item.get('llm_suggestions', [])) for item in latest_previous_user_data_list)
-                    curr_sug_counts = sum(len(item.get('llm_suggestions', [])) for item in current_processed_data_for_db)
-                    if abs(prev_sug_counts - curr_sug_counts) <= len(curr_course_names): # Allow some minor diff
-                        should_store_new_result = False
-                        app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): New processing result seems similar to latest. Skipping storage.")
-            
-            if should_store_new_result and current_processed_data_for_db:
-                try:
-                    # Get all image file IDs associated with this user, to log them with the processed result
-                    # This makes the stored record self-contained regarding which images were involved overall.
-                    user_all_image_ids = [str(doc["_id"]) for doc in db.images.files.find({"metadata.userId": user_id}, projection={"_id": 1})]
-
-                    data_to_store_in_db = {
-                        "userId": user_id,
-                        "processedAt": datetime.utcnow(),
-                        "user_processed_data": current_processed_data_for_db,
-                        "associated_image_file_ids": user_all_image_ids, # All user images at time of this processing
-                        "llm_error_summary_at_processing": processing_result_dict.get("llm_error_summary")
-                    }
-                    insert_result = user_course_processing_collection.insert_one(data_to_store_in_db)
-                    app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Stored new structured processing result. Inserted ID: {insert_result.inserted_id}")
-                except Exception as e:
-                    app_logger.error(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Error storing new structured result: {e}")
-        else:
-            app_logger.error(f"Flask (Req ID: {req_id_cert}): Invalid processing_mode '{processing_mode}'.")
-            return jsonify({"error": f"Invalid processing mode: {processing_mode}"}), 400
-        
-        return jsonify(processing_result_dict)
-
-    except Exception as e:
-        app_logger.error(f"Flask (Req ID: {req_id_cert}): Error during certificate processing for user {user_id}: {str(e)}", exc_info=True)
-        return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
-
-
-if __name__ == '__main__':
-    app.logger.info("Flask application starting with __name__ == '__main__'")
-    app_logger.info(f"Effective MONGODB_URI configured: {'Yes' if MONGODB_URI else 'No'}")
-    app_logger.info(f"Effective MONGODB_DB_NAME: {DB_NAME}")
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)), debug=True)
-</content>
-  </change>
-  <change>
-    <file>/src/app/ai-feature/page.tsx</file>
-    <content><![CDATA[
-'use client';
-
-import ProtectedPage from '@/components/auth/ProtectedPage';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
-import { Input } from '@/components/ui/input';
-import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info, CheckCircle, ListChecks, Wand2 } from 'lucide-react';
-import NextImage from 'next/image';
-import Link from 'next/link';
-import { useState, useCallback, useEffect } from 'react';
-import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/hooks/useAuth';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-
-// --- TypeScript Interfaces ---
-interface LLMSuggestion {
-  name: string;
-  description: string;
-  url: string;
-}
-
-interface UserProcessedCourseData {
-  identified_course_name: string;
-  description_from_graph?: string | null;
-  ai_description?: string | null; // New field for AI generated description of the identified course
-  llm_suggestions: LLMSuggestion[];
-  llm_error?: string | null;
-}
-
-interface FailedExtractionImage {
-  file_id: string;
-  original_filename: string;
-  reason?: string;
-}
-
-// For Phase 1 (OCR only) response
-interface OcrPhaseResult {
-  successfully_extracted_courses?: string[];
-  failed_extraction_images?: FailedExtractionImage[];
-  processed_image_file_ids?: string[]; // IDs of all images attempted in OCR phase
-  error?: string;
-  message?: string;
-}
-
-// For Phase 2 (Suggestions) response - this is also the final structure
-interface SuggestionsPhaseResult {
-  user_processed_data?: UserProcessedCourseData[];
-  llm_error_summary?: string | null;
-  error?: string;
-  message?: string; // General messages from backend
-}
-
-type ProcessingPhase = 'initial' | 'manualNaming' | 'processingSuggestions' | 'results';
-
-
-function AiFeaturePageContent() {
-  const flaskServerBaseUrl = process.env.NEXT_PUBLIC_FLASK_SERVER_URL || 'http://localhost:5000';
-  const { toast } = useToast();
-  const { userId, user } = useAuth();
-
-  // State Management
-  const [phase, setPhase] = useState<ProcessingPhase>('initial');
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-  
-  const [generalManualCoursesInput, setGeneralManualCoursesInput] = useState<string>('');
-  
-  // Data from OCR phase (Phase 1)
-  const [ocrSuccessfullyExtracted, setOcrSuccessfullyExtracted] = useState<string[]>([]);
-  const [ocrFailedImages, setOcrFailedImages] = useState<FailedExtractionImage[]>([]);
-  const [ocrProcessedImageFileIds, setOcrProcessedImageFileIds] = useState<string[]>([]);
-
-  // User input for failed images during 'manualNaming' phase
-  const [manualNamesForFailedImages, setManualNamesForFailedImages] = useState<{ [key: string]: string }>({});
-  
-  // Final result from suggestions phase (Phase 2)
-  const [finalResult, setFinalResult] = useState<SuggestionsPhaseResult | null>(null);
-
-
-  const handleManualNameChange = (fileId: string, name: string) => {
-    setManualNamesForFailedImages(prev => ({ ...prev, [fileId]: name }));
-  };
-
-  const resetToInitialState = () => {
-    setPhase('initial');
-    setIsLoading(false);
-    setError(null);
-    // setGeneralManualCoursesInput(''); // Optionally keep this
-    setOcrSuccessfullyExtracted([]);
-    setOcrFailedImages([]);
-    setOcrProcessedImageFileIds([]);
-    setManualNamesForFailedImages({});
-    setFinalResult(null);
-  };
-
-  const handlePrimaryButtonClick = useCallback(async () => {
-    if (!userId) {
-      toast({ title: 'Authentication Required', variant: 'destructive' });
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-    const endpoint = `${flaskServerBaseUrl}/api/process-certificates`;
-
-    if (phase === 'initial' || phase === 'results') { // Start or restart OCR phase
-      resetToInitialState(); // Clear everything for a fresh start or restart
-      setPhase('initial'); // Explicitly set to initial if restarting from results
-      
-      const generalManualCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
-
-      try {
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            userId, 
-            mode: 'ocr_only',
-            additionalManualCourses: generalManualCourses 
-          }),
-        });
-        const data: OcrPhaseResult = await response.json();
-
-        if (!response.ok || data.error) {
-          throw new Error(data.error || `Server error: ${response.status}`);
-        }
-        
-        setOcrSuccessfullyExtracted(data.successfully_extracted_courses || []);
-        setOcrFailedImages(data.failed_extraction_images || []);
-        setOcrProcessedImageFileIds(data.processed_image_file_ids || []);
-
-        if (data.failed_extraction_images && data.failed_extraction_images.length > 0) {
-          setPhase('manualNaming');
-          toast({
-            title: 'Action Required',
-            description: `${data.failed_extraction_images.length} certificate(s) need manual naming. Please review below.`,
-            duration: 7000
-          });
-        } else if ((data.successfully_extracted_courses && data.successfully_extracted_courses.length > 0) || generalManualCourses.length > 0) {
-          // No OCR failures, but there are courses to process for suggestions
-          // Automatically trigger the suggestions phase
-          setPhase('processingSuggestions'); // Intermediate state before calling suggestions
-          // Use a brief timeout to allow state update before calling the next phase function
-          setTimeout(() => handlePrimaryButtonClick(), 0); 
-        } else {
-          toast({ title: 'Nothing to Process', description: data.message || 'No courses extracted and no manual courses provided.' });
-          setPhase('initial'); // Stay initial or go to a specific "empty" state
-        }
-
-      } catch (err: any) {
-        setError(err.message || 'Failed OCR phase.');
-        toast({ title: 'OCR Phase Failed', description: err.message, variant: 'destructive' });
-        setPhase('initial');
-      } finally {
-        setIsLoading(false); // Loading for OCR phase ends here
-      }
-
-    } else if (phase === 'manualNaming' || phase === 'processingSuggestions') { // Trigger suggestions phase
-      setPhase('processingSuggestions'); // Ensure phase is set
-      const userProvidedNamesForFailures = Object.values(manualNamesForFailedImages).map(name => name.trim()).filter(name => name.length > 0);
-      const generalManualCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
-      
-      const allKnownCourses = [
-        ...new Set([
-          ...ocrSuccessfullyExtracted, 
-          ...userProvidedNamesForFailures,
-          ...generalManualCourses
-        ])
-      ].filter(name => name.length > 0);
-
-      if (allKnownCourses.length === 0) {
-        toast({ title: 'No Courses', description: 'No courses available to get suggestions for.', variant: 'destructive' });
-        setIsLoading(false);
-        setPhase('initial'); // Or back to 'manualNaming' if ocrFailedImages still exist
-        return;
-      }
-
-      try {
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            userId, 
-            mode: 'suggestions_only',
-            knownCourseNames: allKnownCourses
-            // additionalManualCourses is implicitly included in knownCourseNames by frontend logic
-          }),
-        });
-        const data: SuggestionsPhaseResult = await response.json();
-
-        if (!response.ok || data.error) {
-          throw new Error(data.error || `Server error: ${response.status}`);
-        }
-
-        setFinalResult(data);
-        setPhase('results');
-        if (data.user_processed_data && data.user_processed_data.length > 0) {
-          toast({ title: 'Suggestions Generated', description: `AI suggestions and descriptions generated for ${data.user_processed_data.length} course(s).` });
-        } else if (data.message) {
-           toast({ title: 'Processing Info', description: data.message });
-        }
-        if (data.llm_error_summary) {
-          toast({ title: "LLM Warning", description: data.llm_error_summary, variant: "destructive", duration: 7000 });
-        }
-
-      } catch (err: any) {
-        setError(err.message || 'Failed suggestions phase.');
-        toast({ title: 'Suggestions Phase Failed', description: err.message, variant: 'destructive' });
-        setPhase('initial'); // Or a more specific error state
-      } finally {
-        setIsLoading(false); // Loading for suggestions phase ends here
-      }
-    }
-  }, [userId, flaskServerBaseUrl, phase, generalManualCoursesInput, ocrSuccessfullyExtracted, manualNamesForFailedImages, toast]);
-
-  // Determine button text and icon
-  let buttonText = "Process Certificates for OCR";
-  let ButtonIcon = ListChecks;
-  if (phase === 'manualNaming') {
-    buttonText = "Proceed with AI Suggestions";
-    ButtonIcon = Wand2;
-  } else if (phase === 'processingSuggestions') {
-    buttonText = "Generating Suggestions...";
-    ButtonIcon = Loader2; // Will be animated by className
-  } else if (phase === 'results') {
-    buttonText = "Start New Processing";
-    ButtonIcon = ListChecks;
-  }
-
-
-  return (
-    <div className="container mx-auto px-4 py-8 md:px-6 lg:px-8 flex flex-col h-[calc(100vh-var(--header-height,4rem)-1px)]">
-      <div className="mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button asChild variant="outline" size="icon" aria-label="Go back to Home">
-            <Link href="/"><ArrowLeft className="h-5 w-5" /></Link>
-          </Button>
-          <h1 className="text-3xl font-bold font-headline">Certificate Insights & Recommendations</h1>
-        </div>
-      </div>
-      
-      <p className="mb-4 text-muted-foreground">
-        Process uploaded certificates. Phase 1: OCR. Phase 2: Manual naming for OCR failures (if any). Phase 3: AI Suggestions.
-        Server: <code className="font-code">{flaskServerBaseUrl}</code>.
-      </p>
-
-      {/* --- General Manual Courses Input - Always Visible (or conditionally based on phase) --- */}
-      { (phase === 'initial' || phase === 'manualNaming') && (
-        <div className="space-y-2 mb-6">
-          <Label htmlFor="generalManualCourses">Manually Add Courses (comma-separated, processed with others)</Label>
-          <Textarea
-            id="generalManualCourses"
-            placeholder="e.g., Advanced Python, Introduction to Docker"
-            value={generalManualCoursesInput}
-            onChange={(e) => setGeneralManualCoursesInput(e.target.value)}
-            className="min-h-[80px]"
-            disabled={isLoading || phase === 'processingSuggestions' || phase === 'results'}
-          />
-        </div>
-      )}
-
-      <Button onClick={handlePrimaryButtonClick} disabled={isLoading || !user || phase === 'processingSuggestions'} className="w-full sm:w-auto mb-6">
-        <ButtonIcon className={`mr-2 h-4 w-4 ${isLoading || phase === 'processingSuggestions' ? 'animate-spin' : ''}`} />
-        {buttonText}
-      </Button>
-      {!user && <p className="text-sm text-destructive mb-6">Please log in to process certificates.</p>}
-      {error && (
-        <Card className="mb-6 border-destructive bg-destructive/10">
-          <CardHeader><CardTitle className="text-destructive flex items-center"><AlertTriangle className="mr-2"/>Error</CardTitle></CardHeader>
-          <CardContent><p>{error}</p></CardContent>
-        </Card>
-      )}
-
-      {/* --- Phase: Manual Naming for OCR Failures --- */}
-      {phase === 'manualNaming' && ocrFailedImages.length > 0 && (
-        <Card className="my-6 border-amber-500 bg-amber-500/10">
-          <CardHeader>
-            <CardTitle className="text-xl font-headline text-amber-700 flex items-center">
-              <AlertTriangle className="mr-2 h-5 w-5" /> Name Unidentified Certificates
-            </CardTitle>
-            <CardDescription>
-              OCR failed for {ocrFailedImages.length} image(s). Please provide the course name for each.
-              These names will be used to get AI suggestions in the next step.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4 max-h-96 overflow-y-auto pr-2">
-            {ocrFailedImages.map(img => (
-              <div key={img.file_id} className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-3 border rounded-md bg-background/50 shadow-sm">
-                <div className="relative w-full sm:w-24 h-32 sm:h-24 rounded-md overflow-hidden shrink-0 border">
-                   {img.file_id !== 'N/A' ? (
-                     <NextImage 
-                      src={`/api/images/${img.file_id}`} 
-                      alt={`Certificate: ${img.original_filename}`}
-                      fill sizes="(max-width: 640px) 100vw, 96px" className="object-contain" data-ai-hint="certificate needs naming"
-                     />
-                   ) : (
-                     <div className="w-full h-full bg-muted flex items-center justify-center text-xs text-muted-foreground">No Preview (ID missing)</div>
-                   )}
-                </div>
-                <div className="flex-grow space-y-1 w-full sm:w-auto">
-                  <p className="text-xs font-semibold text-muted-foreground truncate" title={img.original_filename}>{img.original_filename}</p>
-                  {img.reason && <p className="text-xs text-amber-600 italic">Reason: {img.reason}</p>}
-                  <Input
-                    type="text"
-                    placeholder="Enter course name for this image"
-                    value={manualNamesForFailedImages[img.file_id] || ''}
-                    onChange={(e) => handleManualNameChange(img.file_id, e.target.value)}
-                    className="w-full mt-1"
-                    aria-label={`Manual course name for ${img.original_filename}`}
-                    disabled={isLoading}
-                  />
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-      
-      {/* --- Displaying Successfully OCR'd courses during manualNaming phase for context --- */}
-      {phase === 'manualNaming' && ocrSuccessfullyExtracted.length > 0 && (
-        <Card className="mb-6 border-green-500 bg-green-500/10">
-            <CardHeader>
-                <CardTitle className="text-lg font-headline text-green-700 flex items-center">
-                    <CheckCircle className="mr-2 h-5 w-5" /> Successfully OCR'd Courses
-                </CardTitle>
-                <CardDescription>
-                    These courses were identified by OCR and will be included when you proceed to get AI suggestions.
-                </CardDescription>
-            </CardHeader>
-            <CardContent>
-                <ul className="list-disc pl-5 text-sm text-green-700">
-                    {ocrSuccessfullyExtracted.map(course => <li key={course}>{course}</li>)}
-                </ul>
-            </CardContent>
-        </Card>
-      )}
-
-
-      {/* --- Phase: Results Display Area --- */}
-      {phase === 'results' && finalResult && (
-        <div className="flex-grow border border-border rounded-lg shadow-md overflow-y-auto p-4 bg-card space-y-6">
-          <h2 className="text-2xl font-headline mb-4 border-b pb-2">Processed Result & AI Suggestions:</h2>
-          
-          {ocrProcessedImageFileIds.length > 0 && ( // Show images processed in OCR phase
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-3 font-headline">Certificate Images Considered in this Run:</h3>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                {ocrProcessedImageFileIds.map(fileId => (
-                  <div key={`processed-${fileId}`} className="aspect-[4/3] relative rounded-md overflow-hidden border shadow-sm">
-                    <NextImage 
-                      src={`/api/images/${fileId}`} alt={`Processed certificate image ${fileId}`}
-                      fill sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 20vw"
-                      className="object-contain" data-ai-hint="certificate image"
-                    />
-                     <a href={`/api/images/${fileId}`} target="_blank" rel="noopener noreferrer" className="absolute top-1 right-1 bg-black/50 text-white p-1 rounded-full hover:bg-black/70 transition-colors" title="Open image in new tab">
-                       <ExternalLink className="w-3 h-3"/>
-                     </a>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {finalResult.message && !finalResult.user_processed_data?.length && (
-            <Card className="bg-blue-500/10 border-blue-500">
-              <CardHeader className="flex-row items-center gap-2"><Info className="w-5 h-5 text-blue-700" /><CardTitle className="text-blue-700 text-lg">Information</CardTitle></CardHeader>
-              <CardContent><p className="text-blue-700">{finalResult.message}</p></CardContent>
-            </Card>
-          )}
-          
-          {finalResult.llm_error_summary && (
-             <Card className="border-amber-500 bg-amber-500/10">
-              <CardHeader className="flex-row items-center gap-2"><AlertTriangle className="w-5 h-5 text-amber-700" /><CardTitle className="text-amber-700 text-lg">LLM Warning</CardTitle></CardHeader>
-              <CardContent><p className="text-amber-700">{finalResult.llm_error_summary}</p></CardContent>
-            </Card>
-          )}
-
-          {finalResult.user_processed_data && finalResult.user_processed_data.length > 0 ? (
-            <div className="space-y-6">
-              <h3 className="text-lg font-semibold font-headline">Identified Courses & AI Suggestions:</h3>
-              {finalResult.user_processed_data.map((identifiedCourseData, index) => (
-                <Card key={`identified-${index}`} className="bg-background/50 shadow-inner">
-                  <CardHeader>
-                    <CardTitle className="text-xl font-headline text-primary">
-                      {identifiedCourseData.identified_course_name}
-                    </CardTitle>
-                    {identifiedCourseData.description_from_graph && (
-                      <CardDescription className="pt-1 text-sm italic">Graph Description: {identifiedCourseData.description_from_graph}</CardDescription>
-                    )}
-                    {identifiedCourseData.ai_description && (
-                      <CardDescription className="pt-1 text-sm">AI Description: {identifiedCourseData.ai_description}</CardDescription>
-                    )}
-                     {!identifiedCourseData.description_from_graph && !identifiedCourseData.ai_description && (
-                        <CardDescription className="pt-1 text-sm italic">No description available for this course.</CardDescription>
-                     )}
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <h4 className="font-semibold text-md">AI Suggested Next Steps:</h4>
-                    {identifiedCourseData.llm_suggestions && identifiedCourseData.llm_suggestions.length > 0 ? (
-                      <ul className="space-y-3 list-none pl-0">
-                        {identifiedCourseData.llm_suggestions.map((suggestion, sugIndex) => (
-                          <li key={`sug-${index}-${sugIndex}`} className="border p-3 rounded-md bg-card shadow-sm">
-                            <p className="font-medium text-base">{suggestion.name}</p>
-                            <p className="text-xs text-muted-foreground mt-0.5 mb-1.5">{suggestion.description}</p>
-                            {suggestion.url && (
-                              <Button variant="link" size="sm" asChild className="px-0 h-auto text-primary hover:text-primary/80">
-                                <a href={suggestion.url} target="_blank" rel="noopener noreferrer">
-                                  Learn more <ExternalLink className="ml-1 h-3 w-3" />
-                                </a>
-                              </Button>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : identifiedCourseData.llm_error ? (
-                       <p className="text-sm text-amber-700 italic">Note: {identifiedCourseData.llm_error}</p>
-                    ) : (
-                      <p className="text-sm text-muted-foreground italic">No specific AI suggestions available for this item.</p>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : (
-            phase === 'results' && <p className="text-muted-foreground italic">No comprehensive suggestions were generated in this run.</p>
-          )}
-          <div className="mt-6 pt-4 border-t">
-            <Label htmlFor="rawJsonOutput" className="text-xs text-muted-foreground">Raw JSON Output (for debugging):</Label>
-            <Textarea id="rawJsonOutput" readOnly value={JSON.stringify(finalResult, null, 2)}
-              className="w-full h-auto min-h-[150px] text-xs font-code bg-muted/30 resize-none mt-1"
-              aria-label="Raw processing result JSON"
-            />
-          </div>
-        </div>
-      )}
-       <p className="mt-4 text-xs text-muted-foreground">
-        Note: Ensure Flask server URL is correct and backend services (DB, AI) are operational.
-      </p>
-    </div>
-  );
-}
-
-export default function AiFeaturePage() {
-  return (
-    <ProtectedPage>
-      <AiFeaturePageContent />
-    </ProtectedPage>
-  );
-}
+    # Test YOLO model loading message (already happens at start)
+    if not model:
+        logging.warning("Local test: YOLO model ('best.pt') could not be loaded. OCR functionality will be limited to full image OCR without region detection.")
