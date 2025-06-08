@@ -10,7 +10,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
-import { Crop, Minimize, FileText } from 'lucide-react'; // Added FileText for error/empty state
+import { Crop, Minimize, FileText } from 'lucide-react';
 
 export type ImageFitMode = 'contain' | 'cover';
 
@@ -21,7 +21,7 @@ function HomePageContent() {
   const [refreshKey, setRefreshKey] = useState(0);
   const { userId } = useAuth();
   const { toast } = useToast();
-  const [imageFitMode, setImageFitMode] = useState<ImageFitMode>('contain'); // Default set to 'contain'
+  const [imageFitMode, setImageFitMode] = useState<ImageFitMode>('contain'); // Explicitly default to 'contain'
 
   const toggleImageFitMode = () => {
     setImageFitMode(prevMode => (prevMode === 'contain' ? 'cover' : 'contain'));
@@ -106,8 +106,8 @@ function HomePageContent() {
             <p className="text-muted-foreground text-lg">Browse, upload, and manage your certificates.</p>
         </div>
         <Button onClick={toggleImageFitMode} variant="outline" size="sm" className="shrink-0">
-          {imageFitMode === 'contain' ? <Crop className="mr-2 h-4 w-4" /> : <Minimize className="mr-2 h-4 w-4" />}
-          {imageFitMode === 'contain' ? 'Fit: Cover' : 'Fit: Contain'}
+          {imageFitMode === 'contain' ? <Minimize className="mr-2 h-4 w-4" /> : <Crop className="mr-2 h-4 w-4" /> }
+          {imageFitMode === 'contain' ? 'Switch to Cover' : 'Switch to Contain'}
         </Button>
       </div>
       <ImageGrid
