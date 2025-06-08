@@ -30,16 +30,16 @@ interface UserProcessedCourseData {
 interface FailedExtractionImage {
   file_id: string;
   original_filename: string;
-  reason?: string; // Optional reason for failure
+  reason?: string; 
 }
 
 interface CertificateProcessingResult {
   user_processed_data?: UserProcessedCourseData[];
   processed_image_file_ids?: string[];
   failed_extraction_images?: FailedExtractionImage[];
-  llm_error_summary?: string | null; // Overall LLM error
-  error?: string; // Global error for the whole request
-  message?: string; // Global message for the whole request
+  llm_error_summary?: string | null; 
+  error?: string; 
+  message?: string; 
 }
 
 function AiFeaturePageContent() {
@@ -69,9 +69,9 @@ function AiFeaturePageContent() {
     }
 
     setIsLoading(true);
-    setResult(null);
-    setError(null);
-    setImagesForManualNaming(null); // Clear previous failed images UI
+    setResult(null); // Clear previous main result
+    setError(null); // Clear previous global error
+    setImagesForManualNaming(null); // Clear previous failed images UI *before* new request
 
     const endpoint = `${flaskServerBaseUrl}/api/process-certificates`;
 
@@ -85,7 +85,9 @@ function AiFeaturePageContent() {
       .filter(name => name.length > 0);
       
     const combinedManualCourses = [...new Set([...generalManualCourses, ...specificManualNamesForFailedImages])];
-    // Important: Clear specific manual names for next round, general input remains
+    
+    // Important: Clear specific manual names *state* for next round; general input remains as is.
+    // The UI for manual naming will be repopulated if the new response contains failed_extraction_images.
     setManualNamesForImages({}); 
 
 
@@ -97,33 +99,38 @@ function AiFeaturePageContent() {
       });
 
       const responseData: CertificateProcessingResult = await response.json();
-      console.log('Response from Flask server (manual naming structure):', responseData);
+      console.log('Response from Flask server:', responseData);
 
       if (!response.ok) {
         const errorMessage = responseData?.error || `Server error: ${response.status}`;
         throw new Error(errorMessage);
       }
       
-      setResult(responseData);
+      setResult(responseData); // Set the main result object
 
+      // Now, specifically handle the failed_extraction_images for UI display
       if (responseData.failed_extraction_images && responseData.failed_extraction_images.length > 0) {
-        setImagesForManualNaming(responseData.failed_extraction_images);
+        setImagesForManualNaming(responseData.failed_extraction_images); // This will trigger the UI section
         toast({
           title: 'Action Required',
-          description: `${responseData.failed_extraction_images.length} certificate(s) could not be automatically identified. Please name them manually below.`,
+          description: `${responseData.failed_extraction_images.length} certificate(s) could not be automatically identified. Please name them manually below if desired, then process again.`,
           variant: 'default',
-          duration: 7000,
+          duration: 8000,
         });
+      } else {
+        setImagesForManualNaming(null); // Explicitly clear if none came back
       }
 
-      if (responseData.error) {
+      if (responseData.error) { // Global error from backend
         toast({ title: 'Processing Error', description: responseData.error, variant: 'destructive' });
         setError(responseData.error);
-      } else if (responseData.message && !responseData.user_processed_data?.length && !imagesForManualNaming?.length) {
+      } else if (responseData.message && !responseData.user_processed_data?.length && (!responseData.failed_extraction_images || responseData.failed_extraction_images.length === 0)) {
+         // Show general message only if no data and no failed images to name
          toast({ title: 'Processing Info', description: responseData.message });
       } else if (responseData.user_processed_data?.length) {
          toast({ title: 'Processing Successful', description: `Processed ${responseData.user_processed_data.length} identified course(s)/topic(s).` });
       }
+      
       if (responseData.llm_error_summary) {
         toast({title: "LLM Warning", description: responseData.llm_error_summary, variant: "destructive", duration: 7000});
       }
@@ -135,7 +142,11 @@ function AiFeaturePageContent() {
     } finally {
       setIsLoading(false);
     }
-  }, [userId, flaskServerBaseUrl, manualCoursesInput, manualNamesForImages, toast]);
+  }, [userId, flaskServerBaseUrl, manualCoursesInput, manualNamesForImages, toast]); // manualNamesForImages is needed here if we read it directly for the call
+
+  // For debugging purposes:
+  // console.log("Current imagesForManualNaming state:", imagesForManualNaming);
+  // console.log("Current result object state:", result);
 
   return (
     <div className="container mx-auto px-4 py-8 md:px-6 lg:px-8 flex flex-col h-[calc(100vh-var(--header-height,4rem))]">
@@ -155,7 +166,7 @@ function AiFeaturePageContent() {
 
       <div className="space-y-4 mb-6">
         <div className="space-y-2">
-          <Label htmlFor="manualCourses">Manually Add Courses (comma-separated)</Label>
+          <Label htmlFor="manualCourses">Manually Add Courses (comma-separated, if not naming specific images below)</Label>
           <Textarea
             id="manualCourses"
             placeholder="e.g., Advanced Python, Introduction to Docker"
@@ -178,6 +189,7 @@ function AiFeaturePageContent() {
         </Card>
       )}
 
+      {/* Section for naming unidentified certificates */}
       {imagesForManualNaming && imagesForManualNaming.length > 0 && (
         <Card className="my-6 border-amber-500 bg-amber-500/10">
           <CardHeader>
@@ -185,14 +197,14 @@ function AiFeaturePageContent() {
               <AlertTriangle className="mr-2 h-5 w-5" /> Name Unidentified Certificates
             </CardTitle>
             <CardDescription>
-              We couldn&apos;t automatically identify the course names from the following certificate images. 
-              Please enter the course name for each, then click &quot;Process My Certificates&quot; again.
+              We couldn&apos;t automatically identify course names from the following certificate images. 
+              Please enter the course name for each. These names will be included when you click &quot;Process My Certificates&quot; again.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 max-h-96 overflow-y-auto pr-2">
             {imagesForManualNaming.map(img => (
-              <div key={img.file_id} className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-3 border rounded-md bg-background/50">
-                <div className="relative w-full sm:w-24 h-32 sm:h-24 rounded-md overflow-hidden shrink-0 border shadow-sm">
+              <div key={img.file_id} className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-3 border rounded-md bg-background/50 shadow-sm">
+                <div className="relative w-full sm:w-24 h-32 sm:h-24 rounded-md overflow-hidden shrink-0 border">
                    <NextImage 
                     src={`/api/images/${img.file_id}`} 
                     alt={`Certificate: ${img.original_filename}`}
@@ -203,15 +215,16 @@ function AiFeaturePageContent() {
                    />
                 </div>
                 <div className="flex-grow space-y-1 w-full sm:w-auto">
-                  <p className="text-xs font-medium text-muted-foreground truncate" title={img.original_filename}>{img.original_filename}</p>
+                  <p className="text-xs font-semibold text-muted-foreground truncate" title={img.original_filename}>{img.original_filename}</p>
+                  {img.reason && <p className="text-xs text-amber-600 italic">Reason: {img.reason}</p>}
                   <Input
                     type="text"
                     placeholder="Enter course name for this image"
                     value={manualNamesForImages[img.file_id] || ''}
                     onChange={(e) => handleManualNameChange(img.file_id, e.target.value)}
-                    className="w-full"
+                    className="w-full mt-1"
+                    aria-label={`Manual course name for ${img.original_filename}`}
                   />
-                  {img.reason && <p className="text-xs text-amber-600 italic mt-1">Note: {img.reason}</p>}
                 </div>
               </div>
             ))}
@@ -219,13 +232,14 @@ function AiFeaturePageContent() {
         </Card>
       )}
 
+      {/* Main results display area */}
       {result && (
         <div className="flex-grow border border-border rounded-lg shadow-md overflow-y-auto p-4 bg-card space-y-6">
           <h2 className="text-2xl font-headline mb-4 border-b pb-2">Processing Result:</h2>
           
           {result.processed_image_file_ids && result.processed_image_file_ids.length > 0 && (
             <div className="mb-6">
-              <h3 className="text-xl font-semibold mb-3 font-headline">Processed Certificate Images This Run:</h3>
+              <h3 className="text-lg font-semibold mb-3 font-headline">Processed Certificate Images This Run:</h3>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
                 {result.processed_image_file_ids.map(fileId => (
                   <div key={`processed-${fileId}`} className="aspect-[4/3] relative rounded-md overflow-hidden border shadow-sm">
@@ -246,7 +260,7 @@ function AiFeaturePageContent() {
             </div>
           )}
 
-          {result.message && !result.user_processed_data?.length && !imagesForManualNaming?.length && (
+          {result.message && !result.user_processed_data?.length && (!result.failed_extraction_images || result.failed_extraction_images.length === 0) && (
             <Card className="bg-blue-500/10 border-blue-500">
               <CardHeader className="flex-row items-center gap-2">
                 <Info className="w-5 h-5 text-blue-700" />
@@ -266,10 +280,9 @@ function AiFeaturePageContent() {
             </Card>
           )}
 
-
           {result.user_processed_data && result.user_processed_data.length > 0 && (
             <div className="space-y-6">
-              <h3 className="text-xl font-semibold font-headline">Identified Courses & AI Suggestions:</h3>
+              <h3 className="text-lg font-semibold font-headline">Identified Courses & AI Suggestions:</h3>
               {result.user_processed_data.map((identifiedCourseData, index) => (
                 <Card key={`identified-${index}`} className="bg-background/50 shadow-inner">
                   <CardHeader>
@@ -310,8 +323,9 @@ function AiFeaturePageContent() {
               ))}
             </div>
           )}
+          {/* Raw JSON Output - Keep this for debugging or remove if not needed in prod */}
           <div className="mt-6 pt-4 border-t">
-            <Label htmlFor="rawJsonOutput" className="text-xs text-muted-foreground">Raw JSON Output:</Label>
+            <Label htmlFor="rawJsonOutput" className="text-xs text-muted-foreground">Raw JSON Output (for debugging):</Label>
             <Textarea
               id="rawJsonOutput"
               readOnly
