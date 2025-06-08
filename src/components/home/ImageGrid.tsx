@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import type { ImageFitMode } from '@/app/page'; // Import the type
+// Removed ImageFitMode type import as it's no longer used
 
 export interface UserImage {
   fileId: string;
@@ -37,10 +37,10 @@ interface ImageGridProps {
   error: string | null;
   onImageDeleted: () => void;
   currentUserId: string | null;
-  imageFitMode: ImageFitMode; // Add the new prop
+  // imageFitMode prop removed
 }
 
-export default function ImageGrid({ images, isLoading, error, onImageDeleted, currentUserId, imageFitMode }: ImageGridProps) {
+export default function ImageGrid({ images, isLoading, error, onImageDeleted, currentUserId }: ImageGridProps) {
   const [selectedImageForView, setSelectedImageForView] = useState<UserImage | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [imageToDelete, setImageToDelete] = useState<UserImage | null>(null);
@@ -118,7 +118,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center text-center py-12 text-destructive">
-        <FileText className="w-16 h-16 mb-4" />
+        <FileText className="w-16 h-16 mb-4" /> {/* Changed from ImageIcon to FileText for consistency */}
         <h2 className="text-2xl font-headline mb-2">Error Loading Certificates</h2>
         <p>{error}</p>
       </div>
@@ -128,7 +128,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
   if (images.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center text-center py-12">
-        <FileText className="w-16 h-16 text-muted-foreground mb-4" />
+        <FileText className="w-16 h-16 text-muted-foreground mb-4" /> {/* Changed from ImageIcon */}
         <h2 className="text-2xl font-headline mb-2">Your CertIntel Hub is Empty</h2>
         <p className="text-muted-foreground">Start by uploading your first certificate using the &apos;+&apos; button.</p>
       </div>
@@ -141,10 +141,12 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
         {images.map((image) => {
           const imageSrc = `/api/images/${image.fileId}`;
           const isPdf = image.contentType === 'application/pdf';
-          const imageFitClass = imageFitMode === 'cover' ? 'object-cover' : 'object-contain';
+          // Hardcode to 'object-contain'
+          const imageFitClass = 'object-contain'; 
           return (
             <Card key={image.fileId} className="overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 group relative">
               <CardContent className="p-0 cursor-pointer" onClick={() => openViewModal(image)}>
+                {/* Removed bg-muted from this div */}
                 <div className="aspect-square w-full relative flex items-center justify-center">
                   {isPdf ? (
                      <FileText className="w-1/2 h-1/2 text-muted-foreground" />
@@ -160,6 +162,8 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
                       data-ai-hint={image.dataAiHint || 'uploaded certificate'}
                       onError={(e) => {
                         console.error(`ImageGrid: Error loading image with src: ${imageSrc}`, e);
+                        // Optionally, you could set a fallback image source here
+                        // e.currentTarget.src = '/placeholder-error.png'; // Make sure this placeholder exists in public
                       }}
                     />
                   )}
@@ -178,11 +182,11 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
                   size="icon"
                   className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white"
                   title="Download File"
-                  onClick={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()} // Prevents modal from opening
                 >
                   <a
                     href={`/api/images/${image.fileId}`}
-                    download={image.originalName || image.filename}
+                    download={image.originalName || image.filename} // Suggest filename for download
                   >
                     <Download className="h-4 w-4" />
                   </a>

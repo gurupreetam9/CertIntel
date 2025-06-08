@@ -9,10 +9,10 @@ import AiFAB from '@/components/home/AiFAB';
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { Button } from '@/components/ui/button';
-import { Crop, Minimize, FileText } from 'lucide-react';
+// Removed Button, Crop, Minimize as they were for the toggle
+import { FileText } from 'lucide-react'; // Keep FileText if used, otherwise remove
 
-export type ImageFitMode = 'contain' | 'cover';
+// Removed ImageFitMode type as it's no longer used here
 
 function HomePageContent() {
   const [images, setImages] = useState<UserImage[]>([]);
@@ -21,12 +21,7 @@ function HomePageContent() {
   const [refreshKey, setRefreshKey] = useState(0);
   const { userId } = useAuth();
   const { toast } = useToast();
-  // Ensure the default image fit mode is 'contain' to match the screenshot style
-  const [imageFitMode, setImageFitMode] = useState<ImageFitMode>('contain'); 
-
-  const toggleImageFitMode = () => {
-    setImageFitMode(prevMode => (prevMode === 'contain' ? 'cover' : 'contain'));
-  };
+  // Removed imageFitMode state and toggle function
 
   const triggerRefresh = useCallback(() => {
     console.log("HomePageContent: Triggering refresh by incrementing refreshKey.");
@@ -106,11 +101,7 @@ function HomePageContent() {
             <h1 className="text-3xl md:text-4xl font-bold font-headline mb-2">Your Certificate Hub</h1>
             <p className="text-muted-foreground text-lg">Browse, upload, and manage your certificates.</p>
         </div>
-        <Button onClick={toggleImageFitMode} variant="outline" size="sm" className="shrink-0">
-          {imageFitMode === 'contain' ? <Minimize className="mr-2 h-4 w-4" /> : <Crop className="mr-2 h-4 w-4" /> }
-          {/* Text reflects the action: if current is 'contain', offer to switch to 'cover' */}
-          {imageFitMode === 'contain' ? 'Switch to Cover' : 'Switch to Contain'}
-        </Button>
+        {/* Removed the toggle button for image fit mode */}
       </div>
       <ImageGrid
         images={images}
@@ -118,7 +109,7 @@ function HomePageContent() {
         error={error}
         onImageDeleted={triggerRefresh}
         currentUserId={userId}
-        imageFitMode={imageFitMode}
+        // imageFitMode prop removed
       />
       <UploadFAB onUploadSuccess={triggerRefresh} />
       <AiFAB />

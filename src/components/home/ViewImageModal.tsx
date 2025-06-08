@@ -29,11 +29,6 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
 
   const imageSrc = `/api/images/${image.fileId}`;
 
-  // Default large dimensions for next/image when not using layout="fill".
-  // Tailwind classes (max-w-full, max-h-full, object-contain) will constrain it.
-  const defaultImgRenderWidth = 1920; 
-  const defaultImgRenderHeight = 1080;
-
   return (
     <Dialog
       open={isOpen}
@@ -56,21 +51,21 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
         
         <div
           key={`${image.fileId}-image-stage`}
-          className="flex-1 min-h-0 w-full flex items-center justify-center overflow-auto p-2 sm:p-4" 
+          // Added position: relative for NextImage with fill prop
+          className="flex-1 min-h-0 w-full flex items-center justify-center overflow-auto p-2 sm:p-4 relative" 
         >
           <Image
             key={`${image.fileId}-modal-image`}
             src={imageSrc}
             alt={`View of ${image.originalName}`}
-            width={defaultImgRenderWidth} 
-            height={defaultImgRenderHeight} 
-            className="object-contain max-w-full max-h-full rounded-md" 
+            fill // Use fill to make image cover the parent
+            sizes="(max-width: 640px) 90vw, (max-width: 1024px) 80vw, 70vw" // Provide sizes for optimization with fill
+            className="object-contain rounded-md" // object-contain ensures aspect ratio is maintained
             data-ai-hint={image.dataAiHint || 'full view image'}
-            unoptimized={process.env.NODE_ENV === 'development'} // Useful for local dev if external image optimization is slow/problematic
+            unoptimized={process.env.NODE_ENV === 'development'} 
             onLoad={(event) => {
               const target = event.target as HTMLImageElement;
-              // Optional: log if needed for further debugging, but generally not for production
-              // console.log(`ViewImageModal: Next/Image onLoad for src: ${target.src}. Natural dimensions: ${target.naturalWidth}x${target.naturalHeight}. Rendered via props: ${defaultImgRenderWidth}x${defaultImgRenderHeight}`);
+              // console.log(`ViewImageModal: Next/Image onLoad for src: ${target.src}. Natural dimensions: ${target.naturalWidth}x${target.naturalHeight}.`);
             }}
             onError={(e) => {
               const target = e.target as HTMLImageElement;
