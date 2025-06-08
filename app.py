@@ -73,9 +73,16 @@ def save_manual_course_name():
     req_id_manual_name = datetime.now().strftime('%Y%m%d%H%M%S%f')
     app_logger.info(f"Flask /api/manual-course-name (Req ID: {req_id_manual_name}): Received request.")
 
-    if mongo_client is None or db is None or manual_course_names_collection is None:
-        app_logger.error(f"Flask (Req ID: {req_id_manual_name}): MongoDB connection or 'manual_course_names' collection not available.")
-        return jsonify({"error": "Database connection or required collection is not available."}), 503
+    db_components_to_check = {
+        "mongo_client": mongo_client,
+        "db_instance": db,
+        "manual_course_names_collection": manual_course_names_collection
+    }
+    missing_components = [name for name, comp in db_components_to_check.items() if comp is None]
+    if missing_components:
+        error_message = f"Database component(s) not available for manual name saving: {', '.join(missing_components)}."
+        app_logger.error(f"Flask (Req ID: {req_id_manual_name}): {error_message}")
+        return jsonify({"error": error_message, "errorKey": "DB_COMPONENT_UNAVAILABLE"}), 503
 
     data = request.get_json()
     user_id = data.get("userId")
@@ -118,10 +125,19 @@ def process_certificates_from_db():
     req_id_cert = datetime.now().strftime('%Y%m%d%H%M%S%f')
     app_logger.info(f"Flask /api/process-certificates (Req ID: {req_id_cert}): Received request.")
     
-    required_collections = [mongo_client, db, fs_images, user_course_processing_collection, manual_course_names_collection]
-    if not all(required_collections):
-        app_logger.error(f"Flask (Req ID: {req_id_cert}): MongoDB connection or one of the required collections not available.")
-        return jsonify({"error": "Database connection or required collection is not available."}), 503
+    db_components_to_check = {
+        "mongo_client": mongo_client,
+        "db_instance": db,
+        "gridfs_images_bucket": fs_images,
+        "user_course_processing_collection": user_course_processing_collection,
+        "manual_course_names_collection": manual_course_names_collection
+    }
+    missing_components = [name for name, comp in db_components_to_check.items() if comp is None]
+
+    if missing_components:
+        error_message = f"Database component(s) not available for certificate processing: {', '.join(missing_components)}. Check MongoDB connection and initialization."
+        app_logger.error(f"Flask (Req ID: {req_id_cert}): {error_message}")
+        return jsonify({"error": error_message, "errorKey": "DB_COMPONENT_UNAVAILABLE"}), 503
 
     data = request.get_json()
     user_id = data.get("userId")
@@ -141,17 +157,19 @@ def process_certificates_from_db():
     try:
         processing_result_dict = {}
         latest_previous_user_data_list = [] 
+        user_all_image_ids_associated_with_run = []
 
         if processing_mode == 'ocr_only':
             image_data_for_ocr_processing = []
-            user_image_files_cursor = db.images.files.find({"metadata.userId": user_id})
+            user_image_files_cursor = db.images.files.find({"metadata.userId": user_id}) # Use db instance directly
             for file_doc in user_image_files_cursor:
                 file_id = file_doc["_id"]
                 original_filename = file_doc.get("metadata", {}).get("originalName", file_doc["filename"])
                 content_type = file_doc.get("contentType", "application/octet-stream") 
+                user_all_image_ids_associated_with_run.append(str(file_id))
                 
                 app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Fetching file: ID={file_id}, Name={original_filename}")
-                grid_out = fs_images.get(file_id)
+                grid_out = fs_images.get(file_id) # Use fs_images instance directly
                 image_bytes = grid_out.read()
                 grid_out.close()
                 
@@ -176,7 +194,7 @@ def process_certificates_from_db():
             ocr_phase_raw_results = extract_and_recommend_courses_from_image_data(
                 image_data_list=image_data_for_ocr_processing,
                 mode='ocr_only',
-                additional_manual_courses=additional_manual_courses_general # Pass general ones here too
+                additional_manual_courses=additional_manual_courses_general 
             )
             app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Initial OCR processing by certificate_processor complete.")
 
@@ -208,12 +226,11 @@ def process_certificates_from_db():
                 app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): After applying stored names - Successful: {len(current_successful_courses)}, Failures to prompt: {len(final_failed_images_for_frontend)}.")
             else:
                  app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): No images initially failed OCR. No need to check stored manual names.")
-                 # Ensure general manual courses are still included if no image processing happened
                  ocr_phase_raw_results["successfully_extracted_courses"] = sorted(list(set(current_successful_courses)))
 
 
             processing_result_dict = ocr_phase_raw_results
-            # No DB storage of full results in this phase
+            processing_result_dict["processed_image_file_ids"] = list(set(user_all_image_ids_associated_with_run)) # Ensure this is passed back
 
         elif processing_mode == 'suggestions_only':
             if not known_course_names_from_frontend: 
@@ -256,6 +273,9 @@ def process_certificates_from_db():
             
             if should_store_new_result and current_processed_data_for_db:
                 try:
+                    # Get all user image IDs to associate with this suggestion run record
+                    # This is needed because suggestions are based on a consolidated list, not necessarily tied to images processed *in this exact OCR run*
+                    # if some courses were already known or added manually.
                     user_all_image_ids_associated_with_suggestions = [str(doc["_id"]) for doc in db.images.files.find({"metadata.userId": user_id}, projection={"_id": 1})]
 
                     data_to_store_in_db = {
@@ -267,11 +287,21 @@ def process_certificates_from_db():
                     }
                     insert_result = user_course_processing_collection.insert_one(data_to_store_in_db)
                     app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Stored new structured processing result. Inserted ID: {insert_result.inserted_id}")
+                    processing_result_dict["associated_image_file_ids"] = user_all_image_ids_associated_with_suggestions
                 except Exception as e:
                     app_logger.error(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Error storing new structured result: {e}")
-            
-            # Also pass back the image IDs associated with *this* suggestion run if the processor provides them (or all if not)
-            processing_result_dict["associated_image_file_ids"] = processing_result_dict.get("associated_image_file_ids", user_all_image_ids_associated_with_suggestions if 'user_all_image_ids_associated_with_suggestions' in locals() else [])
+            elif not current_processed_data_for_db:
+                 app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): No user processed data generated, nothing to store or associate image IDs with for DB.")
+                 processing_result_dict["associated_image_file_ids"] = []
+            else: # should_store_new_result is False, but current_processed_data_for_db exists
+                 app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Result not stored (similar to previous). Using image IDs from previous if available or querying all user images.")
+                 # Try to get associated IDs from latest_doc if it's the source of similarity
+                 latest_image_ids = latest_doc.get("associated_image_file_ids") if latest_doc else None
+                 if latest_image_ids:
+                     processing_result_dict["associated_image_file_ids"] = latest_image_ids
+                 else: # Fallback to all user images
+                     processing_result_dict["associated_image_file_ids"] = [str(doc["_id"]) for doc in db.images.files.find({"metadata.userId": user_id}, projection={"_id": 1})]
+
 
         else:
             app_logger.error(f"Flask (Req ID: {req_id_cert}): Invalid processing_mode '{processing_mode}'.")
@@ -289,6 +319,5 @@ if __name__ == '__main__':
     app_logger.info(f"Effective MONGODB_URI configured: {'Yes' if MONGODB_URI else 'No'}")
     app_logger.info(f"Effective MONGODB_DB_NAME: {DB_NAME}")
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)), debug=True)
-
 
     
