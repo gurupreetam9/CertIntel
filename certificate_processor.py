@@ -41,6 +41,19 @@ if not COHERE_API_KEY:
 else:
     co = cohere.Client(COHERE_API_KEY)
 
+# Check for Tesseract installation
+TESSERACT_PATH = shutil.which("tesseract")
+if not TESSERACT_PATH:
+    logging.critical(
+        "Tesseract OCR executable not found in PATH. "
+        "Pytesseract will fail. Please install Tesseract OCR and ensure it's added to your system's PATH. "
+        "On Debian/Ubuntu: sudo apt-get install tesseract-ocr. On macOS: brew install tesseract. "
+        "For Windows, download installer from UB Mannheim Tesseract page."
+    )
+else:
+    logging.info(f"Tesseract OCR executable found at: {TESSERACT_PATH}")
+
+
 possible_courses = ["HTML", "CSS", "JavaScript", "React", "Astro.js", "Python", "Flask", "C Programming", "Kotlin", "Ethical Hacking", "Networking", "Node.js", "Machine Learning", "Data Structures", "Operating Systems", "Next.js", "Remix", "Express.js", "MongoDB", "Docker", "Kubernetes", "Tailwind CSS", "Django"]
 
 course_graph = {
@@ -135,7 +148,7 @@ def clean_unicode(text):
 def infer_course_text_from_image_object(pil_image_obj):
     if not model:
         logging.error("YOLO model is not loaded. Cannot infer course text.")
-        return None
+        return None, "YOLO model not loaded"
     try:
         image_np = np.array(pil_image_obj)
         if image_np.ndim == 2: 
@@ -154,25 +167,39 @@ def infer_course_text_from_image_object(pil_image_obj):
                 if label.lower() in ["certificatecourse", "course", "title", "name"]:
                     left, top, right, bottom = map(int, box.xyxy[0].cpu().numpy())
                     cropped_pil_image = pil_image_obj.crop((left, top, right, bottom))
-                    text = pytesseract.image_to_string(cropped_pil_image).strip()
-                    cleaned_text = clean_unicode(text)
-                    if cleaned_text:
-                        logging.info(f"Extracted text from detected region ('{label}'): '{cleaned_text}'")
-                        return cleaned_text
-        else:
-            logging.warning("No relevant bounding boxes detected by YOLO.")
+                    try:
+                        text = pytesseract.image_to_string(cropped_pil_image).strip()
+                        cleaned_text = clean_unicode(text)
+                        if cleaned_text:
+                            logging.info(f"Extracted text from detected region ('{label}'): '{cleaned_text}'")
+                            return cleaned_text, None
+                    except pytesseract.TesseractError as tess_err:
+                        logging.error(f"PytesseractError during OCR on cropped region ('{label}'): {tess_err}")
+                        return None, f"Tesseract OCR error on cropped region: {str(tess_err).splitlines()[0] if str(tess_err) else 'Details in logs.'}"
+                    except Exception as ocr_crop_err:
+                        logging.error(f"Non-Tesseract error during OCR on cropped region ('{label}'): {ocr_crop_err}")
+                        return None, f"OCR error on cropped region: {str(ocr_crop_err)}"
+
 
         logging.info("No specific course region found by YOLO, attempting OCR on the whole image as fallback.")
-        full_image_text = pytesseract.image_to_string(pil_image_obj).strip()
-        cleaned_full_text = clean_unicode(full_image_text)
-        if cleaned_full_text:
-            logging.info(f"Extracted text from full image (fallback): '{cleaned_full_text[:100]}...'")
-            return cleaned_full_text
-        logging.info("OCR on full image also yielded no text.")
-        return None
+        try:
+            full_image_text = pytesseract.image_to_string(pil_image_obj).strip()
+            cleaned_full_text = clean_unicode(full_image_text)
+            if cleaned_full_text:
+                logging.info(f"Extracted text from full image (fallback): '{cleaned_full_text[:100]}...'")
+                return cleaned_full_text, None
+            logging.info("OCR on full image also yielded no text.")
+            return None, "OCR on full image yielded no text after YOLO fallback."
+        except pytesseract.TesseractError as tess_err_full:
+            logging.error(f"PytesseractError during OCR on full image (fallback): {tess_err_full}")
+            return None, f"Tesseract OCR error on full image: {str(tess_err_full).splitlines()[0] if str(tess_err_full) else 'Details in logs.'}"
+        except Exception as ocr_full_err:
+            logging.error(f"Non-Tesseract error during OCR on full image (fallback): {ocr_full_err}")
+            return None, f"OCR error on full image: {str(ocr_full_err)}"
+
     except Exception as e:
-        logging.error(f"Error during YOLO inference or OCR: {e}", exc_info=True)
-        return None
+        logging.error(f"Error during YOLO inference or general image processing: {e}", exc_info=True)
+        return None, f"YOLO/Image processing error: {str(e)}"
 
 def extract_course_names_from_text(text):
     if not text: return []
@@ -429,6 +456,8 @@ def process_images_for_ocr(image_data_list):
 
         current_file_texts_extracted = []
         ocr_had_some_text_for_this_file = False
+        ocr_failure_reason_for_this_file = None
+
         for i, pil_img in enumerate(pil_images_to_process):
             page_identifier = f"page {i+1} of " if len(pil_images_to_process) > 1 else ""
             try: 
@@ -436,21 +465,29 @@ def process_images_for_ocr(image_data_list):
                     pil_img = pil_img.convert('RGB')
             except Exception as img_convert_err:
                 logging.warning(f"Could not convert image mode for {page_identifier}{original_filename_for_failure}: {img_convert_err}")
+                # Store a reason, but try to continue if there are other pages.
+                # If this is the only "image" (e.g. single page PDF, or single image file), this reason will be used.
+                ocr_failure_reason_for_this_file = f"Image mode conversion failed: {img_convert_err}"
                 continue 
 
-            course_text = infer_course_text_from_image_object(pil_img)
+            course_text, text_extract_reason = infer_course_text_from_image_object(pil_img)
             if course_text:
                 current_file_texts_extracted.append(course_text)
                 ocr_had_some_text_for_this_file = True
+                ocr_failure_reason_for_this_file = None # Clear any previous page error if one page succeeds
+                break # If text found on one page, assume that's good enough for this file
+            elif text_extract_reason and not ocr_failure_reason_for_this_file:
+                 # If no text extracted, store the first significant reason encountered for this file
+                 ocr_failure_reason_for_this_file = text_extract_reason
         
         if ocr_had_some_text_for_this_file:
             all_extracted_raw_texts.extend(current_file_texts_extracted)
         else: 
-            failure_reason = "OCR could not extract any usable text from the image content."
-            logging.warning(f"{failure_reason} for {original_filename_for_failure}")
+            final_reason = ocr_failure_reason_for_this_file or "OCR could not extract any usable text from the image content."
+            logging.warning(f"{final_reason} for {original_filename_for_failure}")
             if current_file_id != 'N/A' and not any(f['file_id'] == current_file_id for f in failed_extraction_images):
                 failed_extraction_images.append({
-                    "file_id": current_file_id, "original_filename": original_filename_for_failure, "reason": failure_reason
+                    "file_id": current_file_id, "original_filename": original_filename_for_failure, "reason": final_reason
                 })
 
     processed_course_mentions = []
@@ -770,3 +807,8 @@ No specific suggestions available for this course.
     # Test YOLO model loading message (already happens at start)
     if not model:
         logging.warning("Local test: YOLO model ('best.pt') could not be loaded. OCR functionality will be limited to full image OCR without region detection.")
+
+    if not TESSERACT_PATH:
+         logging.warning("Local test: Tesseract executable not found. OCR will fail.")
+
+
