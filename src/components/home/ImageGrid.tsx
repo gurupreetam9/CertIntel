@@ -3,7 +3,7 @@
 
 import Image from 'next/image';
 import { Card, CardContent } from '@/components/ui/card';
-import { ImageIcon, Loader2, Eye, Trash2, ExternalLink } from 'lucide-react';
+import { ImageIcon, Loader2, Eye, Trash2, ExternalLink, Download } from 'lucide-react';
 import { useState } from 'react';
 import ViewImageModal from './ViewImageModal';
 import {
@@ -27,15 +27,15 @@ export interface UserImage {
   originalName: string;
   dataAiHint?: string;
   size: number;
-  userId?: string; 
+  userId?: string;
 }
 
 interface ImageGridProps {
   images: UserImage[];
   isLoading: boolean;
   error: string | null;
-  onImageDeleted: () => void; 
-  currentUserId: string | null; 
+  onImageDeleted: () => void;
+  currentUserId: string | null;
 }
 
 export default function ImageGrid({ images, isLoading, error, onImageDeleted, currentUserId }: ImageGridProps) {
@@ -89,7 +89,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
         title: 'Image Deleted',
         description: `"${imageToDelete.originalName}" has been successfully deleted.`,
       });
-      onImageDeleted(); 
+      onImageDeleted();
     } catch (err: any) {
       toast({
         title: 'Error Deleting Image',
@@ -163,6 +163,21 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
                 </Button>
                 <Button variant="ghost" size="icon" className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white" onClick={(e) => { e.stopPropagation(); handleImageLinkOpen(image.fileId); }} title="Open Image in New Tab">
                   <ExternalLink className="h-4 w-4" />
+                </Button>
+                <Button
+                  asChild
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white"
+                  title="Download Image"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <a
+                    href={`/api/images/${image.fileId}`}
+                    download={image.originalName || image.filename}
+                  >
+                    <Download className="h-4 w-4" />
+                  </a>
                 </Button>
                 <Button variant="ghost" size="icon" className="h-8 w-8 bg-destructive/70 hover:bg-destructive/90 text-white" onClick={(e) => { e.stopPropagation(); openDeleteConfirmDialog(image);}} title="Delete Image">
                   <Trash2 className="h-4 w-4" />
