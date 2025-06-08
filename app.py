@@ -59,13 +59,12 @@ POPPLER_PATH = os.getenv("POPPLER_PATH", None)
 if POPPLER_PATH:
     app_logger.info(f"Flask app.py: POPPLER_PATH environment variable found: {POPPLER_PATH}")
 else:
-    # This warning is less critical now as pdf2image is not directly used in this simplified app.py
     app_logger.info("Flask app.py: POPPLER_PATH environment variable not set (not critical for current app.py features).")
 
 
 @app.route('/', methods=['GET'])
 def health_check():
-    app.logger.info("Flask /: Health check endpoint hit.")
+    app_logger.info("Flask /: Health check endpoint hit.")
     return jsonify({"status": "Flask server is running", "message": "Welcome to ImageVerse Flask API!"}), 200
 
 
@@ -79,7 +78,7 @@ def process_certificates_from_db():
 
     data = request.get_json()
     user_id = data.get("userId")
-    additional_manual_courses = data.get("additionalManualCourses", []) 
+    additional_manual_courses = data.get("additionalManualCourses", []) # Get manual courses
 
     if not user_id:
         app_logger.warning(f"Flask (Req ID: {req_id_cert}): User ID not provided in request to /api/process-certificates.")
@@ -141,18 +140,20 @@ def process_certificates_from_db():
         processing_result = extract_and_recommend_courses_from_image_data(
             image_data_list=image_data_for_processing,
             previous_results_list=cache_population_docs,
-            additional_manual_courses=additional_manual_courses
+            additional_manual_courses=additional_manual_courses # Pass manual courses
         )
         
         app_logger.info(f"Flask (Req ID: {req_id_cert}): Successfully processed certificates for user {user_id}.")
 
         should_store_new_result = True
         if latest_previous_doc_for_user:
-            prev_extracted = sorted(latest_previous_doc_for_user.get("extracted_courses", []))
-            curr_extracted = sorted(processing_result.get("extracted_courses", []))
+            # Normalize and sort for comparison
+            prev_extracted = sorted([c.lower().strip() for c in latest_previous_doc_for_user.get("extracted_courses", [])])
+            curr_extracted = sorted([c.lower().strip() for c in processing_result.get("extracted_courses", [])])
             
             def serialize_recommendations(recs_list):
                 if not recs_list: return "[]"
+                # Sort each recommendation dict by key, then dump to string, then sort list of strings
                 return json.dumps(sorted([json.dumps(dict(sorted(r.items()))) for r in recs_list]))
 
             prev_recs_str = serialize_recommendations(latest_previous_doc_for_user.get("recommendations", []))
@@ -188,3 +189,6 @@ if __name__ == '__main__':
     app_logger.info(f"Effective MONGODB_DB_NAME: {DB_NAME}")
     app_logger.info("Flask app will attempt to run on host=0.0.0.0, port from env or 5000.")
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)), debug=True)
+
+
+    

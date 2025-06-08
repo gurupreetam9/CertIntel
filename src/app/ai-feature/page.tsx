@@ -3,17 +3,14 @@
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { Button } from '@/components/ui/button';
-// Input removed as folder_path is no longer directly entered by user on this page for Scenario A
-// import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label'; // Kept if we add other labels later
-import { ArrowLeft, Loader2, Sparkles } from 'lucide-react'; // Changed Send to Sparkles
+import { Label } from '@/components/ui/label';
+import { ArrowLeft, Loader2, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/hooks/useAuth'; // Import useAuth to get userId
+import { useAuth } from '@/hooks/useAuth';
 
-// Interface for the expected structure from your Flask API (Scenario A)
 interface CertificateProcessingResult {
   extracted_courses?: string[];
   recommendations?: Array<{
@@ -25,21 +22,21 @@ interface CertificateProcessingResult {
     next_courses?: string[];
     url?: string;
     based_on_courses?: string[];
-    name?: string; // For LLM recommendations
-    message?: string; // For LLM errors
+    name?: string;
+    message?: string;
   }>;
-  error?: string; // For general errors from Flask
-  message?: string; // For informational messages from Flask (e.g., no certs found)
+  error?: string;
+  message?: string;
 }
 
 function AiFeaturePageContent() {
   const flaskServerBaseUrl = process.env.NEXT_PUBLIC_FLASK_SERVER_URL || 'http://localhost:5000';
-  // folderPath state removed, not needed for Scenario A on frontend
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [result, setResult] = useState<CertificateProcessingResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [manualCoursesInput, setManualCoursesInput] = useState<string>('');
   const { toast } = useToast();
-  const { userId, user } = useAuth(); // Get userId and user
+  const { userId, user } = useAuth();
 
   const handleProcessUserCertificates = async () => {
     if (!userId) {
@@ -54,18 +51,25 @@ function AiFeaturePageContent() {
     setIsLoading(true);
     setResult(null);
     setError(null);
-    // The endpoint in your Flask app that expects a userId
-    const endpoint = `${flaskServerBaseUrl}/api/process-certificates`; 
+    const endpoint = `${flaskServerBaseUrl}/api/process-certificates`;
+
+    // Parse manual courses: split by comma, trim whitespace, filter out empty strings
+    const additionalManualCourses = manualCoursesInput
+      .split(',')
+      .map(course => course.trim())
+      .filter(course => course.length > 0);
 
     try {
-      console.log(`Attempting to POST to: ${endpoint} with userId: ${userId}`);
+      console.log(`Attempting to POST to: ${endpoint} with userId: ${userId} and manual courses:`, additionalManualCourses);
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        // Send userId in the body
-        body: JSON.stringify({ userId: userId }),
+        body: JSON.stringify({ 
+          userId: userId,
+          additionalManualCourses: additionalManualCourses 
+        }),
       });
 
       const responseData: CertificateProcessingResult = await response.json();
@@ -85,8 +89,8 @@ function AiFeaturePageContent() {
           variant: 'destructive',
         });
         setError(responseData.error);
-      } else if (responseData.message && !responseData.extracted_courses?.length) {
-         toast({ // Informational, e.g. "No certificates found"
+      } else if (responseData.message && !responseData.extracted_courses?.length && !responseData.recommendations?.length) {
+         toast({
           title: 'Processing Info',
           description: responseData.message,
         });
@@ -127,11 +131,22 @@ function AiFeaturePageContent() {
       <p className="mb-4 text-muted-foreground">
         Click the button below to process all your uploaded certificates using our AI model. 
         The model will extract course names and suggest next learning steps.
+        If the AI misses any courses, you can add them manually in the text area below (comma-separated).
         Your AI server is expected at: <code className="bg-muted px-1 py-0.5 rounded-sm font-code">{flaskServerBaseUrl}</code>.
       </p>
 
       <div className="space-y-4 mb-6">
-        {/* Input for folderPath removed */}
+        <div className="space-y-2">
+          <Label htmlFor="manualCourses">Manually Add Courses (comma-separated)</Label>
+          <Textarea
+            id="manualCourses"
+            placeholder="e.g., Advanced Python, Introduction to Docker, Web Design Fundamentals"
+            value={manualCoursesInput}
+            onChange={(e) => setManualCoursesInput(e.target.value)}
+            className="min-h-[80px]"
+            aria-label="Manually add courses, separated by commas"
+          />
+        </div>
         <Button onClick={handleProcessUserCertificates} disabled={isLoading || !user} className="w-full sm:w-auto">
           {isLoading ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -153,14 +168,13 @@ function AiFeaturePageContent() {
       {result && (
         <div className="flex-grow border border-border rounded-lg shadow-md overflow-hidden p-4 bg-card">
           <h2 className="text-xl font-headline mb-2">Processing Result:</h2>
-          {/* Basic rendering of results, can be improved significantly */}
           <div className="space-y-4 max-h-[50vh] overflow-y-auto">
-            {result.message && !result.extracted_courses?.length && (
+            {result.message && !result.extracted_courses?.length && !result.recommendations?.length && (
                 <p className="text-muted-foreground">{result.message}</p>
             )}
             {result.extracted_courses && result.extracted_courses.length > 0 && (
               <div>
-                <h3 className="font-semibold text-lg">Extracted Courses/Topics:</h3>
+                <h3 className="font-semibold text-lg">Extracted & Manual Courses/Topics:</h3>
                 <ul className="list-disc list-inside pl-2">
                   {result.extracted_courses.map((course, index) => (
                     <li key={`extracted-${index}`} className="text-sm">{course}</li>
@@ -172,7 +186,7 @@ function AiFeaturePageContent() {
               <div>
                 <h3 className="font-semibold text-lg mt-4">Recommendations:</h3>
                 {result.recommendations.map((rec, index) => (
-                  <div key={`rec-${index}`} className="border-b py-2">
+                  <div key={`rec-${index}`} className="border-b py-2 last:border-b-0">
                     <p className="text-sm"><strong>Type:</strong> {rec.type}</p>
                     {rec.name && <p className="text-sm"><strong>Course:</strong> {rec.name}</p>}
                     {rec.completed_course && <p className="text-sm"><strong>Based on:</strong> {rec.completed_course}</p>}
@@ -211,3 +225,5 @@ export default function AiFeaturePage() {
     </ProtectedPage>
   );
 }
+
+    
