@@ -1,6 +1,8 @@
+
 import type { Metadata } from 'next';
 import './globals.css';
 import { AuthProvider } from '@/context/AuthContext';
+import { ThemeProvider } from '@/hooks/useTheme'; // Updated import
 import { Toaster } from '@/components/ui/toaster';
 import SiteHeader from '@/components/layout/SiteHeader';
 
@@ -23,11 +25,13 @@ export default function RootLayout({
       </head>
       <body className="font-body antialiased">
         <AuthProvider>
-          <div className="flex flex-col min-h-screen">
-            <SiteHeader />
-            <main className="flex-1">{children}</main>
-          </div>
-          <Toaster />
+          <ThemeProvider> {/* Wrap with ThemeProvider */}
+            <div className="flex flex-col min-h-screen">
+              <SiteHeader />
+              <main className="flex-1">{children}</main>
+            </div>
+            <Toaster />
+          </ThemeProvider>
         </AuthProvider>
       </body>
     </html>
