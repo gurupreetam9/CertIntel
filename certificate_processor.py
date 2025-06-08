@@ -33,7 +33,8 @@ stop_words = set(stopwords.words('english'))
 course_keywords = {"course", "certification", "developer", "programming", "bootcamp", "internship", "award", "degree", "diploma", "training"}
 
 # --- Constants ---
-COHERE_API_KEY = os.getenv("COHERE_API_KEY")
+COHERE_API_KEY = "jrAUYREK77bel5TGil5uyrzogksRcSxP78v97egn"
+
 
 if not COHERE_API_KEY:
     logging.warning("COHERE_API_KEY not found in environment variables. LLM fallback will not work.")
@@ -119,7 +120,7 @@ course_graph = {
     }
 }
 
-YOLO_MODEL_PATH = os.getenv("YOLO_MODEL_PATH", "best.pt")
+YOLO_MODEL_PATH = "D:/CertIntel/certificate.v1i.yolov8(1)/runs/detect/exp/weights/best.pt"
 model = None
 try:
     if os.path.exists(YOLO_MODEL_PATH):

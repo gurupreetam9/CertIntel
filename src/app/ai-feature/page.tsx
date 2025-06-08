@@ -524,18 +524,8 @@ function AiFeaturePageContent() {
           ) : (
             phase === 'results' && <p className="text-muted-foreground italic">No comprehensive suggestions were generated in this run.</p>
           )}
-          <div className="mt-6 pt-4 border-t">
-            <Label htmlFor="rawJsonOutput" className="text-xs text-muted-foreground">Raw JSON Output (for debugging):</Label>
-            <Textarea id="rawJsonOutput" readOnly value={JSON.stringify(finalResult, null, 2)}
-              className="w-full h-auto min-h-[150px] text-xs font-code bg-muted/30 resize-none mt-1"
-              aria-label="Raw processing result JSON"
-            />
-          </div>
         </div>
       )}
-       <p className="mt-4 text-xs text-muted-foreground">
-        Note: Ensure Flask server URL is correct and backend services (DB, AI) are operational.
-      </p>
     </div>
   );
 }

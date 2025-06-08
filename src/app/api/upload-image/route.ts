@@ -1,5 +1,7 @@
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+const execFileAsync = promisify(execFile);
 
-export const runtime = 'nodejs';
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { MongoError, ObjectId } from 'mongodb';
@@ -74,7 +76,7 @@ const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/we
 export async function POST(request: NextRequest) {
   const reqId = Math.random().toString(36).substring(2, 9);
   console.log(`API /api/upload-image (Req ID: ${reqId}): POST request received.`);
-  
+
   let tempFilePathsToDelete: string[] = [];
   let mainError: Error | null = null;
 
@@ -92,9 +94,9 @@ export async function POST(request: NextRequest) {
     } catch (dbError: any) {
       console.error(`API /api/upload-image (Req ID: ${reqId}): DB Connection Error. Name: ${dbError.name}, Message: ${dbError.message}`);
       mainError = dbError;
-      throw mainError; 
+      throw mainError;
     }
-    
+
     const { bucket } = dbConnection;
     let fields: CustomParsedForm['fields'];
     let files: CustomParsedForm['files'];
@@ -117,28 +119,90 @@ export async function POST(request: NextRequest) {
 
     const userIdField = fields.userId;
     const userId = Array.isArray(userIdField) ? userIdField[0] : userIdField;
-    
+
     if (!userId) {
       console.warn(`API /api/upload-image (Req ID: ${reqId}): Missing userId. Fields:`, fields);
       return NextResponse.json({ message: 'Missing userId in form data.', errorKey: 'MISSING_USER_ID' }, { status: 400 });
     }
-    
+
     const uploadedFileEntry = files.file;
 
     if (!uploadedFileEntry || !uploadedFileEntry.filepath) {
       console.warn(`API /api/upload-image (Req ID: ${reqId}): No file uploaded in 'file' field or filepath missing.`);
       return NextResponse.json({ message: 'No file uploaded or file path missing.', errorKey: 'NO_FILE_UPLOADED' }, { status: 400 });
     }
-    
+
     const actualOriginalName = uploadedFileEntry.originalFilename || 'unknown_file';
-    const tempFilePath = uploadedFileEntry.filepath; 
+    const tempFilePath = uploadedFileEntry.filepath;
     const fileType = uploadedFileEntry.mimetype;
 
     console.log(`API /api/upload-image (Req ID: ${reqId}): Processing file: ${actualOriginalName}, Type: ${fileType}, Temp path: ${tempFilePath}`);
-    
+
     const results: { originalName: string; fileId: string; filename: string; }[] = [];
 
-    if (fileType && SUPPORTED_IMAGE_TYPES.includes(fileType)) {
+    // === New: PDF to image conversion and upload ===
+    if (fileType === 'application/pdf') {
+      console.log(`API /api/upload-image (Req ID: ${reqId}): PDF file detected. Starting conversion to image.`);
+
+      // Path for converted image output
+      const outputImageName = `${userId}_${Date.now()}_${actualOriginalName.replace(/[^a-zA-Z0-9_.-]/g, '_')}_page1.png`;
+      const outputImagePath = path.join(os.tmpdir(), outputImageName);
+      tempFilePathsToDelete.push(outputImagePath);
+
+      try {
+        // Use 'pdftoppm' CLI to convert first page of PDF to PNG image (ensure 'pdftoppm' installed on server)
+        // Command: pdftoppm -png -singlefile <input.pdf> <output-path-without-extension>
+        // outputImagePath is full path with extension, so remove extension for command:
+        const outputPathWithoutExt = outputImagePath.replace(/\.png$/, '');
+
+        console.log(`API /api/upload-image (Req ID: ${reqId}): Running pdftoppm to convert PDF to PNG image.`);
+        await execFileAsync('pdftoppm', ['-png', '-singlefile', '-f', '1', '-l', '1', tempFilePath, outputPathWithoutExt]);
+
+        if (!fs.existsSync(outputImagePath)) {
+          throw new Error('PDF conversion to image failed: output PNG not found');
+        }
+        console.log(`API /api/upload-image (Req ID: ${reqId}): PDF converted to image at ${outputImagePath}. Uploading to GridFS...`);
+
+        // Now upload this image to GridFS (like your existing flow)
+        const imageFilename = outputImageName;
+        const metadata = {
+          originalName: actualOriginalName,
+          userId,
+          uploadedAt: new Date().toISOString(),
+          sourceContentType: 'image/png',
+          explicitContentType: 'image/png',
+          reqIdParent: reqId,
+          derivedFromPdf: true,
+        };
+
+        const uploadStream = bucket.openUploadStream(imageFilename, { contentType: 'image/png', metadata });
+        const readable = fs.createReadStream(outputImagePath);
+
+        await new Promise<void>((resolveStream, rejectStream) => {
+          readable.on('error', (err) => {
+            console.error(`API /api/upload-image (Req ID: ${reqId}): Error reading temp PNG file ${outputImagePath}. Name: ${err.name}, Message: ${err.message}`);
+            rejectStream(new Error(`Error reading converted image file: ${err.message}`));
+          });
+          uploadStream.on('error', (err: MongoError) => {
+            console.error(`API /api/upload-image (Req ID: ${reqId}): GridFS upload error for converted image ${imageFilename}. Name: ${err.name}, Message: ${err.message}`);
+            rejectStream(new Error(`GridFS upload error: ${err.message}`));
+          });
+          uploadStream.on('finish', () => {
+            console.log(`API /api/upload-image (Req ID: ${reqId}): GridFS Upload finished for converted image: ${imageFilename}, ID: ${uploadStream.id}.`);
+            results.push({ originalName: actualOriginalName, fileId: uploadStream.id.toString(), filename: imageFilename });
+            resolveStream();
+          });
+          readable.pipe(uploadStream);
+        });
+
+      } catch (pdfConvertError: any) {
+        console.error(`API /api/upload-image (Req ID: ${reqId}): PDF to image conversion/upload failed. Error: ${pdfConvertError.message}`);
+        mainError = new Error(`PDF processing failed: ${pdfConvertError.message}`);
+        throw mainError;
+      }
+    }
+    // === Existing image file types (unchanged) ===
+    else if (fileType && SUPPORTED_IMAGE_TYPES.includes(fileType)) {
       console.log(`API /api/upload-image (Req ID: ${reqId}): Supported image file type (${fileType}) detected. Uploading directly to GridFS for file '${actualOriginalName}'.`);
       const imageFilename = `${userId}_${Date.now()}_${actualOriginalName.replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
       const metadata = {
@@ -146,30 +210,22 @@ export async function POST(request: NextRequest) {
         userId,
         uploadedAt: new Date().toISOString(),
         sourceContentType: fileType,
-        explicitContentType: fileType, 
+        explicitContentType: fileType,
         reqIdParent: reqId,
       };
-      
+
       try {
-        console.log(`API /api/upload-image (Req ID: ${reqId}): Creating GridFS upload stream for image: ${imageFilename}.`);
         const uploadStream = bucket.openUploadStream(imageFilename, { contentType: fileType, metadata });
-        console.log(`API /api/upload-image (Req ID: ${reqId}): GridFS upload stream created with ID: ${uploadStream.id}. Reading from temp file: ${tempFilePath}`);
-        
-        if (!fs.existsSync(tempFilePath)) {
-          console.error(`API /api/upload-image (Req ID: ${reqId}): Temp image file not found at ${tempFilePath} before GridFS upload.`);
-          throw new Error('Temporary image file disappeared before GridFS upload.');
-        }
         const readable = fs.createReadStream(tempFilePath);
-        
-        console.log(`API /api/upload-image (Req ID: ${reqId}): Starting to pipe readable stream to GridFS upload stream for ${imageFilename}.`);
+
         await new Promise<void>((resolveStream, rejectStream) => {
           readable.on('error', (err) => {
             console.error(`API /api/upload-image (Req ID: ${reqId}): Error reading temp file ${tempFilePath} for ${imageFilename}. Name: ${err.name}, Message: ${err.message}`);
-            rejectStream(new Error(`Error reading temporary file for ${imageFilename}: ${err.message}`));
+            rejectStream(new Error(`Error reading temporary file: ${err.message}`));
           });
           uploadStream.on('error', (err: MongoError) => {
-            console.error(`API /api/upload-image (Req ID: ${reqId}): GridFS Stream Error for image ${imageFilename}. Name: ${err.name}, Code: ${err.code}, Message: ${err.message}`);
-            rejectStream(new Error(`GridFS upload error for ${imageFilename}: ${err.message}`));
+            console.error(`API /api/upload-image (Req ID: ${reqId}): GridFS Stream Error for image ${imageFilename}. Name: ${err.name}, Message: ${err.message}`);
+            rejectStream(new Error(`GridFS upload error: ${err.message}`));
           });
           uploadStream.on('finish', () => {
             console.log(`API /api/upload-image (Req ID: ${reqId}): GridFS Upload finished successfully for image: ${imageFilename}, ID: ${uploadStream.id}.`);
@@ -178,62 +234,51 @@ export async function POST(request: NextRequest) {
           });
           readable.pipe(uploadStream);
         });
-        console.log(`API /api/upload-image (Req ID: ${reqId}): Finished piping to GridFS for ${imageFilename}.`);
       } catch (imageProcessingError: any) {
-          console.error(`API /api/upload-image (Req ID: ${reqId}): Error during direct image processing/upload for '${actualOriginalName}'. Name: ${imageProcessingError.name}, Message: ${imageProcessingError.message}`);
-          mainError = new Error(`Failed during image processing for '${actualOriginalName}': ${imageProcessingError.message}`);
-          throw mainError; 
+        console.error(`API /api/upload-image (Req ID: ${reqId}): Error during direct image processing/upload for '${actualOriginalName}'. Message: ${imageProcessingError.message}`);
+        mainError = new Error(`Failed during image processing for '${actualOriginalName}': ${imageProcessingError.message}`);
+        throw mainError;
       }
     } else {
-      console.warn(`API /api/upload-image (Req ID: ${reqId}): Unsupported file type: ${fileType} for file ${actualOriginalName}. Only image files are currently supported for direct upload.`);
-      return NextResponse.json({ message: `Unsupported file type: ${fileType}. Please upload a supported image (JPEG, PNG, GIF, WEBP).`, errorKey: 'UNSUPPORTED_FILE_TYPE' }, { status: 415 });
+      console.warn(`API /api/upload-image (Req ID: ${reqId}): Unsupported file type: ${fileType} for file ${actualOriginalName}. Only image files and PDFs are supported.`);
+      return NextResponse.json({ message: `Unsupported file type: ${fileType}. Please upload a supported image or PDF file.`, errorKey: 'UNSUPPORTED_FILE_TYPE' }, { status: 415 });
     }
 
-    console.log(`API /api/upload-image (Req ID: ${reqId}): Successfully processed image file(s). Results count: ${results.length}.`);
+    console.log(`API /api/upload-image (Req ID: ${reqId}): Successfully processed file(s). Results count: ${results.length}.`);
     return NextResponse.json(results, { status: 201 });
-
-  } catch (error: any) { 
+  } catch (error: any) {
     const caughtError = mainError || error;
-    console.error(`API /api/upload-image (Req ID: ${reqId}): OUTER CATCH BLOCK. Name: ${caughtError.name}, Message: ${caughtError.message}, Code: ${caughtError.code || 'N/A'}.`);
+    console.error(`API /api/upload-image (Req ID: ${reqId}): OUTER CATCH BLOCK. Name: ${caughtError.name}, Message: ${caughtError.message}`);
+
     if (process.env.NODE_ENV === 'development' && caughtError.stack) {
-        console.error(`API /api/upload-image (Req ID: ${reqId}): Full error stack: ${caughtError.stack}`);
+      console.error(`API /api/upload-image (Req ID: ${reqId}): Full error stack: ${caughtError.stack}`);
     }
-    
-    const errorMessageToClient = (caughtError.message && typeof caughtError.message === 'string') 
-      ? caughtError.message 
-      : 'An internal server error occurred during file upload.';
-    const errorKey = (caughtError.name && typeof caughtError.name === 'string') 
-      ? caughtError.name 
-      : 'UNKNOWN_PROCESSING_ERROR';
 
     return NextResponse.json(
       {
-        message: `Server Error: ${errorMessageToClient}`,
-        errorKey: errorKey,
-        reqId: reqId, 
+        message: `Server Error: ${caughtError.message}`,
+        errorKey: caughtError.name || 'UNKNOWN_PROCESSING_ERROR',
+        reqId: reqId,
       },
       { status: 500 }
     );
   } finally {
-    console.log(`API /api/upload-image (Req ID: ${reqId}): Entering finally block for temp file cleanup. Temp files:`, tempFilePathsToDelete);
-    for (const tempPath of tempFilePathsToDelete) {
-        if (fs.existsSync(tempPath)) {
-            try {
-                await fsPromises.unlink(tempPath);
-                console.log(`API /api/upload-image (Req ID: ${reqId}): Temp file ${tempPath} deleted.`);
-            } catch (unlinkError: any) {
-                console.warn(`API /api/upload-image (Req ID: ${reqId}): Could not delete temp file ${tempPath}. Error: ${unlinkError.message}`);
-            }
-        } else {
-            console.log(`API /api/upload-image (Req ID: ${reqId}): Temp file ${tempPath} already deleted or never existed (could be due to earlier error).`);
+    // Cleanup temporary files from /tmp or wherever
+    if (tempFilePathsToDelete.length > 0) {
+      for (const filePath of tempFilePathsToDelete) {
+        try {
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            console.log(`API /api/upload-image (Req ID: ${reqId}): Temporary file deleted: ${filePath}`);
+          }
+        } catch (cleanupErr: unknown) {
+          if (cleanupErr instanceof Error) {
+            console.error(`Cleanup error: ${cleanupErr.message}`);
+          } else {
+            console.error('Cleanup error is not an Error instance:', cleanupErr);
+          }
         }
+      }
     }
-    console.log(`API /api/upload-image (Req ID: ${reqId}): Request processing finished (main try-finally).`);
   }
 }
-
-export const config = {
-  api: {
-    bodyParser: false, 
-  },
-};

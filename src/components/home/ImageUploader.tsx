@@ -307,7 +307,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
                    {uploadedFile.status === 'uploading' && <p className="text-xs text-primary flex items-center"><Loader2 className="w-3 h-3 mr-1 animate-spin"/>Processing &amp; Uploading...</p>}
                   {uploadedFile.status === 'success' && (
                     <>
-                      <p className="text-xs text-green-600 flex items-center"><CheckCircle className="w-3 h-3 mr-1"/>{uploadedFile.isPdf ? 'PDF processed &amp; pages uploaded' : 'Uploaded to DB'}</p>
+                      <p className="text-xs text-green-600 flex items-center"><CheckCircle className="w-3 h-3 mr-1"/>{uploadedFile.isPdf ? 'PDF processed & pages uploaded' : 'Uploaded to DB'}</p>
                       {!uploadedFile.isPdf && ( 
                         <Button 
                           size="sm" 
