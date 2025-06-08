@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info, CheckCircle, ListChecks, Wand2, Save } from 'lucide-react';
+import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info, CheckCircle, ListChecks, Wand2, BrainCircuit } from 'lucide-react';
 import NextImage from 'next/image';
 import Link from 'next/link';
 import { useState, useCallback, useEffect } from 'react';
@@ -51,7 +51,7 @@ interface SuggestionsPhaseResult {
   message?: string; 
 }
 
-type ProcessingPhase = 'initial' | 'manualNaming' | 'processingSuggestions' | 'results';
+type ProcessingPhase = 'initial' | 'ocrProcessing' | 'manualNaming' | 'readyForSuggestions' | 'suggestionsProcessing' | 'results';
 
 
 function AiFeaturePageContent() {
@@ -87,31 +87,38 @@ function AiFeaturePageContent() {
     setManualNamesForFailedImages({});
     setFinalResult(null);
     setAssociatedImageFileIdsForResults([]);
+    // setGeneralManualCoursesInput(''); // Optionally reset this too
   };
 
   const saveManualCourseNames = async () => {
-    if (!userId) return;
+    if (!userId || Object.keys(manualNamesForFailedImages).length === 0) return;
+    
     const namesToSave = Object.entries(manualNamesForFailedImages)
       .filter(([_, name]) => name && name.trim().length > 0)
-      .map(([fileId, courseName]) => ({ fileId, courseName: courseName.trim() }));
+      .map(([fileId, courseName]) => ({ userId, fileId, courseName: courseName.trim() }));
 
-    if (namesToSave.length === 0) return;
-
+    if (namesToSave.length === 0) {
+        console.log("saveManualCourseNames: No valid names to save.");
+        return;
+    }
+    
     toast({ title: 'Saving Manual Names...', description: `Attempting to save ${namesToSave.length} manually entered course names.`});
+    console.log("saveManualCourseNames: Attempting to save:", namesToSave);
 
     const savePromises = namesToSave.map(item =>
       fetch(`${flaskServerBaseUrl}/api/manual-course-name`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, fileId: item.fileId, courseName: item.courseName }),
+        body: JSON.stringify(item),
       }).then(async res => {
+        const resText = await res.text();
         if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          console.error(`Failed to save manual name for ${item.fileId}: ${errData.error || res.statusText}`);
-          // Non-critical, so we don't throw here, just log.
+          let errData = { error: `Server error ${res.status}` };
+          try { errData = JSON.parse(resText); } catch (e) { console.warn("Could not parse error JSON from saveManualCourseName", resText); }
+          console.error(`Failed to save manual name for ${item.fileId}: ${errData.error || res.statusText}. Response: ${resText}`);
           toast({ title: 'Save Warning', description: `Could not save manual name for an image: ${item.fileId}. ${errData.error || ''}`, variant: 'destructive' });
         } else {
-          console.log(`Successfully saved manual name for ${item.fileId}`);
+          console.log(`Successfully saved manual name for ${item.fileId}. Response: ${resText}`);
         }
       }).catch(err => {
         console.error(`Network error saving manual name for ${item.fileId}:`, err);
@@ -123,8 +130,70 @@ function AiFeaturePageContent() {
       await Promise.all(savePromises);
       toast({ title: 'Manual Names Processed', description: 'Attempted to save all entered manual names.'});
     } catch (e) {
-      // This catch is mostly for Promise.all throwing (which it won't with current individual catches)
-      console.error("Error in Promise.all for saving manual names (should not happen often):", e);
+      console.error("Error in Promise.all for saving manual names:", e);
+    }
+  };
+
+  const fetchSuggestions = async () => {
+    if (!userId) return;
+    setPhase('suggestionsProcessing');
+    setIsLoading(true);
+    setError(null);
+
+    const userProvidedNamesForFailures = Object.values(manualNamesForFailedImages).map(name => name.trim()).filter(name => name.length > 0);
+    const generalManualCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
+    
+    const allKnownCourses = [
+      ...new Set([
+        ...ocrSuccessfullyExtracted, 
+        ...userProvidedNamesForFailures,
+        ...generalManualCourses
+      ])
+    ].filter(name => name && name.length > 0); 
+
+    if (allKnownCourses.length === 0) {
+      toast({ title: 'No Courses', description: 'No courses available to get suggestions for.', variant: 'destructive' });
+      setIsLoading(false);
+      setPhase(ocrFailedImages.length > 0 ? 'manualNaming' : (ocrSuccessfullyExtracted.length > 0 ? 'readyForSuggestions' : 'initial'));
+      return;
+    }
+
+    try {
+      const endpoint = `${flaskServerBaseUrl}/api/process-certificates`;
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          userId, 
+          mode: 'suggestions_only', 
+          knownCourseNames: allKnownCourses
+        }),
+      });
+      const data: SuggestionsPhaseResult = await response.json();
+      
+      if (!response.ok || data.error) {
+        throw new Error(data.error || `Server error: ${response.status}`);
+      }
+
+      setFinalResult(data);
+      setAssociatedImageFileIdsForResults(data.associated_image_file_ids || associatedImageFileIdsForResults);
+      setPhase('results');
+
+      if (data.user_processed_data && data.user_processed_data.length > 0) {
+        toast({ title: 'Suggestions Generated', description: `AI suggestions and descriptions generated for ${data.user_processed_data.length} course(s).` });
+      } else if (data.message) {
+         toast({ title: 'Processing Info', description: data.message });
+      }
+      if (data.llm_error_summary) {
+        toast({ title: "LLM Warning", description: data.llm_error_summary, variant: "destructive", duration: 7000 });
+      }
+
+    } catch (err: any) {
+      setError(err.message || 'Failed suggestions phase.');
+      toast({ title: 'Suggestions Phase Failed', description: err.message, variant: 'destructive' });
+      setPhase(ocrFailedImages.length > 0 ? 'manualNaming' : (ocrSuccessfullyExtracted.length > 0 ? 'readyForSuggestions' : 'initial'));
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -134,15 +203,17 @@ function AiFeaturePageContent() {
       toast({ title: 'Authentication Required', variant: 'destructive' });
       return;
     }
-    if (isLoading && phase === 'processingSuggestions') return;
+    if (isLoading) return;
 
-    setIsLoading(true);
     setError(null);
     const endpoint = `${flaskServerBaseUrl}/api/process-certificates`;
 
     if (phase === 'initial' || phase === 'results') { 
-      resetToInitialState(); 
-      setPhase('initial'); 
+      if (phase === 'results') {
+        resetToInitialState(); // resetToInitialState sets phase to 'initial'
+      }
+      setPhase('ocrProcessing'); 
+      setIsLoading(true);
       
       const generalManualCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
 
@@ -157,15 +228,14 @@ function AiFeaturePageContent() {
           }),
         });
         const data: OcrPhaseResult = await response.json();
-        setIsLoading(false); 
-
+        
         if (!response.ok || data.error) {
           throw new Error(data.error || `Server error: ${response.status}`);
         }
         
         setOcrSuccessfullyExtracted(data.successfully_extracted_courses || []);
         setOcrFailedImages(data.failed_extraction_images || []);
-        setAssociatedImageFileIdsForResults(data.processed_image_file_ids || []); // Store all images attempted in OCR
+        setAssociatedImageFileIdsForResults(data.processed_image_file_ids || []);
 
         if (data.failed_extraction_images && data.failed_extraction_images.length > 0) {
           setPhase('manualNaming');
@@ -175,95 +245,53 @@ function AiFeaturePageContent() {
             duration: 7000
           });
         } else if ((data.successfully_extracted_courses && data.successfully_extracted_courses.length > 0) || generalManualCourses.length > 0) {
-          setPhase('processingSuggestions'); 
-          setTimeout(() => handlePrimaryButtonClick(), 0);
+          setPhase('readyForSuggestions'); 
         } else {
           toast({ title: 'Nothing to Process', description: data.message || 'No courses extracted and no manual courses provided.' });
           setPhase('initial'); 
         }
 
       } catch (err: any) {
-        setIsLoading(false);
         setError(err.message || 'Failed OCR phase.');
         toast({ title: 'OCR Phase Failed', description: err.message, variant: 'destructive' });
         setPhase('initial');
+      } finally {
+        setIsLoading(false);
       }
 
-    } else if (phase === 'manualNaming' || phase === 'processingSuggestions') { 
-      if (phase === 'manualNaming') { // If coming from manual naming, save entered names first
-        await saveManualCourseNames(); 
-      }
-      
-      if (phase === 'manualNaming') setIsLoading(true); 
-      setPhase('processingSuggestions'); 
-
-      const userProvidedNamesForFailures = Object.values(manualNamesForFailedImages).map(name => name.trim()).filter(name => name.length > 0);
+    } else if (phase === 'manualNaming') { 
+      await saveManualCourseNames(); 
+      // After saving, we expect the user to click again to get suggestions if they want to proceed.
+      // Or, if there are successfully extracted courses, move to readyForSuggestions.
+      // Let's assume they want to proceed to suggestions after naming.
+      // The button text will guide them. For now, let's transition to readyForSuggestions to require another click.
       const generalManualCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
+      const userProvidedNamesForFailures = Object.values(manualNamesForFailedImages).map(name => name.trim()).filter(name => name.length > 0);
+      if (ocrSuccessfullyExtracted.length > 0 || userProvidedNamesForFailures.length > 0 || generalManualCourses.length > 0) {
+        setPhase('readyForSuggestions');
+      } else {
+        // if after manual naming there's still nothing, stay in manualNaming or go to initial
+        setPhase('manualNaming'); // Or initial, based on desired UX.
+        toast({title: "No Courses Identified", description: "Even after manual naming, no courses are ready for suggestions. Please add courses or check inputs."})
+      }
       
-      const allKnownCourses = [
-        ...new Set([
-          ...ocrSuccessfullyExtracted, 
-          ...userProvidedNamesForFailures,
-          ...generalManualCourses
-        ])
-      ].filter(name => name.length > 0); 
-
-      if (allKnownCourses.length === 0) {
-        toast({ title: 'No Courses', description: 'No courses available to get suggestions for.', variant: 'destructive' });
-        setIsLoading(false);
-        setPhase(ocrFailedImages.length > 0 ? 'manualNaming' : 'initial'); 
-        return;
-      }
-
-      try {
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            userId, 
-            mode: 'suggestions_only', 
-            knownCourseNames: allKnownCourses
-          }),
-        });
-        const data: SuggestionsPhaseResult = await response.json();
-        setIsLoading(false); 
-
-        if (!response.ok || data.error) {
-          throw new Error(data.error || `Server error: ${response.status}`);
-        }
-
-        setFinalResult(data);
-        // Use associated_image_file_ids from suggestions response if available, otherwise fallback to OCR processed IDs
-        setAssociatedImageFileIdsForResults(data.associated_image_file_ids || associatedImageFileIdsForResults);
-        setPhase('results');
-
-        if (data.user_processed_data && data.user_processed_data.length > 0) {
-          toast({ title: 'Suggestions Generated', description: `AI suggestions and descriptions generated for ${data.user_processed_data.length} course(s).` });
-        } else if (data.message) {
-           toast({ title: 'Processing Info', description: data.message });
-        }
-        if (data.llm_error_summary) {
-          toast({ title: "LLM Warning", description: data.llm_error_summary, variant: "destructive", duration: 7000 });
-        }
-
-      } catch (err: any) {
-        setIsLoading(false);
-        setError(err.message || 'Failed suggestions phase.');
-        toast({ title: 'Suggestions Phase Failed', description: err.message, variant: 'destructive' });
-        setPhase(ocrFailedImages.length > 0 ? 'manualNaming' : 'initial'); 
-      }
+    } else if (phase === 'readyForSuggestions') {
+      await fetchSuggestions();
     }
   }, [userId, flaskServerBaseUrl, phase, generalManualCoursesInput, ocrSuccessfullyExtracted, ocrFailedImages, manualNamesForFailedImages, toast, isLoading, associatedImageFileIdsForResults]);
 
 
   let buttonText = "Process Certificates for OCR";
   let ButtonIconComponent = ListChecks; 
-  if (phase === 'manualNaming') {
-    buttonText = "Proceed with AI Suggestions";
+  if (phase === 'ocrProcessing' || phase === 'suggestionsProcessing') {
+    buttonText = phase === 'ocrProcessing' ? "Processing OCR..." : "Generating Suggestions...";
+    ButtonIconComponent = Loader2;
+  } else if (phase === 'manualNaming') {
+    buttonText = "Save Names & Proceed"; // Or "Save Names & Get Suggestions"
     ButtonIconComponent = Wand2;
-  } else if (phase === 'processingSuggestions') {
-    buttonText = "Generating Suggestions...";
-    ButtonIconComponent = Loader2; 
+  } else if (phase === 'readyForSuggestions') {
+    buttonText = "Get AI Suggestions";
+    ButtonIconComponent = BrainCircuit;
   } else if (phase === 'results') {
     buttonText = "Start New Processing";
     ButtonIconComponent = ListChecks;
@@ -286,7 +314,7 @@ function AiFeaturePageContent() {
         Manually entered names for specific certificates are saved for future runs.
       </p>
 
-      { (phase === 'initial' || phase === 'manualNaming') && (
+      { (phase === 'initial' || phase === 'manualNaming' || phase === 'readyForSuggestions' ) && (
         <div className="space-y-2 mb-6">
           <Label htmlFor="generalManualCourses">Manually Add General Courses (comma-separated, processed with others)</Label>
           <Textarea
@@ -295,7 +323,7 @@ function AiFeaturePageContent() {
             value={generalManualCoursesInput}
             onChange={(e) => setGeneralManualCoursesInput(e.target.value)}
             className="min-h-[80px]"
-            disabled={isLoading || phase === 'processingSuggestions' || phase === 'results'}
+            disabled={isLoading || phase === 'ocrProcessing' || phase === 'suggestionsProcessing' || phase === 'results'}
           />
         </div>
       )}
@@ -303,11 +331,11 @@ function AiFeaturePageContent() {
       { (phase !== 'results' || (phase === 'results' && finalResult)) && (
           <Button 
             onClick={handlePrimaryButtonClick} 
-            disabled={isLoading || !user || (phase === 'processingSuggestions' && isLoading) } 
+            disabled={isLoading || !user } 
             className="w-full sm:w-auto mb-6"
             size="lg"
           >
-            <ButtonIconComponent className={`mr-2 h-5 w-5 ${(isLoading && phase === 'processingSuggestions') ? 'animate-spin' : ''}`} />
+            <ButtonIconComponent className={`mr-2 h-5 w-5 ${(isLoading && (phase === 'ocrProcessing' || phase === 'suggestionsProcessing')) ? 'animate-spin' : ''}`} />
             {buttonText}
           </Button>
         )
@@ -328,8 +356,8 @@ function AiFeaturePageContent() {
             </CardTitle>
             <CardDescription>
               OCR couldn't identify course names for {ocrFailedImages.length} image(s). 
-              If you know the course name, please provide it below to improve AI suggestions.
-              These names will be saved for future use with these specific images.
+              If you know the course name, please provide it below. These names will be saved for future use.
+              Click "{buttonText}" above or below when done.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 max-h-96 overflow-y-auto pr-2">
@@ -365,11 +393,10 @@ function AiFeaturePageContent() {
            <CardFooter className="pt-4">
             <Button 
               onClick={handlePrimaryButtonClick} 
-              disabled={isLoading || !user || (phase === 'processingSuggestions' && isLoading)} 
+              disabled={isLoading || !user} 
               className="w-full"
-              size="lg"
             >
-              <ButtonIconComponent className={`mr-2 h-5 w-5 ${(isLoading && phase === 'processingSuggestions') ? 'animate-spin' : ''}`} />
+              <ButtonIconComponent className={`mr-2 h-5 w-5 ${isLoading ? 'animate-spin' : ''}`} />
               {buttonText} 
             </Button>
           </CardFooter>
@@ -392,6 +419,21 @@ function AiFeaturePageContent() {
                     {ocrSuccessfullyExtracted.map(course => <li key={course}>{course}</li>)}
                 </ul>
             </CardContent>
+        </Card>
+      )}
+       {(phase === 'readyForSuggestions' && ocrSuccessfullyExtracted.length === 0 && generalManualCoursesInput.trim() === '') && (
+        <Card className="my-6 border-blue-500 bg-blue-500/10">
+          <CardHeader>
+            <CardTitle className="text-lg font-headline text-blue-700 flex items-center">
+              <Info className="mr-2 h-5 w-5" /> No Courses Identified
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-blue-700">
+              No courses were identified from your certificates, and no general manual courses were provided.
+              Please upload certificates or add courses manually to get AI suggestions.
+            </p>
+          </CardContent>
         </Card>
       )}
 
