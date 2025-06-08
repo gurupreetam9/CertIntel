@@ -1,7 +1,15 @@
 
 'use client';
 
-import { createContext, useContext, useEffect, useState, type ReactNode, useMemo } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useMemo,
+  useCallback,
+  type ReactNode,
+} from 'react';
 
 type Theme = 'light' | 'dark';
 
@@ -11,37 +19,48 @@ interface ThemeContextType {
   toggleTheme: () => void;
 }
 
+// Default context value
 const defaultContextValue: ThemeContextType = {
   theme: 'light',
-  setTheme: () => console.warn('ThemeProvider not found or not yet initialized'),
-  toggleTheme: () => console.warn('ThemeProvider not found or not yet initialized'),
+  setTheme: (theme: Theme) => {
+    console.warn('ThemeProvider not found: setTheme called outside provider with theme:', theme);
+  },
+  toggleTheme: () => {
+    console.warn('ThemeProvider not found: toggleTheme called outside provider');
+  },
 };
 
 const ThemeContext = createContext<ThemeContextType>(defaultContextValue);
 
-export const ThemeProvider = ({ children }: { children: ReactNode }) => {
+interface ThemeProviderProps {
+  children: ReactNode;
+}
+
+export const ThemeProvider = ({ children }: ThemeProviderProps) => {
   const [theme, setThemeInternal] = useState<Theme>(() => {
-    // Initializer function for useState to ensure this logic runs only once
-    if (typeof window === 'undefined') {
-      return 'light'; // Default for SSR or environments without window
-    }
-    try {
-      const storedTheme = localStorage.getItem('theme') as Theme | null;
-      if (storedTheme && (storedTheme === 'light' || storedTheme === 'dark')) {
-        return storedTheme;
+    // Initialize theme on the client side only
+    if (typeof window !== 'undefined') {
+      try {
+        const storedTheme = localStorage.getItem('theme') as Theme | null;
+        if (storedTheme === 'light' || storedTheme === 'dark') {
+          return storedTheme;
+        }
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        return prefersDark ? 'dark' : 'light';
+      } catch (error) {
+        console.error("Error accessing localStorage for theme initialization:", error);
+        // Fallback to system preference if localStorage access fails
+        if (typeof window.matchMedia === 'function') {
+           const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+           return prefersDark ? 'dark' : 'light';
+        }
       }
-      // Fallback to system preference if no stored theme
-      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    } catch (error) {
-      console.error("Error accessing localStorage during initial theme setup:", error);
-      // Fallback safely if localStorage is unavailable
-      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     }
+    return 'light'; // Default server-side or if window is undefined
   });
 
   useEffect(() => {
-    // This effect runs when the theme state changes, to update the DOM and localStorage
-    if (typeof window !== 'undefined') { // Ensure this only runs client-side
+    if (typeof window !== 'undefined') {
       if (theme === 'dark') {
         document.documentElement.classList.add('dark');
       } else {
@@ -53,27 +72,23 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
         console.error("Error setting theme in localStorage:", error);
       }
     }
-  }, [theme]); // Rerun only when theme changes
+  }, [theme]);
 
-  const setTheme = (newTheme: Theme) => {
+  const setTheme = useCallback((newTheme: Theme) => {
     if (newTheme === 'light' || newTheme === 'dark') {
       setThemeInternal(newTheme);
+    } else {
+      console.warn(`Attempted to set invalid theme: ${newTheme}`);
     }
-  };
+  }, []);
 
-  const toggleTheme = () => {
+  const toggleTheme = useCallback(() => {
     setThemeInternal((prevTheme) => (prevTheme === 'light' ? 'dark' : 'light'));
-  };
+  }, []);
 
-  // Memoize the context value to prevent unnecessary re-renders of consumers
-  const contextValue = useMemo(() => ({
-    theme,
-    setTheme,
-    toggleTheme,
-  }), [theme]); // `setTheme` and `toggleTheme` are stable due to how setThemeInternal is defined
-
+  // Inlining the context value directly for diagnostic purposes
   return (
-    <ThemeContext.Provider value={contextValue}>
+    <ThemeContext.Provider value={{ theme, setTheme, toggleTheme }}>
       {children}
     </ThemeContext.Provider>
   );
@@ -81,9 +96,10 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
 
 export const useTheme = (): ThemeContextType => {
   const context = useContext(ThemeContext);
-  // This check is mainly for development feedback if the hook is used improperly.
-  if (context === defaultContextValue && typeof window !== 'undefined' ) {
-    // console.warn('useTheme() hook used outside of a ThemeProvider or ThemeProvider has not fully initialized.');
+  if (context === defaultContextValue && process.env.NODE_ENV !== 'production') {
+    // This warning might appear if the component using useTheme renders before ThemeProvider is fully initialized
+    // For now, it's a safety check.
+    // console.warn('useTheme might be used outside of a fully initialized ThemeProvider. Check component tree.');
   }
   return context;
 };
