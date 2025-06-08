@@ -258,10 +258,11 @@ def query_cohere_llm_for_recommendations(completed_courses_text_list):
     If multiple distinct topics were completed, try to provide diverse recommendations.
     If a completed topic seems very niche or too general, try to suggest foundational courses that build upon it or broader skills.
     IMPORTANT: Do not recommend any of the courses the user has already completed: {', '.join(completed_courses_text_list)}.
+    Ensure the output for each suggestion strictly follows the "Course:\nDescription:\nURL:\n" format. Do not add any extra text before the first "Course:" or between suggestions unless it's part of a description.
     """
     try:
         response = co.chat(model="command-r-plus", message=prompt, temperature=0.6)
-        logging.info(f"Cohere LLM raw response: {response.text[:200]}...")
+        logging.info(f"Cohere LLM raw response: {response.text[:300]}...") # Log more of the response
         return response.text.strip()
     except Exception as e:
         logging.error(f"Error querying Cohere LLM: {e}")
@@ -269,100 +270,134 @@ def query_cohere_llm_for_recommendations(completed_courses_text_list):
 
 def parse_llm_recommendation_response(llm_response_text):
     recommendations = []
-    raw_blocks = re.split(r'\nCourse:', llm_response_text) # Split by "Course:" that starts on a new line
-    for block_text in raw_blocks:
-        if not block_text.strip(): continue
-        
-        # Ensure the block starts with "Course: " for consistent parsing
-        block_to_parse = "Course: " + block_text.strip() if not block_text.lower().lstrip().startswith("course:") else block_text.strip()
-        
-        lines = block_to_parse.split('\n')
-        rec = {}
-        for line in lines:
-            line_lower = line.lower()
-            if line_lower.startswith("course:"): rec["name"] = line.split(":", 1)[-1].strip()
-            elif line_lower.startswith("description:"): rec["description"] = line.split(":", 1)[-1].strip()
-            elif line_lower.startswith("url:"): rec["url"] = line.split(":", 1)[-1].strip()
-        
-        if rec.get("name") and rec.get("description") and rec.get("url"):
-            recommendations.append(rec)
+    # Regex to find blocks starting with "Course:", then "Description:", then "URL:"
+    # It captures the content after each keyword.
+    # Using re.DOTALL so '.' matches newlines for description.
+    # Using non-greedy '.*?' for description to avoid over-matching.
+    # Lookahead `(?:\n\n|\nCourse:|$)` ensures we capture URL up to two newlines, next course, or end of string.
+    pattern = re.compile(
+        r"Course:(.*?)\n"
+        r"Description:(.*?)\n"
+        r"URL:(.*?)(?:\n\n|\n\s*Course:|$)",  # Added \s* to handle potential spaces before next Course
+        re.DOTALL | re.IGNORECASE
+    )
+
+    # Attempt to find the start of the actual course listings, skipping preamble.
+    first_course_match = re.search(r"^Course:", llm_response_text, re.MULTILINE | re.IGNORECASE)
+    if not first_course_match:
+        # If "Course:" is not at the beginning of a line, try finding it anywhere.
+        # This handles cases where preamble might not have double newlines before the first course.
+        first_course_match_anywhere = re.search(r"Course:", llm_response_text, re.IGNORECASE)
+        if first_course_match_anywhere:
+            logging.info(f"LLM response preamble might be present. Starting search from first 'Course:' occurrence.")
+            text_to_search = llm_response_text[first_course_match_anywhere.start():]
+        else:
+            logging.warning(f"LLM response did not contain 'Course:' keyword as expected. Response: {llm_response_text[:200]}...")
+            return [] # No courses to parse
+    else:
+        text_to_search = llm_response_text[first_course_match.start():]
+
+
+    for match in pattern.finditer(text_to_search):
+        name = match.group(1).strip()
+        description = match.group(2).strip()
+        url = match.group(3).strip()
+
+        if name and description and url:
+            if not (url.startswith("http://") or url.startswith("https://")):
+                logging.warning(f"Skipping LLM recommendation due to invalid URL: '{url}' for course '{name}'")
+                continue
+            
+            if len(name) > 200: # Increased length check slightly, still a heuristic
+                 logging.warning(f"Skipping LLM recommendation due to potentially problematic name (too long or still preamble-like): '{name[:70]}...'")
+                 continue
+            
+            # Heuristic to filter out common preamble phrases if they somehow become a 'name'
+            preamble_indicators = ["here are", "suggested course", "based on your completion"]
+            if any(indicator in name.lower() for indicator in preamble_indicators) and len(name.split()) > 5:
+                 logging.warning(f"Skipping LLM recommendation as name looks like preamble: '{name[:70]}...'")
+                 continue
+
+
+            recommendations.append({
+                "name": name,
+                "description": description,
+                "url": url
+            })
+        else:
+            # This case should be less frequent with the regex capturing groups
+            logging.warning(f"Could not parse a complete LLM recommendation from matched block. Name:'{name}', Desc:'{description}', URL:'{url}'")
+            
+    if not recommendations and llm_response_text.strip() and (first_course_match or 'first_course_match_anywhere' in locals()):
+        logging.warning(f"LLM response contained 'Course:' but no recommendations were successfully parsed. Ensure LLM output strictly follows 'Course:\\nDescription:\\nURL:\\n' format for each suggestion. Text fragment: {text_to_search[:500]}...")
+
     return recommendations
 
 def generate_recommendations(user_completed_courses_list, previous_results_list=None):
     recommendations_output = []
-    processed_courses = set() # Tracks courses for which graph-based recs have been added
-    llm_candidate_courses = [] # Courses to send to LLM if no graph match
+    processed_courses = set() 
+    llm_candidate_courses = [] 
     
-    # Normalize the completed courses set for efficient checking (lowercase, no "[UNVERIFIED]")
     normalized_completed_set = set(c.replace(" [UNVERIFIED]", "").strip().lower() for c in user_completed_courses_list)
 
-    # 1. Process Graph-based Recommendations (Direct and Similar)
     for course_name_full in user_completed_courses_list:
         is_unverified = "[UNVERIFIED]" in course_name_full
         clean_course_name = course_name_full.replace(" [UNVERIFIED]", "").strip()
 
-        if not clean_course_name or clean_course_name in processed_courses: # Skip if already processed
+        if not clean_course_name or clean_course_name in processed_courses:
             continue
 
         cached_graph_recommendation = None
-        # Check cache first for graph-based recommendations
         if previous_results_list:
             for prev_result_doc in previous_results_list:
                 actual_prev_recommendations = prev_result_doc.get('recommendations', []) if isinstance(prev_result_doc, dict) else []
                 for prev_rec in actual_prev_recommendations:
                     rec_type = prev_rec.get('type', '')
-                    # Check if it's a graph-based recommendation from cache
-                    if rec_type.startswith('graph_'): # No "cached_" prefix check here, use original type
-                        # Check if this cached rec was for the current clean_course_name or a similar match
+                    if rec_type.startswith('graph_'): 
                         if prev_rec.get('completed_course') == clean_course_name or prev_rec.get('matched_course') == clean_course_name:
-                            # Filter out next_courses that are already in the *current* user_completed_courses_list
                             filtered_next_courses = [
                                 nc for nc in prev_rec.get("next_courses", [])
                                 if nc.lower() not in normalized_completed_set
                             ]
-                            # Use cached recommendation only if it still has valid next steps (or had none to begin with)
                             if filtered_next_courses or not prev_rec.get("next_courses"):
                                 cached_graph_recommendation = {**prev_rec, "next_courses": filtered_next_courses}
-                                # The type from prev_rec (e.g., "graph_direct") is preserved
-                            break # Found a relevant cached graph rec
+                            break 
                 if cached_graph_recommendation:
-                    break # Stop searching other previous documents
+                    break 
         
         if cached_graph_recommendation:
-            if cached_graph_recommendation.get("next_courses"): # Only add if there are still next courses
-                recommendations_output.append(cached_graph_recommendation) # Original type is preserved
+            if cached_graph_recommendation.get("next_courses"): 
+                recommendations_output.append(cached_graph_recommendation) 
             processed_courses.add(clean_course_name)
-            if matched_course := cached_graph_recommendation.get('matched_course'): # Also mark matched course as processed
+            if matched_course := cached_graph_recommendation.get('matched_course'):
                  processed_courses.add(matched_course)
             logging.info(f"Using cached graph-like recommendation for '{clean_course_name}'. Type: {cached_graph_recommendation.get('type')}")
-            continue # Move to next course in user_completed_courses_list
+            continue 
 
-        # If not found in cache, generate graph-based recommendation
-        if clean_course_name in course_graph: # Direct match in our graph
+        if clean_course_name in course_graph: 
             entry = course_graph[clean_course_name]
             filtered_next_courses = [
                 nc for nc in entry["next_courses"]
-                if nc.lower() not in normalized_completed_set # Filter against current completed list
+                if nc.lower() not in normalized_completed_set 
             ]
-            if filtered_next_courses: # Only add if there are valid next steps
+            if filtered_next_courses: 
                 recommendations_output.append({
                     "type": "graph_direct", "completed_course": clean_course_name,
                     "description": entry["description"], "next_courses": filtered_next_courses,
                     "url": entry.get("url", "#")
                 })
             processed_courses.add(clean_course_name)
-            continue # Move to next course
+            continue 
 
-        # If not a direct match and not unverified, try similar match
         if not is_unverified:
             best_match, score = get_closest_known_course(clean_course_name)
             if best_match and score > 0.75 and best_match in course_graph:
                 entry = course_graph[best_match]
                 filtered_next_courses = [
                     nc for nc in entry["next_courses"]
-                    if nc.lower() not in normalized_completed_set # Filter against current completed list
+                    if nc.lower() not in normalized_completed_set 
                 ]
-                if filtered_next_courses: # Only add if there are valid next steps
+                if filtered_next_courses: 
                     recommendations_output.append({
                         "type": "graph_similar", "completed_course": clean_course_name,
                         "matched_course": best_match, "similarity_score": round(score, 2),
@@ -370,64 +405,57 @@ def generate_recommendations(user_completed_courses_list, previous_results_list=
                         "url": entry.get("url", "#")
                     })
                 processed_courses.add(clean_course_name)
-                processed_courses.add(best_match) # Mark the matched graph course as processed too
-                continue # Move to next course
+                processed_courses.add(best_match) 
+                continue 
         
-        # If no graph match (direct, similar, or cached), add to LLM candidates
         llm_candidate_courses.append(course_name_full)
 
-    # 2. Process LLM-based Recommendations for remaining courses
-    # Use only the clean names (no "[UNVERIFIED]") for LLM input key and prompt
     unique_llm_inputs = list(set(c.replace(" [UNVERIFIED]", "").strip() for c in llm_candidate_courses if c.replace(" [UNVERIFIED]", "").strip()))
-    
-    # The prompt to LLM should use all completed courses (including those that had graph recs) to avoid recommending them again
     llm_completed_courses_for_prompt = [c.replace(" [UNVERIFIED]", "").strip() for c in user_completed_courses_list]
 
-    if unique_llm_inputs: # Only query LLM if there are courses that didn't get graph-based recs
-        llm_input_key = tuple(sorted(unique_llm_inputs)) # Use this key for caching LLM results
-        cached_llm_rec_list_for_output = [] # Store the actual recs to be outputted
+    if unique_llm_inputs: 
+        llm_input_key = tuple(sorted(unique_llm_inputs)) 
+        cached_llm_rec_list_for_output = [] 
         
         found_in_cache = False
         if previous_results_list:
             for prev_result_doc in previous_results_list:
                 actual_prev_recommendations = prev_result_doc.get('recommendations', [])
-                # Find if this set of inputs was previously processed by LLM
                 current_llm_recs_from_this_doc = []
                 is_relevant_cached_doc = False
                 for prev_rec in actual_prev_recommendations:
-                    # Check if it's an LLM-type recommendation and matches the input course set
                     if prev_rec.get('type', '').startswith('llm') and \
                        tuple(sorted(prev_rec.get('based_on_courses', []))) == llm_input_key:
                         is_relevant_cached_doc = True
-                        # Filter this specific cached recommendation name against all *currently* completed courses
                         if prev_rec.get("name", "").lower() not in normalized_completed_set:
-                            current_llm_recs_from_this_doc.append(prev_rec) # Add the original recommendation
+                            current_llm_recs_from_this_doc.append(prev_rec) 
                 
-                if is_relevant_cached_doc: # If this prev_doc had LLM recs for this input key
+                if is_relevant_cached_doc: 
                     cached_llm_rec_list_for_output.extend(current_llm_recs_from_this_doc)
-                    found_in_cache = True # Mark that we found relevant cached LLM results
-                    break # Stop searching other previous documents once relevant cached LLM recs are found and filtered
+                    found_in_cache = True 
+                    break 
 
         if found_in_cache:
             logging.info(f"Using cached and filtered LLM recommendations for input set: {llm_input_key}")
-            recommendations_output.extend(cached_llm_rec_list_for_output) # Add the already filtered list
+            recommendations_output.extend(cached_llm_rec_list_for_output) 
         else:
             logging.info(f"Querying LLM for input set: {llm_input_key}, with full completed list for context: {llm_completed_courses_for_prompt}")
-            llm_response_text = query_cohere_llm_for_recommendations(llm_completed_courses_for_prompt) # Use full list for prompt
+            llm_response_text = query_cohere_llm_for_recommendations(llm_completed_courses_for_prompt) 
             
             if llm_response_text and not llm_response_text.startswith("Error from LLM") and not llm_response_text.startswith("Cohere LLM not available"):
                 parsed_llm_recs = parse_llm_recommendation_response(llm_response_text)
+                if not parsed_llm_recs:
+                     logging.warning(f"LLM response parsing yielded no recommendations for input: {llm_input_key}. Raw response was: {llm_response_text[:200]}...")
                 for rec_data in parsed_llm_recs:
-                    # Crucially, filter LLM's suggestions against *all* currently completed courses
                     if rec_data.get("name", "").lower() not in normalized_completed_set:
                         recommendations_output.append({
-                            "type": "llm", # Original type
-                            "based_on_courses": unique_llm_inputs, # Store what unique inputs triggered this LLM call
+                            "type": "llm", 
+                            "based_on_courses": unique_llm_inputs, 
                             **rec_data 
                         })
-            else: # Handle LLM error or unavailability
+            else: 
                 recommendations_output.append({
-                    "type": "llm_error", # Original type
+                    "type": "llm_error", 
                     "message": llm_response_text, 
                     "based_on_courses": unique_llm_inputs
                 })
@@ -445,7 +473,14 @@ def extract_and_recommend_courses_from_image_data(
         pil_images_to_process = []
         try:
             if image_data['content_type'] == 'application/pdf':
-                pdf_pages = convert_from_bytes(image_data['bytes'], dpi=300) # Uses Poppler via pdf2image
+                # Ensure Poppler is available if using pdf2image from bytes
+                if not os.getenv("POPPLER_PATH") and not shutil.which("pdftoppm"):
+                    logging.error("Poppler not found. POPPLER_PATH not set and pdftoppm not in PATH. Cannot convert PDF.")
+                    # Consider how to handle this - skip PDF or raise error?
+                    # For now, log and skip this PDF.
+                    continue # Skip this PDF
+                
+                pdf_pages = convert_from_bytes(image_data['bytes'], dpi=300, poppler_path=os.getenv("POPPLER_PATH"))
                 pil_images_to_process.extend(pdf_pages)
                 logging.info(f"Converted PDF '{image_data['original_filename']}' to {len(pdf_pages)} image(s).")
             elif image_data['content_type'].startswith('image/'):
@@ -458,17 +493,19 @@ def extract_and_recommend_courses_from_image_data(
         except UnidentifiedImageError:
             logging.error(f"Cannot identify image file {image_data['original_filename']}. Skipping.")
             continue
-        except Exception as e: # Catch other conversion/loading errors (e.g., from pdf2image if Poppler is missing)
+        except Exception as e: 
             logging.error(f"Error converting/loading {image_data['original_filename']}: {e}", exc_info=True)
+            # This can include pdf2image.exceptions.PDFInfoNotInstalledError if Poppler is missing
+            if "poppler" in str(e).lower():
+                 logging.critical("Poppler utilities might not be installed or found. Please install Poppler and ensure it's in your PATH or set POPPLER_PATH environment variable.")
             continue
             
         for i, pil_img in enumerate(pil_images_to_process):
             page_identifier = f"Page {i+1}" if len(pil_images_to_process) > 1 else "Image"
             logging.info(f"Inferring text from {image_data['original_filename']} ({page_identifier})...")
-            # Ensure image is RGB before YOLO/Tesseract
             if pil_img.mode == 'RGBA': pil_img = pil_img.convert('RGB')
-            elif pil_img.mode == 'P': pil_img = pil_img.convert('RGB') # Handle palettized images
-            elif pil_img.mode == 'L': pil_img = pil_img.convert('RGB') # Handle grayscale images
+            elif pil_img.mode == 'P': pil_img = pil_img.convert('RGB') 
+            elif pil_img.mode == 'L': pil_img = pil_img.convert('RGB') 
 
             course_text = infer_course_text_from_image_object(pil_img)
             if course_text:
@@ -477,7 +514,6 @@ def extract_and_recommend_courses_from_image_data(
             else:
                 logging.warning(f"No significant text extracted from '{image_data['original_filename']}' ({page_identifier}).")
 
-    # Process extracted texts to identify courses
     processed_course_mentions = []
     for raw_text_blob in all_extracted_raw_texts:
         filtered = filter_and_verify_course_text(raw_text_blob)
@@ -489,15 +525,13 @@ def extract_and_recommend_courses_from_image_data(
 
     unique_final_course_list = sorted(list(set(processed_course_mentions)))
     
-    # Merge with additional manual courses
     if additional_manual_courses:
         logging.info(f"Original extracted unique courses: {unique_final_course_list}")
         for manual_course in additional_manual_courses:
-            clean_manual_course = manual_course.strip() # Clean whitespace
+            clean_manual_course = manual_course.strip() 
             if clean_manual_course and clean_manual_course not in unique_final_course_list:
-                # Optionally, you might want to normalize case here, e.g., clean_manual_course.title()
                 unique_final_course_list.append(clean_manual_course)
-        unique_final_course_list = sorted(list(set(unique_final_course_list))) # Ensure uniqueness and sort again
+        unique_final_course_list = sorted(list(set(unique_final_course_list))) 
         logging.info(f"Merged with manual courses. Final list for recommendations: {unique_final_course_list}")
 
 
@@ -508,21 +542,34 @@ def extract_and_recommend_courses_from_image_data(
 
 # --- Main (for local testing) ---
 if __name__ == "__main__":
+    import shutil # For shutil.which
     logging.basicConfig(level=logging.INFO)
     
-    # Create a dummy test_images folder if it doesn't exist
     test_image_folder = "test_images" 
     if not os.path.exists(test_image_folder):
         os.makedirs(test_image_folder)
         print(f"Created '{test_image_folder}'. Add test images (JPG, PNG, PDF) there to run local test.")
-        exit()
+        # Create a dummy PDF for testing if Poppler is not installed but pdf2image is.
+        try:
+            from reportlab.pdfgen import canvas as rcanvas
+            from reportlab.lib.pagesizes import letter
+            dummy_pdf_path = os.path.join(test_image_folder, "dummy_test.pdf")
+            if not os.path.exists(dummy_pdf_path):
+                c = rcanvas.Canvas(dummy_pdf_path, pagesize=letter)
+                c.drawString(100, 750, "Test PDF for Poppler check.")
+                c.drawString(100, 730, "Course: Introduction to Testing")
+                c.save()
+                print(f"Created dummy PDF: {dummy_pdf_path}")
+        except ImportError:
+            print("reportlab not found, cannot create dummy PDF for testing.")
+        # exit() # Don't exit if folder created, allow test to run if images added later
 
     test_data = []
     for f_name in os.listdir(test_image_folder):
         f_path = os.path.join(test_image_folder, f_name)
         if os.path.isfile(f_path):
             with open(f_path, "rb") as f: img_bytes = f.read()
-            content_type = "application/octet-stream" # Default
+            content_type = "application/octet-stream" 
             if f_name.lower().endswith(".pdf"): content_type = "application/pdf"
             elif f_name.lower().endswith((".png", ".jpg", ".jpeg")): content_type = f"image/{f_name.split('.')[-1].lower()}"
             
@@ -531,13 +578,23 @@ if __name__ == "__main__":
     if test_data:
         print(f"Locally testing with {len(test_data)} images from '{test_image_folder}'...")
         
-        # Mock previous results (e.g., from a database cache) if needed for testing cache logic
         mock_previous_results = [] 
-        # Example: mock_previous_results = [ { "extracted_courses": ["Python"], "recommendations": [{"type": "graph_direct", ...}] } ]
-
-        # Mock manual courses input
         mock_manual_courses = ["Advanced Data Analysis", "TensorFlow Basics"] 
         
+        # Check for Poppler before running main logic if PDFs are present
+        has_pdfs = any(d['content_type'] == 'application/pdf' for d in test_data)
+        if has_pdfs:
+            pop_path_env = os.getenv("POPPLER_PATH")
+            pop_in_sys_path = shutil.which("pdftoppm") or shutil.which("pdfinfo")
+            if not pop_path_env and not pop_in_sys_path:
+                print("\n\n" + "="*30)
+                print("WARNING: Poppler utilities (e.g., pdftoppm) not found in system PATH and POPPLER_PATH environment variable is not set.")
+                print("PDF processing will likely fail. Please install Poppler or set POPPLER_PATH.")
+                print("="*30 + "\n\n")
+            else:
+                print(f"Poppler check: POPPLER_PATH='{pop_path_env}', pdftoppm in PATH='{pop_in_sys_path}'")
+
+
         results = extract_and_recommend_courses_from_image_data(
             test_data, 
             previous_results_list=mock_previous_results, 
@@ -548,17 +605,4 @@ if __name__ == "__main__":
         print(json.dumps(results, indent=2))
     else:
         print(f"No images found in '{test_image_folder}' to test.")
-
-# Ensure YOLO_MODEL_PATH is correct or 'best.pt' is in the right place.
-# Example: YOLO_MODEL_PATH=./models/best.pt python certificate_processor.py
-# If 'best.pt' is one level up: YOLO_MODEL_PATH=../best.pt python certificate_processor.py
-# To use environment variable: export YOLO_MODEL_PATH=/path/to/your/model/best.pt
-# then run: python certificate_processor.py
-# Make sure your Cohere API key is also set in environment or directly in script for testing.
-
-
-
-
-    
-
-    
+```

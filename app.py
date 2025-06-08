@@ -4,7 +4,7 @@ from flask_cors import CORS
 import os
 import logging
 from pymongo import MongoClient, DESCENDING
-from gridfs import GridFS
+from gridfs import GridFSA
 from dotenv import load_dotenv
 from datetime import datetime
 import json
