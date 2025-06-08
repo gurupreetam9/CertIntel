@@ -1,64 +1,55 @@
 
 'use client';
 
-import React, { type ReactNode, useState, createContext, useCallback, useMemo, useEffect } from 'react';
+import React, { type ReactNode } from 'react';
 
 type Theme = 'light' | 'dark';
 
+// Extremely simplified context type for diagnostics
 interface ThemeContextType {
   theme: Theme;
-  setTheme: (theme: Theme) => void;
-  // toggleTheme: () => void; // Temporarily removed for extreme simplification
+  setTheme: (theme: Theme) => void; // Will be a no-op
 }
 
-const defaultContextValue: ThemeContextType = {
-  theme: 'light',
+// Default context value that matches the simplified type
+const defaultStaticContextValue: ThemeContextType = {
+  theme: 'light', // Fixed theme
   setTheme: () => {
-    // console.warn('ThemeProvider default setTheme called');
+    // This is a no-op in this extremely simplified version for diagnostics
+    if (process.env.NODE_ENV === 'development') {
+      console.log("Simplified ThemeProvider: setTheme called (no-op for diagnostics). Theme is fixed to light.");
+    }
   },
-  // toggleTheme: () => {
-  //   // console.warn('ThemeProvider default toggleTheme called');
-  // },
 };
 
-const ThemeContext = createContext<ThemeContextType>(defaultContextValue);
+// Renamed context for diagnostics
+const AppThemeContext = React.createContext<ThemeContextType>(defaultStaticContextValue);
 
 interface ThemeProviderProps {
   children: ReactNode;
 }
 
+// ThemeProvider will now be a simple pass-through.
+// The actual Provider component that was causing parsing errors is removed.
 export const ThemeProvider = ({ children }: ThemeProviderProps) => {
-  // For extreme simplicity, the theme is fixed and setTheme is a no-op
-  const staticTheme: Theme = 'light';
-  
-  const noOpSetTheme = (newTheme: Theme) => {
-    // This function does nothing in this simplified version.
-    // Its presence is to satisfy the ThemeContextType.
-    // console.log(`setTheme called with ${newTheme}, but is currently a no-op.`);
-  };
-
-  // The context value is now extremely simple
-  const contextValue: ThemeContextType = {
-    theme: staticTheme,
-    setTheme: noOpSetTheme,
-  };
-
-  // console.log('ThemeProvider (extremely simplified) rendering. Context value:', contextValue);
-
-  // The problematic line has been here previously.
-  return (
-    <ThemeContext.Provider value={contextValue}>
-      {children}
-    </ThemeContext.Provider>
-  );
+  // The problematic <AppThemeContext.Provider value={...}> line is removed
+  // to see if the app can parse and build without it.
+  // We're simply returning children, meaning no actual context is being provided
+  // by *this* component anymore in a way that uses the dynamic <Provider>.
+  // The useTheme hook below will rely on the default value of AppThemeContext.
+  if (process.env.NODE_ENV === 'development') {
+    console.log("Simplified ThemeProvider: Rendering children directly. No dynamic Provider. Theme is fixed to light.");
+  }
+  return <>{children}</>;
 };
 
 export const useTheme = (): ThemeContextType => {
-  const context = React.useContext(ThemeContext);
-  if (context === defaultContextValue && process.env.NODE_ENV !== 'production') {
-    // This warning indicates useTheme might be used outside of its Provider
-    // or the provider itself hasn't fully initialized its value (less likely with this simplification).
-    // console.warn('useTheme is consuming the defaultContextValue. Ensure it is used within a ThemeProvider that has properly initialized.');
-  }
-  return context;
+  // Returns a fixed value, not interacting with a complex provider.
+  // This ensures that components using useTheme() don't break,
+  // but they will always get the 'light' theme.
+  const context = React.useContext(AppThemeContext);
+  // If context is somehow undefined (shouldn't happen with a default in createContext)
+  // return the static default to be safe.
+  return context || defaultStaticContextValue;
 };
+

@@ -19,7 +19,7 @@ import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { sendPasswordReset, updateUserProfileName } from '@/lib/firebase/auth';
-import { useTheme } from '@/hooks/themeContextManager'; // Updated import
+import { useTheme } from '@/hooks/themeContextManager'; // Still import, but it's simplified
 
 const profileFormSchema = z.object({
   displayName: z.string().min(1, 'Display name cannot be empty.').max(50, 'Display name is too long.'),
@@ -29,7 +29,7 @@ type ProfileFormValues = z.infer<typeof profileFormSchema>;
 function ProfileSettingsPageContent() {
   const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme } = useTheme(); // Will get fixed 'light' theme and no-op setTheme
 
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSendingReset, setIsSendingReset] = useState(false);
@@ -45,8 +45,6 @@ function ProfileSettingsPageContent() {
   useEffect(() => {
     if (user) {
       profileForm.reset({ displayName: user.displayName || user.email?.split('@')[0] || '' });
-      // In a real app, you'd fetch and set phone number from your DB here
-      // setPhoneNumber(fetchedPhoneNumber);
     }
   }, [user, profileForm]);
 
@@ -55,7 +53,6 @@ function ProfileSettingsPageContent() {
     const result = await updateUserProfileName(data.displayName);
     if (result.success) {
       toast({ title: 'Profile Updated', description: 'Your display name has been updated.' });
-      // Re-fetch user or update context if necessary, though Firebase onAuthStateChanged might handle it
     } else {
       toast({ title: 'Update Failed', description: result.message, variant: 'destructive' });
     }
@@ -79,7 +76,9 @@ function ProfileSettingsPageContent() {
   };
 
   const toggleTheme = () => {
-    setTheme(theme === 'light' ? 'dark' : 'light');
+    // setTheme will be a no-op from the simplified context
+    setTheme(theme === 'light' ? 'dark' : 'light'); // This call will trigger the console.log in the no-op setTheme
+    toast({ title: "Theme Toggle (Diagnostic Mode)", description: "Theme is currently fixed. This toggle is for testing."});
   };
 
   if (authLoading || !user) {
@@ -169,16 +168,19 @@ function ProfileSettingsPageContent() {
               <h3 className="font-medium mb-2 flex items-center"><Palette className="mr-2" /> Theme Preference</h3>
               <div className="flex items-center justify-between space-x-2 p-3 border rounded-md">
                 <Label htmlFor="dark-mode-toggle" className="text-sm">
-                  Dark Mode
+                  Dark Mode (Current: {theme})
                 </Label>
                 <Switch
                   id="dark-mode-toggle"
-                  checked={theme === 'dark'}
-                  onCheckedChange={toggleTheme}
+                  checked={theme === 'dark'} 
+                  onCheckedChange={toggleTheme} // This will attempt to call the no-op setTheme
                   aria-label="Toggle dark mode"
+                  // Switch is not disabled to allow testing the no-op setTheme
                 />
               </div>
-              <p className="text-xs text-muted-foreground mt-2">Toggle between light and dark themes for the application.</p>
+              <p className="text-xs text-muted-foreground mt-2">
+                Theme functionality is currently simplified for diagnostic purposes. The theme is fixed to 'light'.
+              </p>
             </div>
           </CardContent>
         </Card>
