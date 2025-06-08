@@ -57,14 +57,15 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
             key={`${image.fileId}-modal-image`}
             src={imageSrc}
             alt={`View of ${image.originalName}`}
-            fill
-            sizes="(max-width: 767px) 90vw, 700px" // Adjusted sizes prop
-            className="object-contain rounded-md" 
+            width={0} // Required for this specific Next.js responsive pattern
+            height={0} // Required for this specific Next.js responsive pattern
+            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+            className="rounded-md" // For border-radius or other Tailwind classes
             data-ai-hint={image.dataAiHint || 'full view image'}
-            unoptimized={process.env.NODE_ENV === 'development'} 
+            unoptimized // Recommended when using width/height 0 and style for sizing
             onLoad={(event) => {
               const target = event.target as HTMLImageElement;
-              // console.log(`ViewImageModal: Next/Image onLoad for src: ${target.src}. Natural dimensions: ${target.naturalWidth}x${target.naturalHeight}.`);
+              console.log(`ViewImageModal: Next/Image onLoad for src: ${target.src}. Natural dimensions: ${target.naturalWidth}x${target.naturalHeight}. Styled dimensions: ${target.width}x${target.height}.`);
             }}
             onError={(e) => {
               const target = e.target as HTMLImageElement;
@@ -82,3 +83,4 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
     </Dialog>
   );
 }
+
