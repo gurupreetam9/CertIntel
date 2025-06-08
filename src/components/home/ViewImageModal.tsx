@@ -38,9 +38,9 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
     >
       <DialogContent
         key={image.fileId ? `${image.fileId}-dialog-content` : 'dialog-empty'}
-        className="sm:max-w-3xl w-[95vw] max-h-[90vh] flex flex-col p-0 overflow-y-auto" // Changed overflow-hidden to overflow-y-auto
+        className="sm:max-w-3xl w-[95vw] max-h-[90vh] flex flex-col p-0 overflow-y-auto"
       >
-        <DialogHeader className="p-4 sm:p-6 pb-2 sm:pb-4 shrink-0 border-b sticky top-0 bg-background z-10">
+        <DialogHeader className="p-4 sm:p-6 pb-2 sm:pb-4 shrink-0 border-b">
           <DialogTitle className="font-headline text-lg sm:text-xl truncate" title={image.originalName}>
             {image.originalName}
           </DialogTitle>
@@ -49,18 +49,18 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
           </DialogDescription>
         </DialogHeader>
         
-        <div
+        <div // This is the image stage
           key={`${image.fileId}-image-stage`}
-          // This div takes up the flexible space. Padding is inside for the image.
-          className="flex-1 min-h-0 w-full relative p-2 sm:p-4" 
+          className="flex-1 min-h-0 w-full flex items-center justify-center p-4" 
         >
           <Image
             key={`${image.fileId}-modal-image`}
             src={imageSrc}
             alt={`View of ${image.originalName}`}
-            fill 
-            className="object-contain" 
-            sizes="(max-width: 767px) 90vw, (max-width: 1023px) 700px, 800px" // Adjusted sizes
+            width={1200} // Provide a large base width for quality
+            height={1200} // Provide a large base height for quality
+            className="object-contain max-w-full max-h-full" // Ensures the image scales down to fit, fully visible
+            sizes="(max-width: 767px) 90vw, (min-width: 768px) 700px" // Hint for responsive source selection
             priority
             data-ai-hint={image.dataAiHint || 'full view image'}
             onLoad={(event) => {
@@ -74,7 +74,7 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
           />
         </div>
 
-        <DialogFooter className="p-4 sm:p-6 pt-2 sm:pt-4 shrink-0 border-t sticky bottom-0 bg-background z-10">
+        <DialogFooter className="p-4 sm:p-6 pt-2 sm:pt-4 shrink-0 border-t">
           <DialogClose asChild>
             <Button variant="outline">Close</Button>
           </DialogClose>
