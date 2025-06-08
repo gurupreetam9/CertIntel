@@ -29,7 +29,7 @@ type ProfileFormValues = z.infer<typeof profileFormSchema>;
 function ProfileSettingsPageContent() {
   const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
-  const { theme, setTheme } = useTheme();
+  const { theme, toggleTheme } = useTheme(); // Use the functional toggleTheme
 
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSendingReset, setIsSendingReset] = useState(false);
@@ -38,7 +38,7 @@ function ProfileSettingsPageContent() {
   const profileForm = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
     defaultValues: {
-      displayName: user?.displayName || '',
+      displayName: '',
     },
   });
 
@@ -73,13 +73,6 @@ function ProfileSettingsPageContent() {
       duration: 7000,
     });
     setIsSendingReset(false);
-  };
-
-  const toggleTheme = () => {
-    setTheme(theme === 'light' ? 'dark' : 'light');
-     if (process.env.NODE_ENV === 'development') {
-      toast({ title: "Theme Toggle (Diagnostic Mode)", description: "Theme functionality is currently simplified. This toggle is for testing."});
-    }
   };
 
   if (authLoading || !user) {
@@ -169,18 +162,15 @@ function ProfileSettingsPageContent() {
               <h3 className="font-medium mb-2 flex items-center"><Palette className="mr-2" /> Theme Preference</h3>
               <div className="flex items-center justify-between space-x-2 p-3 border rounded-md">
                 <Label htmlFor="dark-mode-toggle" className="text-sm">
-                  Dark Mode (Current: {theme})
+                  Dark Mode ({theme === 'dark' ? 'Enabled' : 'Disabled'})
                 </Label>
                 <Switch
                   id="dark-mode-toggle"
                   checked={theme === 'dark'} 
-                  onCheckedChange={toggleTheme}
+                  onCheckedChange={toggleTheme} // Use the functional toggleTheme
                   aria-label="Toggle dark mode"
                 />
               </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                Theme functionality is currently simplified for diagnostic purposes. The theme is fixed to 'light'.
-              </p>
             </div>
           </CardContent>
         </Card>
