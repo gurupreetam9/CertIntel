@@ -135,12 +135,6 @@ try:
 except Exception as e:
     logging.error(f"Error loading YOLO model: {e}")
 
-# SentenceTransformer model might not be needed if semantic similarity is not used
-# try:
-#     sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
-#     logging.info("Successfully loaded SentenceTransformer model.")
-# except Exception as e:
-#     logging.error(f"Error loading SentenceTransformer model: {e}")
 
 def clean_unicode(text):
     return text.encode("utf-8", "replace").decode("utf-8")
@@ -148,7 +142,12 @@ def clean_unicode(text):
 def infer_course_text_from_image_object(pil_image_obj):
     if not model:
         logging.error("YOLO model is not loaded. Cannot infer course text.")
-        return None, "YOLO model not loaded"
+        return None, "YOLO model not loaded. OCR will be skipped."
+    
+    if not TESSERACT_PATH: # Added check
+        logging.error("Tesseract OCR is not installed or not in PATH. Cannot perform OCR.")
+        return None, "Tesseract OCR not found. Install Tesseract and add to PATH."
+        
     try:
         image_np = np.array(pil_image_obj)
         if image_np.ndim == 2: 
@@ -164,7 +163,7 @@ def infer_course_text_from_image_object(pil_image_obj):
             for box in boxes:
                 cls_id = int(box.cls[0].item())
                 label = names[cls_id]
-                if label.lower() in ["certificatecourse", "course", "title", "name"]:
+                if label.lower() in ["certificatecourse", "course", "title"]: # Focus on course-related labels
                     left, top, right, bottom = map(int, box.xyxy[0].cpu().numpy())
                     cropped_pil_image = pil_image_obj.crop((left, top, right, bottom))
                     try:
@@ -172,22 +171,24 @@ def infer_course_text_from_image_object(pil_image_obj):
                         cleaned_text = clean_unicode(text)
                         if cleaned_text:
                             logging.info(f"Extracted text from detected region ('{label}'): '{cleaned_text}'")
-                            return cleaned_text, None
+                            return cleaned_text, None # Text extracted from specific region
+                        # If cleaned_text is empty, we don't immediately return None here,
+                        # allowing fallback to full image OCR below if no other region yields text.
                     except pytesseract.TesseractError as tess_err:
                         logging.error(f"PytesseractError during OCR on cropped region ('{label}'): {tess_err}")
-                        return None, f"Tesseract OCR error on cropped region: {str(tess_err).splitlines()[0] if str(tess_err) else 'Details in logs.'}"
+                        # Don't return yet, fallback might work. Capture reason if it's the only one.
+                        # return None, f"Tesseract OCR error on cropped region: {str(tess_err).splitlines()[0] if str(tess_err) else 'Details in logs.'}"
                     except Exception as ocr_crop_err:
                         logging.error(f"Non-Tesseract error during OCR on cropped region ('{label}'): {ocr_crop_err}")
-                        return None, f"OCR error on cropped region: {str(ocr_crop_err)}"
+                        # return None, f"OCR error on cropped region: {str(ocr_crop_err)}"
 
-
-        logging.info("No specific course region found by YOLO, attempting OCR on the whole image as fallback.")
+        logging.info("No specific course region found by YOLO or OCR on region failed/empty, attempting OCR on the whole image as fallback.")
         try:
             full_image_text = pytesseract.image_to_string(pil_image_obj).strip()
             cleaned_full_text = clean_unicode(full_image_text)
             if cleaned_full_text:
                 logging.info(f"Extracted text from full image (fallback): '{cleaned_full_text[:100]}...'")
-                return cleaned_full_text, None
+                return cleaned_full_text, "Full image OCR used as fallback." # Indicate fallback was used
             logging.info("OCR on full image also yielded no text.")
             return None, "OCR on full image yielded no text after YOLO fallback."
         except pytesseract.TesseractError as tess_err_full:
@@ -238,13 +239,12 @@ def filter_and_verify_course_text(text):
                 break 
         
         if not is_known_course:
-            # Stricter conditions for UNVERIFIED to reduce noise
             if any(kw in line_text for kw in course_keywords) and \
                not all(word in course_keywords or word in stop_words or not word.isalnum() for word in line_text.split()) and \
                len(line_text.split()) >= 2 and len(line_text.split()) <= 7 and \
                any(word.lower() not in stop_words and len(word) > 2 for word in line_text.split()) and \
-               line_text not in identified_courses: # Ensure it's not already added
-                identified_courses.append(f"{line_text.title()} [UNVERIFIED]") # Mark as UNVERIFIED
+               line_text not in identified_courses: 
+                identified_courses.append(f"{line_text.title()} [UNVERIFIED]") 
                     
     return list(set(identified_courses))
 
@@ -257,7 +257,6 @@ def query_llm_for_detailed_suggestions(known_course_names_list):
         logging.warning("No known course names provided to LLM for suggestions.")
         return {"error": "No known course names provided for suggestions."}
 
-    # Ensure UNVERIFIED tag is removed for the prompt
     prompt_course_list = [name.replace(" [UNVERIFIED]", "") for name in known_course_names_list]
 
     prompt = f"""
@@ -309,7 +308,6 @@ def parse_llm_detailed_suggestions_response(llm_response_text):
         logging.warning(f"LLM response indicates no suggestions or an error: {llm_response_text}")
         return parsed_results
 
-    # Normalize line endings and clean up potential markdown
     cleaned_response_text = llm_response_text.replace('\r\n', '\n')
     cleaned_response_text = re.sub(r"```(?:json|text)?\n?", "", cleaned_response_text)
     cleaned_response_text = re.sub(r"\n?```", "", cleaned_response_text)
@@ -332,10 +330,9 @@ def parse_llm_detailed_suggestions_response(llm_response_text):
         identified_course_name = identified_course_match.group(1).strip()
         ai_description = ai_description_match.group(1).strip()
         if ai_description.lower() == "no ai description available.":
-            ai_description = None # Store as None if not available
+            ai_description = None 
 
         current_suggestions = []
-        # Extract the text part for suggestions
         suggestions_text_match = re.search(r"Suggested Next Courses:\n(.*?)$", block_text, re.IGNORECASE | re.DOTALL)
         
         if suggestions_text_match:
@@ -343,25 +340,19 @@ def parse_llm_detailed_suggestions_response(llm_response_text):
             if suggestions_blob.lower() == "no specific suggestions available for this course.":
                 logging.info(f"LLM Parser: No specific suggestions for '{identified_course_name}'.")
             else:
-                # Split suggestions within the blob. Each suggestion starts with "- Name:" or "Name:"
-                # Allow for optional leading hyphen and space
                 individual_suggestion_blocks = re.split(r'\n(?:-\s*)?Name:', suggestions_blob)
                 
                 for i, sug_block_part in enumerate(individual_suggestion_blocks):
                     sug_block_part_cleaned = sug_block_part.strip()
-                    if i == 0 and not sug_block_part_cleaned : # First element might be empty if split begins with delimiter
-                         if not suggestions_blob.strip().lower().startswith("name:"): # Handle if the first suggestion doesn't have the leading '-'
-                            # This means the first part is the actual first suggestion block
+                    if i == 0 and not sug_block_part_cleaned : 
+                         if not suggestions_blob.strip().lower().startswith("name:"): 
                             pass
                          else: 
-                            continue # Skip empty first element
+                            continue 
                     
-                    # Re-add "Name:" if it was removed by split, or handle case where it's the very first item
-                    # and the blob itself didn't start with "Name:" (e.g., just the name directly)
                     full_sug_block = sug_block_part_cleaned
                     if not sug_block_part_cleaned.lower().startswith("name:"):
                         full_sug_block = "Name: " + sug_block_part_cleaned
-
 
                     sug_name_match = re.search(r"Name:\s*(.*?)\n", full_sug_block, re.IGNORECASE)
                     sug_desc_match = re.search(r"Description:\s*(.*?)\n", full_sug_block, re.IGNORECASE | re.DOTALL)
@@ -391,148 +382,145 @@ def parse_llm_detailed_suggestions_response(llm_response_text):
 def process_images_for_ocr(image_data_list):
     """
     Phase 1: Processes images to extract text using OCR and identifies failures.
+    An image is considered "failed" if no usable course names can be extracted from it
+    after attempting YOLO-region OCR, full-image OCR, and course name filtering.
     Returns a dictionary with 'successfully_extracted_courses' and 'failed_extraction_images'.
     """
-    all_extracted_raw_texts = []
-    processed_image_file_ids = [] # Tracks file IDs for which OCR was attempted
-    failed_extraction_images = [] # Tracks images that failed any part of the loading/OCR
+    accumulated_successful_courses = []
+    processed_image_file_ids = []
+    failed_extraction_images = []
 
-    for image_data in image_data_list:
-        logging.info(f"--- OCR Phase: Processing image: {image_data['original_filename']} (Type: {image_data['content_type']}, ID: {image_data.get('file_id', 'N/A')}) ---")
-        current_file_id = str(image_data.get('file_id', 'N/A'))
-        original_filename_for_failure = image_data['original_filename']
-        
+    for image_data_item in image_data_list:
+        logging.info(f"--- OCR Phase: Processing image: {image_data_item['original_filename']} (Type: {image_data_item['content_type']}, ID: {image_data_item.get('file_id', 'N/A')}) ---")
+        current_file_id = str(image_data_item.get('file_id', 'N/A'))
+        original_filename_for_failure = image_data_item['original_filename']
+
         if current_file_id != 'N/A' and current_file_id not in processed_image_file_ids:
             processed_image_file_ids.append(current_file_id)
 
-        pil_images_to_process = []
-        conversion_or_load_failed = False
-        failure_reason = "Unknown image processing error during OCR phase"
+        pil_images_to_process_for_file_id = []
+        conversion_or_load_error_for_file_id = False
+        load_conversion_reason = "Unknown image loading/conversion error."
 
         try:
-            if image_data['content_type'] == 'application/pdf':
+            if image_data_item['content_type'] == 'application/pdf':
                 if not os.getenv("POPPLER_PATH") and not shutil.which("pdftoppm"):
-                    failure_reason = "Poppler (PDF tool) not found. Cannot process PDF."
-                    logging.error(failure_reason + f" for file {original_filename_for_failure}. Check POPPLER_PATH or if pdftoppm is in PATH.")
-                    conversion_or_load_failed = True
+                    load_conversion_reason = "Poppler (PDF tool) not found. Cannot process PDF."
+                    conversion_or_load_error_for_file_id = True
                 else:
-                    pdf_pages = convert_from_bytes(image_data['bytes'], dpi=300, poppler_path=os.getenv("POPPLER_PATH"))
+                    pdf_pages = convert_from_bytes(image_data_item['bytes'], dpi=300, poppler_path=os.getenv("POPPLER_PATH"))
                     if not pdf_pages:
-                        failure_reason = "PDF converted to zero images (possibly empty or corrupt)."
-                        conversion_or_load_failed = True
+                        load_conversion_reason = "PDF converted to zero images (possibly empty or corrupt)."
+                        conversion_or_load_error_for_file_id = True
                     else:
-                        pil_images_to_process.extend(pdf_pages)
-            elif image_data['content_type'].startswith('image/'):
-                img_object = Image.open(io.BytesIO(image_data['bytes']))
-                pil_images_to_process.append(img_object)
+                        pil_images_to_process_for_file_id.extend(pdf_pages)
+            elif image_data_item['content_type'].startswith('image/'):
+                img_object = Image.open(io.BytesIO(image_data_item['bytes']))
+                pil_images_to_process_for_file_id.append(img_object)
             else:
-                failure_reason = f"Unsupported content type: {image_data['content_type']}"
-                conversion_or_load_failed = True
-        
+                load_conversion_reason = f"Unsupported content type: {image_data_item['content_type']}"
+                conversion_or_load_error_for_file_id = True
         except UnidentifiedImageError:
-            failure_reason = "Cannot identify image file. It might be corrupt or not a supported image format."
-            conversion_or_load_failed = True
-        except Exception as e: 
-            failure_reason = f"Error during image conversion/loading: {str(e)}"
-            if "poppler" in str(e).lower(): failure_reason = f"Poppler (PDF tool) error: {str(e)}"
-            conversion_or_load_failed = True
+            load_conversion_reason = "Cannot identify image file. It might be corrupt or not a supported image format."
+            conversion_or_load_error_for_file_id = True
+        except Exception as e:
+            load_conversion_reason = f"Error during image conversion/loading: {str(e)}"
+            if "poppler" in str(e).lower(): load_conversion_reason = f"Poppler (PDF tool) error: {str(e)}"
+            conversion_or_load_error_for_file_id = True
 
-        if conversion_or_load_failed:
-            logging.error(f"{failure_reason} for file {original_filename_for_failure}.")
+        if conversion_or_load_error_for_file_id:
+            logging.error(f"{load_conversion_reason} for file {original_filename_for_failure}.")
             if current_file_id != 'N/A' and not any(f['file_id'] == current_file_id for f in failed_extraction_images):
                 failed_extraction_images.append({
-                    "file_id": current_file_id, "original_filename": original_filename_for_failure, "reason": failure_reason
+                    "file_id": current_file_id, "original_filename": original_filename_for_failure, "reason": load_conversion_reason
                 })
-            continue
-        
-        if not pil_images_to_process: 
-            failure_reason = "No image content available after loading (e.g., empty PDF or unreadable image)."
-            logging.warning(f"{failure_reason} for {original_filename_for_failure}.")
+            continue # Next image_data_item
+
+        if not pil_images_to_process_for_file_id:
+            no_content_reason = "No image content available after loading (e.g., empty PDF or unreadable image)."
+            logging.warning(f"{no_content_reason} for {original_filename_for_failure}.")
             if current_file_id != 'N/A' and not any(f['file_id'] == current_file_id for f in failed_extraction_images):
-                 failed_extraction_images.append({
-                    "file_id": current_file_id, "original_filename": original_filename_for_failure, "reason": failure_reason
+                failed_extraction_images.append({
+                    "file_id": current_file_id, "original_filename": original_filename_for_failure, "reason": no_content_reason
                 })
-            continue
+            continue # Next image_data_item
 
-        current_file_texts_extracted = []
-        ocr_had_some_text_for_this_file = False
-        ocr_failure_reason_for_this_file = None
+        # Now process the PIL images for this file_id
+        any_course_extracted_this_file_id = False
+        # Best reason if all pages of this file_id fail to yield courses
+        best_failure_reason_for_file_id = "OCR yielded no usable text or no course names identified from any page." 
 
-        for i, pil_img in enumerate(pil_images_to_process):
-            page_identifier = f"page {i+1} of " if len(pil_images_to_process) > 1 else ""
-            try: 
-                if pil_img.mode not in ['RGB', 'L']: # Convert if not RGB or Grayscale
-                    pil_img = pil_img.convert('RGB')
+        for i, pil_img in enumerate(pil_images_to_process_for_file_id):
+            page_identifier = f"page {i+1} of " if len(pil_images_to_process_for_file_id) > 1 else ""
+            try:
+                if pil_img.mode not in ['RGB', 'L']: pil_img = pil_img.convert('RGB')
             except Exception as img_convert_err:
                 logging.warning(f"Could not convert image mode for {page_identifier}{original_filename_for_failure}: {img_convert_err}")
-                # Store a reason, but try to continue if there are other pages.
-                # If this is the only "image" (e.g. single page PDF, or single image file), this reason will be used.
-                ocr_failure_reason_for_this_file = f"Image mode conversion failed: {img_convert_err}"
-                continue 
+                page_specific_reason = f"Image mode conversion failed for page {i+1}: {img_convert_err}"
+                if best_failure_reason_for_file_id.startswith("OCR yielded no usable text"): # Prefer this more specific error
+                    best_failure_reason_for_file_id = page_specific_reason
+                continue # Try next page
 
-            course_text, text_extract_reason = infer_course_text_from_image_object(pil_img)
-            if course_text:
-                current_file_texts_extracted.append(course_text)
-                ocr_had_some_text_for_this_file = True
-                ocr_failure_reason_for_this_file = None # Clear any previous page error if one page succeeds
-                break # If text found on one page, assume that's good enough for this file
-            elif text_extract_reason and not ocr_failure_reason_for_this_file:
-                 # If no text extracted, store the first significant reason encountered for this file
-                 ocr_failure_reason_for_this_file = text_extract_reason
-        
-        if ocr_had_some_text_for_this_file:
-            all_extracted_raw_texts.extend(current_file_texts_extracted)
-        else: 
-            final_reason = ocr_failure_reason_for_this_file or "OCR could not extract any usable text from the image content."
-            logging.warning(f"{final_reason} for {original_filename_for_failure}")
+            raw_text_from_page, text_extract_reason_page = infer_course_text_from_image_object(pil_img)
+
+            if raw_text_from_page:
+                courses_from_page = filter_and_verify_course_text(raw_text_from_page)
+                if courses_from_page:
+                    accumulated_successful_courses.extend(courses_from_page)
+                    any_course_extracted_this_file_id = True
+                    logging.info(f"Successfully extracted courses from {page_identifier}{original_filename_for_failure}: {courses_from_page}")
+                    break # Success for this file_id, move to next image_data_item
+                else: # Text found, but no courses filtered
+                    page_specific_reason = text_extract_reason_page or "Page OCR found text, but no course names filtered."
+                    if best_failure_reason_for_file_id.startswith("OCR yielded no usable text"): # Prefer this more specific error
+                         best_failure_reason_for_file_id = page_specific_reason
+                    logging.info(f"No courses filtered from text on {page_identifier}{original_filename_for_failure}. Reason: {page_specific_reason}")
+            
+            elif text_extract_reason_page: # No raw text, but a reason for OCR failure
+                if best_failure_reason_for_file_id.startswith("OCR yielded no usable text") or "Image mode conversion failed" in best_failure_reason_for_file_id:
+                    best_failure_reason_for_file_id = text_extract_reason_page # This is a more direct OCR failure reason
+                logging.warning(f"OCR failed for {page_identifier}{original_filename_for_failure}. Reason: {text_extract_reason_page}")
+            # If raw_text_blob is None and text_extract_reason is None, this page is effectively blank for courses. Loop continues.
+
+        if not any_course_extracted_this_file_id:
+            logging.warning(f"Final failure reason for {original_filename_for_failure} (ID: {current_file_id}): {best_failure_reason_for_file_id}")
             if current_file_id != 'N/A' and not any(f['file_id'] == current_file_id for f in failed_extraction_images):
                 failed_extraction_images.append({
-                    "file_id": current_file_id, "original_filename": original_filename_for_failure, "reason": final_reason
+                    "file_id": current_file_id,
+                    "original_filename": original_filename_for_failure,
+                    "reason": best_failure_reason_for_file_id
                 })
 
-    processed_course_mentions = []
-    for raw_text_blob in all_extracted_raw_texts:
-        filtered = filter_and_verify_course_text(raw_text_blob)
-        processed_course_mentions.extend(filtered)
-    
-    successfully_extracted_courses = sorted(list(set(processed_course_mentions)))
-    logging.info(f"OCR Phase: Successfully extracted courses: {successfully_extracted_courses}")
+    final_successful_courses = sorted(list(set(accumulated_successful_courses)))
+    logging.info(f"OCR Phase: Final successfully extracted courses: {final_successful_courses}")
     logging.info(f"OCR Phase: Failed extraction images count: {len(failed_extraction_images)}")
     if failed_extraction_images: logging.debug(f"OCR Phase: Failed extraction image details: {failed_extraction_images}")
 
-
     return {
-        "successfully_extracted_courses": successfully_extracted_courses,
+        "successfully_extracted_courses": final_successful_courses,
         "failed_extraction_images": failed_extraction_images,
-        "processed_image_file_ids": list(set(processed_image_file_ids)) 
+        "processed_image_file_ids": list(set(processed_image_file_ids))
     }
 
 
 def generate_suggestions_from_known_courses(
     all_known_course_names,
-    previous_user_data_list=None # This is a list of user_processed_data items
+    previous_user_data_list=None 
 ):
-    """
-    Phase 2: Generates detailed suggestions based on a list of known course names.
-    Uses caching and LLM calls. Returns a structure for each known course.
-    """
-    user_processed_data_output = [] # This will be a list of dicts, one for each course in all_known_course_names
-    llm_error_summary_for_output = None # General error if LLM call fails for the batch
+    user_processed_data_output = [] 
+    llm_error_summary_for_output = None 
     
     cached_data_map = {}
     if previous_user_data_list:
-        for prev_item in previous_user_data_list: # Each item is a full block for an identified course
+        for prev_item in previous_user_data_list: 
             if "identified_course_name" in prev_item:
-                 cached_data_map[prev_item["identified_course_name"]] = prev_item # Cache the whole block
+                 cached_data_map[prev_item["identified_course_name"]] = prev_item 
     logging.info(f"Suggestions Phase: Built cache map from previous data with {len(cached_data_map)} entries.")
 
     courses_to_query_llm_for = []
-    # First, process courses that might be in cache
     for course_name in all_known_course_names:
-        # Check cache using the exact course_name (which might include [UNVERIFIED])
         if course_name in cached_data_map:
             logging.info(f"Suggestions Phase: Cache hit for '{course_name}'. Using cached data.")
-            # Add the entire cached block for this course
             user_processed_data_output.append(cached_data_map[course_name])
         else:
             courses_to_query_llm_for.append(course_name)
@@ -544,43 +532,36 @@ def generate_suggestions_from_known_courses(
         if "error" in llm_response_data:
             llm_error_summary_for_output = llm_response_data["error"]
             logging.error(f"Suggestions Phase: LLM query failed for batch: {llm_error_summary_for_output}")
-            # For courses that were supposed to be queried but LLM failed, create error entries
             for course_name in courses_to_query_llm_for:
                 user_processed_data_output.append({
                     "identified_course_name": course_name,
                     "description_from_graph": course_graph.get(course_name.replace(" [UNVERIFIED]", ""), {}).get("description"),
                     "ai_description": None,
                     "llm_suggestions": [],
-                    "llm_error": llm_error_summary_for_output # Assign batch error to each
+                    "llm_error": llm_error_summary_for_output 
                 })
         elif "text" in llm_response_data:
             parsed_llm_items = parse_llm_detailed_suggestions_response(llm_response_data["text"])
-            
-            # Map parsed LLM items by their identified_course_name for easy lookup
             parsed_items_map = {item["identified_course_name"]: item for item in parsed_llm_items}
 
             if not parsed_llm_items and courses_to_query_llm_for:
                  llm_error_summary_for_output = "LLM response received but no valid items could be parsed. Check LLM output format and server logs."
                  logging.warning(f"Suggestions Phase: {llm_error_summary_for_output}")
 
-
             for course_name in courses_to_query_llm_for:
-                # Try to match with the name LLM would have used (without [UNVERIFIED])
                 llm_item_for_course = parsed_items_map.get(course_name.replace(" [UNVERIFIED]", ""))
                 
                 if llm_item_for_course:
                     user_processed_data_output.append({
-                        "identified_course_name": course_name, # Use original name (with [UNVERIFIED] if present)
+                        "identified_course_name": course_name, 
                         "description_from_graph": course_graph.get(course_name.replace(" [UNVERIFIED]", ""), {}).get("description"),
                         "ai_description": llm_item_for_course["ai_description"],
                         "llm_suggestions": llm_item_for_course["llm_suggestions"],
-                        "llm_error": None # Successfully processed by LLM
+                        "llm_error": None 
                     })
                 else: 
-                    # LLM was queried, but this specific course was not in its parsed response
-                    # Or parsing failed to produce any items
                     error_msg_for_this_course = f"LLM was queried, but no specific data was returned or parsed for '{course_name}'."
-                    if llm_error_summary_for_output and "parsed" in llm_error_summary_for_output: # If general parsing error, use that
+                    if llm_error_summary_for_output and "parsed" in llm_error_summary_for_output: 
                         error_msg_for_this_course = llm_error_summary_for_output
                     
                     logging.warning(error_msg_for_this_course)
@@ -591,7 +572,7 @@ def generate_suggestions_from_known_courses(
                         "llm_suggestions": [],
                         "llm_error": error_msg_for_this_course
                     })
-        else: # Unexpected LLM response structure (neither "text" nor "error")
+        else: 
             llm_error_summary_for_output = "Unexpected response structure from LLM query function."
             logging.error(f"Suggestions Phase: {llm_error_summary_for_output}")
             for course_name in courses_to_query_llm_for:
@@ -601,42 +582,36 @@ def generate_suggestions_from_known_courses(
                     "ai_description": None, "llm_suggestions": [], "llm_error": llm_error_summary_for_output
                 })
     
-    # Sort final output by identified_course_name for consistency, if needed by frontend
     user_processed_data_output.sort(key=lambda x: x.get("identified_course_name", "").lower())
 
     return {
         "user_processed_data": user_processed_data_output,
-        "llm_error_summary": llm_error_summary_for_output # This is the general error from the batch LLM call if any
+        "llm_error_summary": llm_error_summary_for_output 
     }
 
 
 # Main orchestrator function
 def extract_and_recommend_courses_from_image_data(
     image_data_list=None, 
-    mode='ocr_only', # 'ocr_only' or 'suggestions_only'
-    known_course_names=None, # Used in 'suggestions_only' mode
-    previous_user_data_list=None, # Used for caching in 'suggestions_only' mode (list of user_processed_data items)
-    additional_manual_courses=None # General manual courses from textarea
+    mode='ocr_only', 
+    known_course_names=None, 
+    previous_user_data_list=None,
+    additional_manual_courses=None 
 ):
     if mode == 'ocr_only':
-        # Ensure additional_manual_courses is a list
         current_additional_manual_courses = additional_manual_courses if isinstance(additional_manual_courses, list) else []
+        current_image_data_list = image_data_list if isinstance(image_data_list, list) else []
 
-        if not image_data_list and not current_additional_manual_courses: # If no images and no general manual courses
-            logging.info("OCR Phase: No images and no general manual courses provided. Returning empty handed.")
+        if not current_image_data_list and not current_additional_manual_courses:
+            logging.info("OCR Phase: No images and no general manual courses provided.")
             return {
                 "successfully_extracted_courses": [], 
                 "failed_extraction_images": [],
                 "processed_image_file_ids": [] 
-                # "message": "No certificate images found in DB and no manual courses provided for OCR." # Optional: add message
             }
         
-        # Ensure image_data_list is a list, even if empty, for process_images_for_ocr
-        current_image_data_list = image_data_list if isinstance(image_data_list, list) else []
         ocr_results = process_images_for_ocr(current_image_data_list)
         
-        # Add general manual courses to the successfully_extracted_courses list for this phase
-        # This is so frontend can see them immediately if it wants to (e.g. for consolidating for phase 2)
         current_successful_courses = ocr_results.get("successfully_extracted_courses", [])
         if current_additional_manual_courses:
             for manual_course in current_additional_manual_courses:
@@ -651,18 +626,15 @@ def extract_and_recommend_courses_from_image_data(
     elif mode == 'suggestions_only':
         final_known_names_for_suggestions = known_course_names if isinstance(known_course_names, list) else []
         
-        # Note: additional_manual_courses should have been consolidated into known_course_names by frontend before calling this mode.
-        # If not, you might want to add them here too like in 'ocr_only' mode, but typically frontend handles the consolidated list for phase 2.
-        # For safety, let's ensure it's robust:
+        # Ensure additional_manual_courses (general ones) are also included if provided directly to suggestions_only mode
         current_additional_manual_courses = additional_manual_courses if isinstance(additional_manual_courses, list) else []
-        if current_additional_manual_courses:
+        if current_additional_manual_courses: # This is defensive, frontend should consolidate before calling suggestions_only
             for manual_course in current_additional_manual_courses:
                 clean_manual_course = manual_course.strip()
                 if clean_manual_course and clean_manual_course not in final_known_names_for_suggestions:
                     final_known_names_for_suggestions.append(clean_manual_course)
         
         final_known_names_for_suggestions = sorted(list(set(filter(None, final_known_names_for_suggestions))))
-
 
         if not final_known_names_for_suggestions:
             logging.warning("Suggestions Phase: No course names provided for suggestion generation.")
@@ -693,7 +665,6 @@ if __name__ == "__main__":
     test_image_folder = "test_images_for_failed_extraction" 
     if not os.path.exists(test_image_folder): os.makedirs(test_image_folder)
     
-    # Create a dummy blank image for testing failed OCR
     try:
         blank_image_path = os.path.join(test_image_folder, "blank_image.png")
         if not os.path.exists(blank_image_path):
@@ -701,7 +672,6 @@ if __name__ == "__main__":
             img.save(blank_image_path)
     except Exception as e:
         logging.error(f"Could not create blank test image: {e}")
-
 
     print("\n--- Testing OCR Only Mode ---")
     test_img_data = []
@@ -712,15 +682,12 @@ if __name__ == "__main__":
             "content_type": "image/png", "file_id": "blank_id_1"
         })
     
-    # Add a dummy Python certificate image data for testing successful OCR
-    # You would need to create a simple image with "Python Course" text named "python_cert.png" in the test_image_folder
     python_img_path = os.path.join(test_image_folder, "python_cert.png") 
     if os.path.exists(python_img_path):
        with open(python_img_path, "rb") as f: py_bytes = f.read()
        test_img_data.append({"bytes": py_bytes, "original_filename": "python_cert.png", "content_type": "image/png", "file_id": "python_id_1"})
     else:
         logging.warning(f"Test image 'python_cert.png' not found in '{test_image_folder}'. OCR success test for it will be skipped.")
-
 
     ocr_results = extract_and_recommend_courses_from_image_data(
         image_data_list=test_img_data,
@@ -732,17 +699,14 @@ if __name__ == "__main__":
 
     print("\n--- Testing Suggestions Only Mode (using results from OCR or mocked) ---")
     known_courses_for_suggestions = ocr_results.get("successfully_extracted_courses", [])
-    # Ensure there's something to test suggestions with
-    if not any("Python" in s for s in known_courses_for_suggestions): # If python_cert.png didn't exist/work
+    if not any("Python" in s for s in known_courses_for_suggestions): 
         known_courses_for_suggestions.append("Python")
     if not any("AI Intro" in s for s in known_courses_for_suggestions):
          known_courses_for_suggestions.append("Introduction to AI [UNVERIFIED]")
 
-
-    # Mock previous data for caching test
     mock_previous_run_data = [
         {
-            "identified_course_name": "Python", # Exact match to one of the known courses
+            "identified_course_name": "Python", 
             "description_from_graph": course_graph.get("Python",{}).get("description"),
             "ai_description": "This is a cached AI description for Python.",
             "llm_suggestions": [
@@ -755,13 +719,12 @@ if __name__ == "__main__":
 
     suggestion_results = extract_and_recommend_courses_from_image_data(
         mode='suggestions_only',
-        known_course_names=known_courses_for_suggestions, # This list comes from OCR + manual naming of failures + general manual
-        previous_user_data_list=mock_previous_run_data, # This is the `user_processed_data` part of a previous run
-        additional_manual_courses=["Manual Test Course 2"] # Test consolidation in suggestions_only mode too
+        known_course_names=known_courses_for_suggestions, 
+        previous_user_data_list=mock_previous_run_data, 
+        additional_manual_courses=["Manual Test Course 2"] 
     )
     print("\nSuggestion Results (Local Test):")
     print(json.dumps(suggestion_results, indent=2))
-
 
     print("\n--- Testing LLM Detailed Suggestion Parsing (already in file) ---")
     mock_llm_text = """
@@ -798,17 +761,15 @@ No specific suggestions available for this course.
         print("\nNOTE: Cohere API key not set. LLM calls were skipped in relevant tests.")
         print("To fully test, set COHERE_API_KEY in your .env file.")
 
-    # Test Poppler check (optional, shows log if not found)
     if not os.getenv("POPPLER_PATH") and not shutil.which("pdftoppm"):
         logging.warning("Local test: Poppler (pdftoppm) not found in POPPLER_PATH env var or system PATH. PDF processing in tests might be skipped or log errors.")
     else:
         logging.info("Local test: Poppler (pdftoppm) seems to be available.")
 
-    # Test YOLO model loading message (already happens at start)
     if not model:
         logging.warning("Local test: YOLO model ('best.pt') could not be loaded. OCR functionality will be limited to full image OCR without region detection.")
 
     if not TESSERACT_PATH:
          logging.warning("Local test: Tesseract executable not found. OCR will fail.")
 
-
+    
