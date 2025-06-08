@@ -2,7 +2,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { AuthProvider } from '@/context/AuthContext';
-import { ThemeProvider } from '@/hooks/useTheme'; // Updated import
+import { ThemeProvider } from '@/hooks/themeContextManager'; // Updated import
 import { Toaster } from '@/components/ui/toaster';
 import SiteHeader from '@/components/layout/SiteHeader';
 

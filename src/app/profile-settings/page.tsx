@@ -19,7 +19,7 @@ import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { sendPasswordReset, updateUserProfileName } from '@/lib/firebase/auth';
-import { useTheme } from '@/hooks/useTheme'; // We will create this hook
+import { useTheme } from '@/hooks/themeContextManager'; // Updated import
 
 const profileFormSchema = z.object({
   displayName: z.string().min(1, 'Display name cannot be empty.').max(50, 'Display name is too long.'),
