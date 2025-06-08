@@ -19,7 +19,7 @@ import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { sendPasswordReset, updateUserProfileName } from '@/lib/firebase/auth';
-import { useTheme } from '@/hooks/themeContextManager'; // Will import the simplified version
+import { useTheme } from '@/hooks/themeContextManager';
 
 const profileFormSchema = z.object({
   displayName: z.string().min(1, 'Display name cannot be empty.').max(50, 'Display name is too long.'),
@@ -29,11 +29,13 @@ type ProfileFormValues = z.infer<typeof profileFormSchema>;
 function ProfileSettingsPageContent() {
   const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
-  const { theme, toggleTheme } = useTheme(); // Will use the simplified useTheme
+  const { theme, toggleTheme } = useTheme();
 
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSendingReset, setIsSendingReset] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState(''); // UI only for now
+  const [mounted, setMounted] = useState(false);
+
 
   const profileForm = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
@@ -41,6 +43,10 @@ function ProfileSettingsPageContent() {
       displayName: '',
     },
   });
+  
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (user) {
@@ -75,7 +81,7 @@ function ProfileSettingsPageContent() {
     setIsSendingReset(false);
   };
 
-  if (authLoading || !user) {
+  if (authLoading || !user || !mounted) {
     return (
       <div className="flex h-[calc(100vh-var(--header-height,4rem))] items-center justify-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -161,16 +167,19 @@ function ProfileSettingsPageContent() {
             <div>
               <h3 className="font-medium mb-2 flex items-center"><Palette className="mr-2" /> Theme Preference</h3>
               <div className="flex items-center justify-between space-x-2 p-3 border rounded-md">
-                <Label htmlFor="dark-mode-toggle" className="text-sm">
-                  Dark Mode ({theme === 'dark' ? 'Enabled' : 'Disabled'}) {/* Theme will always be 'light' with simplified hook */}
+                <Label htmlFor="dark-mode-toggle" className="text-sm capitalize">
+                   {theme} Mode
                 </Label>
                 <Switch
                   id="dark-mode-toggle"
                   checked={theme === 'dark'} 
-                  onCheckedChange={toggleTheme} // This will call the simplified console.log
-                  aria-label="Toggle dark mode"
+                  onCheckedChange={toggleTheme}
+                  aria-label={`Toggle to ${theme === 'dark' ? 'light' : 'dark'} mode`}
                 />
               </div>
+               <p className="text-xs text-muted-foreground mt-2">
+                  Current theme is: {theme}. Use the toggle to switch.
+                </p>
             </div>
           </CardContent>
         </Card>
