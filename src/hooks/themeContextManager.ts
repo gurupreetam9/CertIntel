@@ -12,10 +12,6 @@ interface ThemeContextType {
   toggleTheme: () => void;
 }
 
-// Create the context with a default undefined value.
-// Actual value will be supplied by the Provider.
-// const ThemeContext = React.createContext<ThemeContextType | undefined>(undefined);
-
 // This is a static, hardcoded value for the simplified hooks.
 const staticDiagnosticContextValue: ThemeContextType = {
   theme: 'light',
@@ -34,7 +30,8 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
     console.log("ThemeProvider (Extremely Simplified): Rendering children directly. No actual context provider. Theme is fixed to 'light' via useTheme hook.");
   }
   // The problematic <ThemeContext.Provider> line is removed.
-  return <>{children}</>;
+  // And now, fragments are removed too.
+  return children;
 };
 
 // useTheme hook (Extremely Simplified for Diagnostics)
