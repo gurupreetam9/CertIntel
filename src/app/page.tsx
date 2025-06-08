@@ -10,7 +10,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
-import { Crop, Minimize } from 'lucide-react';
+import { Crop, Minimize, FileText } from 'lucide-react'; // Added FileText for error/empty state
 
 export type ImageFitMode = 'contain' | 'cover';
 
@@ -21,7 +21,7 @@ function HomePageContent() {
   const [refreshKey, setRefreshKey] = useState(0);
   const { userId } = useAuth();
   const { toast } = useToast();
-  const [imageFitMode, setImageFitMode] = useState<ImageFitMode>('contain');
+  const [imageFitMode, setImageFitMode] = useState<ImageFitMode>('contain'); // Default set to 'contain'
 
   const toggleImageFitMode = () => {
     setImageFitMode(prevMode => (prevMode === 'contain' ? 'cover' : 'contain'));
@@ -59,7 +59,7 @@ function HomePageContent() {
         } catch (jsonError) {
           console.error("HomePageContent: Could not parse error JSON from API. Raw response text might follow if parsable.", jsonError);
           try {
-            const rawText = await response.text(); // Attempt to get raw text if JSON parsing fails
+            const rawText = await response.text(); 
             console.error("HomePageContent: Raw error response text from API:", rawText.substring(0, 500));
           } catch (textReadError) {
             console.error("HomePageContent: Could not read raw error response text from API.", textReadError);
