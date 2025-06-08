@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info, CheckCircle, ListChecks, Wand2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info, CheckCircle, ListChecks, Wand2, Save } from 'lucide-react';
 import NextImage from 'next/image';
 import Link from 'next/link';
 import { useState, useCallback, useEffect } from 'react';
@@ -21,12 +21,12 @@ interface LLMSuggestion {
   url: string;
 }
 
-interface UserProcessedCourseData { // For the final rich result items
+interface UserProcessedCourseData { 
   identified_course_name: string;
   description_from_graph?: string | null;
-  ai_description?: string | null; // AI-generated description of the *identified_course_name*
-  llm_suggestions: LLMSuggestion[]; // List of detailed suggestions for the identified_course_name
-  llm_error?: string | null; // Error specific to this identified_course's LLM processing
+  ai_description?: string | null; 
+  llm_suggestions: LLMSuggestion[]; 
+  llm_error?: string | null; 
 }
 
 interface FailedExtractionImage {
@@ -35,22 +35,20 @@ interface FailedExtractionImage {
   reason?: string;
 }
 
-// For Phase 1 (OCR only) response from backend
 interface OcrPhaseResult {
   successfully_extracted_courses?: string[];
   failed_extraction_images?: FailedExtractionImage[];
-  processed_image_file_ids?: string[]; // IDs of all images *attempted* in OCR phase
+  processed_image_file_ids?: string[]; 
   error?: string;
-  message?: string; // General message from backend
+  message?: string; 
 }
 
-// For Phase 2 (Suggestions) response from backend - this is the final structure
 interface SuggestionsPhaseResult {
-  user_processed_data?: UserProcessedCourseData[]; // Main data
-  llm_error_summary?: string | null; // General error from LLM batch call if any
-  associated_image_file_ids?: string[]; // From backend if it sends them with suggestions
-  error?: string; // Top-level error from Flask
-  message?: string; // General message from Flask
+  user_processed_data?: UserProcessedCourseData[]; 
+  llm_error_summary?: string | null; 
+  associated_image_file_ids?: string[]; 
+  error?: string; 
+  message?: string; 
 }
 
 type ProcessingPhase = 'initial' | 'manualNaming' | 'processingSuggestions' | 'results';
@@ -61,25 +59,18 @@ function AiFeaturePageContent() {
   const { toast } = useToast();
   const { userId, user } = useAuth();
 
-  // State Management
   const [phase, setPhase] = useState<ProcessingPhase>('initial');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   
   const [generalManualCoursesInput, setGeneralManualCoursesInput] = useState<string>('');
   
-  // Data from OCR phase (Phase 1)
   const [ocrSuccessfullyExtracted, setOcrSuccessfullyExtracted] = useState<string[]>([]);
   const [ocrFailedImages, setOcrFailedImages] = useState<FailedExtractionImage[]>([]);
-  // This will now store image IDs related to the final suggestion results, if backend sends them.
-  // ocrProcessedImageFileIds was more for the OCR step; this is for the final display.
   const [associatedImageFileIdsForResults, setAssociatedImageFileIdsForResults] = useState<string[]>([]);
 
-
-  // User input for failed images during 'manualNaming' phase
   const [manualNamesForFailedImages, setManualNamesForFailedImages] = useState<{ [key: string]: string }>({});
   
-  // Final result from suggestions phase (Phase 2)
   const [finalResult, setFinalResult] = useState<SuggestionsPhaseResult | null>(null);
 
 
@@ -91,7 +82,6 @@ function AiFeaturePageContent() {
     setPhase('initial');
     setIsLoading(false);
     setError(null);
-    // setGeneralManualCoursesInput(''); // Optionally keep if user wants to re-run
     setOcrSuccessfullyExtracted([]);
     setOcrFailedImages([]);
     setManualNamesForFailedImages({});
@@ -99,22 +89,60 @@ function AiFeaturePageContent() {
     setAssociatedImageFileIdsForResults([]);
   };
 
+  const saveManualCourseNames = async () => {
+    if (!userId) return;
+    const namesToSave = Object.entries(manualNamesForFailedImages)
+      .filter(([_, name]) => name && name.trim().length > 0)
+      .map(([fileId, courseName]) => ({ fileId, courseName: courseName.trim() }));
+
+    if (namesToSave.length === 0) return;
+
+    toast({ title: 'Saving Manual Names...', description: `Attempting to save ${namesToSave.length} manually entered course names.`});
+
+    const savePromises = namesToSave.map(item =>
+      fetch(`${flaskServerBaseUrl}/api/manual-course-name`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, fileId: item.fileId, courseName: item.courseName }),
+      }).then(async res => {
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          console.error(`Failed to save manual name for ${item.fileId}: ${errData.error || res.statusText}`);
+          // Non-critical, so we don't throw here, just log.
+          toast({ title: 'Save Warning', description: `Could not save manual name for an image: ${item.fileId}. ${errData.error || ''}`, variant: 'destructive' });
+        } else {
+          console.log(`Successfully saved manual name for ${item.fileId}`);
+        }
+      }).catch(err => {
+        console.error(`Network error saving manual name for ${item.fileId}:`, err);
+        toast({ title: 'Save Error', description: `Network error saving manual name for an image: ${item.fileId}.`, variant: 'destructive' });
+      })
+    );
+
+    try {
+      await Promise.all(savePromises);
+      toast({ title: 'Manual Names Processed', description: 'Attempted to save all entered manual names.'});
+    } catch (e) {
+      // This catch is mostly for Promise.all throwing (which it won't with current individual catches)
+      console.error("Error in Promise.all for saving manual names (should not happen often):", e);
+    }
+  };
+
+
   const handlePrimaryButtonClick = useCallback(async () => {
     if (!userId) {
       toast({ title: 'Authentication Required', variant: 'destructive' });
       return;
     }
-    // If already loading (e.g. from processingSuggestions phase), do nothing.
     if (isLoading && phase === 'processingSuggestions') return;
-
 
     setIsLoading(true);
     setError(null);
     const endpoint = `${flaskServerBaseUrl}/api/process-certificates`;
 
-    if (phase === 'initial' || phase === 'results') { // Start or restart OCR phase
-      resetToInitialState(); // Clear everything for a fresh start or restart
-      setPhase('initial'); // Explicitly set to initial if restarting from results
+    if (phase === 'initial' || phase === 'results') { 
+      resetToInitialState(); 
+      setPhase('initial'); 
       
       const generalManualCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
 
@@ -129,7 +157,7 @@ function AiFeaturePageContent() {
           }),
         });
         const data: OcrPhaseResult = await response.json();
-        setIsLoading(false); // OCR phase done
+        setIsLoading(false); 
 
         if (!response.ok || data.error) {
           throw new Error(data.error || `Server error: ${response.status}`);
@@ -137,20 +165,17 @@ function AiFeaturePageContent() {
         
         setOcrSuccessfullyExtracted(data.successfully_extracted_courses || []);
         setOcrFailedImages(data.failed_extraction_images || []);
-        // `processed_image_file_ids` from OCR result might be useful later if we want to show *all* images OCR'd
-        // For now, `associated_image_file_ids` will be populated by the suggestions phase response.
+        setAssociatedImageFileIdsForResults(data.processed_image_file_ids || []); // Store all images attempted in OCR
 
         if (data.failed_extraction_images && data.failed_extraction_images.length > 0) {
           setPhase('manualNaming');
           toast({
             title: 'Action Required',
-            description: `${data.failed_extraction_images.length} certificate(s) couldn't be read. Please name them below.`,
+            description: `${data.failed_extraction_images.length} certificate(s) couldn't be fully identified. Please name them below if needed. Previously saved names (if any) have been applied.`,
             duration: 7000
           });
         } else if ((data.successfully_extracted_courses && data.successfully_extracted_courses.length > 0) || generalManualCourses.length > 0) {
-          setPhase('processingSuggestions'); // Intermediate state
-          // Automatically trigger the suggestions phase since there are courses to process
-          // Using a brief timeout to allow state updates before re-calling
+          setPhase('processingSuggestions'); 
           setTimeout(() => handlePrimaryButtonClick(), 0);
         } else {
           toast({ title: 'Nothing to Process', description: data.message || 'No courses extracted and no manual courses provided.' });
@@ -164,10 +189,13 @@ function AiFeaturePageContent() {
         setPhase('initial');
       }
 
-    } else if (phase === 'manualNaming' || phase === 'processingSuggestions') { // Trigger suggestions phase (Phase 2)
-      // Ensure `isLoading` is true for this part if it wasn't already (e.g. coming from manualNaming)
-      if (phase === 'manualNaming') setIsLoading(true); // If triggered by user click from manualNaming
-      setPhase('processingSuggestions'); // Ensure phase is set
+    } else if (phase === 'manualNaming' || phase === 'processingSuggestions') { 
+      if (phase === 'manualNaming') { // If coming from manual naming, save entered names first
+        await saveManualCourseNames(); 
+      }
+      
+      if (phase === 'manualNaming') setIsLoading(true); 
+      setPhase('processingSuggestions'); 
 
       const userProvidedNamesForFailures = Object.values(manualNamesForFailedImages).map(name => name.trim()).filter(name => name.length > 0);
       const generalManualCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
@@ -198,14 +226,15 @@ function AiFeaturePageContent() {
           }),
         });
         const data: SuggestionsPhaseResult = await response.json();
-        setIsLoading(false); // Suggestions phase done
+        setIsLoading(false); 
 
         if (!response.ok || data.error) {
           throw new Error(data.error || `Server error: ${response.status}`);
         }
 
         setFinalResult(data);
-        setAssociatedImageFileIdsForResults(data.associated_image_file_ids || []);
+        // Use associated_image_file_ids from suggestions response if available, otherwise fallback to OCR processed IDs
+        setAssociatedImageFileIdsForResults(data.associated_image_file_ids || associatedImageFileIdsForResults);
         setPhase('results');
 
         if (data.user_processed_data && data.user_processed_data.length > 0) {
@@ -224,11 +253,11 @@ function AiFeaturePageContent() {
         setPhase(ocrFailedImages.length > 0 ? 'manualNaming' : 'initial'); 
       }
     }
-  }, [userId, flaskServerBaseUrl, phase, generalManualCoursesInput, ocrSuccessfullyExtracted, ocrFailedImages, manualNamesForFailedImages, toast, isLoading]);
+  }, [userId, flaskServerBaseUrl, phase, generalManualCoursesInput, ocrSuccessfullyExtracted, ocrFailedImages, manualNamesForFailedImages, toast, isLoading, associatedImageFileIdsForResults]);
 
 
   let buttonText = "Process Certificates for OCR";
-  let ButtonIconComponent = ListChecks; // Use a variable for the component type
+  let ButtonIconComponent = ListChecks; 
   if (phase === 'manualNaming') {
     buttonText = "Proceed with AI Suggestions";
     ButtonIconComponent = Wand2;
@@ -252,8 +281,9 @@ function AiFeaturePageContent() {
       </div>
       
       <p className="mb-4 text-muted-foreground">
-        Upload certificates on the home page. This tool processes them in two steps:
-        1. OCR to extract text. 2. AI suggestions for identified courses.
+        Upload certificates on the home page. This tool processes them to extract course names (OCR phase). 
+        If some names can't be read, you can provide them. Then, AI generates descriptions and next-step suggestions (Suggestions phase).
+        Manually entered names for specific certificates are saved for future runs.
       </p>
 
       { (phase === 'initial' || phase === 'manualNaming') && (
@@ -270,14 +300,14 @@ function AiFeaturePageContent() {
         </div>
       )}
 
-      {/* Main Action Button - always visible unless in results phase and no results */}
       { (phase !== 'results' || (phase === 'results' && finalResult)) && (
           <Button 
             onClick={handlePrimaryButtonClick} 
             disabled={isLoading || !user || (phase === 'processingSuggestions' && isLoading) } 
             className="w-full sm:w-auto mb-6"
+            size="lg"
           >
-            <ButtonIconComponent className={`mr-2 h-4 w-4 ${(isLoading && phase === 'processingSuggestions') ? 'animate-spin' : ''}`} />
+            <ButtonIconComponent className={`mr-2 h-5 w-5 ${(isLoading && phase === 'processingSuggestions') ? 'animate-spin' : ''}`} />
             {buttonText}
           </Button>
         )
@@ -290,7 +320,6 @@ function AiFeaturePageContent() {
         </Card>
       )}
 
-      {/* --- Phase: Manual Naming for OCR Failures --- */}
       {phase === 'manualNaming' && ocrFailedImages.length > 0 && (
         <Card className="my-6 border-amber-500 bg-amber-500/10">
           <CardHeader>
@@ -298,8 +327,9 @@ function AiFeaturePageContent() {
               <AlertTriangle className="mr-2 h-5 w-5" /> Name Unidentified Certificates
             </CardTitle>
             <CardDescription>
-              OCR failed for {ocrFailedImages.length} image(s). Please provide the course name for each.
-              These names will be used to get AI suggestions.
+              OCR couldn't identify course names for {ocrFailedImages.length} image(s). 
+              If you know the course name, please provide it below to improve AI suggestions.
+              These names will be saved for future use with these specific images.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 max-h-96 overflow-y-auto pr-2">
@@ -332,28 +362,29 @@ function AiFeaturePageContent() {
               </div>
             ))}
           </CardContent>
-           <CardFooter>
+           <CardFooter className="pt-4">
             <Button 
               onClick={handlePrimaryButtonClick} 
               disabled={isLoading || !user || (phase === 'processingSuggestions' && isLoading)} 
               className="w-full"
+              size="lg"
             >
-              <ButtonIconComponent className={`mr-2 h-4 w-4 ${(isLoading && phase === 'processingSuggestions') ? 'animate-spin' : ''}`} />
-              {buttonText} {/* This will be "Proceed with AI Suggestions" in this phase */}
+              <ButtonIconComponent className={`mr-2 h-5 w-5 ${(isLoading && phase === 'processingSuggestions') ? 'animate-spin' : ''}`} />
+              {buttonText} 
             </Button>
           </CardFooter>
         </Card>
       )}
       
-      {/* Displaying Successfully OCR'd courses during manualNaming phase for context */}
       {phase === 'manualNaming' && ocrSuccessfullyExtracted.length > 0 && (
         <Card className="mb-6 border-green-500 bg-green-500/10">
             <CardHeader>
                 <CardTitle className="text-lg font-headline text-green-700 flex items-center">
-                    <CheckCircle className="mr-2 h-5 w-5" /> Successfully OCR'd Courses
+                    <CheckCircle className="mr-2 h-5 w-5" /> Successfully Identified Courses (OCR & Saved Manual)
                 </CardTitle>
                 <CardDescription>
-                    These courses were identified by OCR and will be included when you proceed to get AI suggestions.
+                    These courses were identified by OCR or from your previously saved manual entries. 
+                    They will be included when you proceed to get AI suggestions.
                 </CardDescription>
             </CardHeader>
             <CardContent>
@@ -364,8 +395,6 @@ function AiFeaturePageContent() {
         </Card>
       )}
 
-
-      {/* --- Phase: Results Display Area --- */}
       {phase === 'results' && finalResult && (
         <div className="flex-grow border border-border rounded-lg shadow-md overflow-y-auto p-4 bg-card space-y-6">
           <h2 className="text-2xl font-headline mb-4 border-b pb-2">Processed Result & AI Suggestions:</h2>
@@ -413,10 +442,10 @@ function AiFeaturePageContent() {
                     <CardTitle className="text-xl font-headline text-primary">
                       {identifiedCourseData.identified_course_name}
                     </CardTitle>
-                    {identifiedCourseData.ai_description && ( // Prefer AI description first
+                    {identifiedCourseData.ai_description && ( 
                       <CardDescription className="pt-1 text-sm">AI Description: {identifiedCourseData.ai_description}</CardDescription>
                     )}
-                    {identifiedCourseData.description_from_graph && !identifiedCourseData.ai_description && ( // Show graph desc if no AI desc
+                    {identifiedCourseData.description_from_graph && !identifiedCourseData.ai_description && ( 
                       <CardDescription className="pt-1 text-sm italic">Graph Description: {identifiedCourseData.description_from_graph}</CardDescription>
                     )}
                      {!identifiedCourseData.ai_description && !identifiedCourseData.description_from_graph && (
@@ -476,3 +505,5 @@ export default function AiFeaturePage() {
     </ProtectedPage>
   );
 }
+
+    
