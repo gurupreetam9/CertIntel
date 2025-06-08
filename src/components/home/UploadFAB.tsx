@@ -22,7 +22,7 @@ export default function UploadFAB({ onUploadSuccess }: UploadFABProps) {
         <Button
           variant="default"
           size="icon"
-          className="fixed bottom-16 right-6 md:bottom-8 md:right-8 h-14 w-14 rounded-full shadow-xl z-40 bg-primary hover:bg-primary/90 text-primary-foreground"
+          className="fixed bottom-24 right-6 md:bottom-8 md:right-8 h-14 w-14 rounded-full shadow-xl z-40 bg-primary hover:bg-primary/90 text-primary-foreground"
           aria-label="Upload Certificate or File"
         >
           <Plus className="h-7 w-7" />
