@@ -244,22 +244,36 @@ def query_cohere_llm_for_recommendations(completed_courses_text_list):
         return "No completed courses provided to LLM for recommendations."
 
     prompt = f"""
-    The user has completed the following courses or topics, extracted from their certificates or manually added: {', '.join(completed_courses_text_list)}.
+    The user has completed the following courses or topics: {', '.join(completed_courses_text_list)}.
     Based on these, suggest 2-3 relevant next courses to advance their skills and career.
-    For each suggested course:
-    - Provide the "Course Name".
-    - Provide a concise 1-2 line "Description" of what the course covers and why it's a good next step.
-    - Provide a "URL" to a reputable learning platform or resource for that course (e.g., Coursera, freeCodeCamp, official documentation).
-    - Provide "Suggested Next Courses" which are 2-3 further courses that could follow *after completing this suggested course*, as a comma-separated list. If no specific follow-up courses are obvious for this suggestion, you can omit this "Suggested Next Courses" line.
+    For each suggested course, you MUST provide:
+    1. "Course Name": The name of the course.
+    2. "Description": A concise 1-2 line description.
+    3. "URL": A URL to a reputable learning resource for this course.
+    4. "Suggested Next Courses": A comma-separated list of 2-3 *further* courses that could logically follow after completing the main course you just recommended. If no further courses are obvious for this suggestion, you MUST write "Suggested Next Courses: None" or "Suggested Next Courses: Not applicable" for this line.
 
-    Format each suggestion clearly, like this example:
+    Format each suggestion strictly as follows:
+    Course: [Course Name Here]
+    Description: [Description Here]
+    URL: [URL Here]
+    Suggested Next Courses: [Comma-separated list of further courses, or "None", or "Not applicable"]
+
+    Example 1 (with further courses):
     Course: Advanced JavaScript
     Description: Deepen your JavaScript knowledge, covering ES6+ features, asynchronous programming, and design patterns. Essential for complex web applications.
     URL: https://www.example.com/advanced-javascript
     Suggested Next Courses: Further React, TypeScript, Backend Development with Node.js
 
-    IMPORTANT: Do not recommend any of the courses the user has already completed: {', '.join(completed_courses_text_list)}.
-    Ensure the output for each suggestion strictly follows the "Course:\\nDescription:\\nURL:\\n(Optional)Suggested Next Courses:\\n" format. Do not add any extra text before the first "Course:" or between suggestions unless it's part of a description or suggested next courses.
+    Example 2 (with no obvious further courses):
+    Course: Specialized Certification Exam Prep
+    Description: Final preparation for the XYZ certification.
+    URL: https://www.example.com/xyz-prep
+    Suggested Next Courses: None
+
+    IMPORTANT:
+    - Do not recommend any of the courses the user has already completed: {', '.join(completed_courses_text_list)}.
+    - Ensure the output for each suggestion strictly follows the specified multi-line format including all four fields (Course, Description, URL, Suggested Next Courses).
+    - Do not add any extra text or preambles before the first "Course:" line or between suggestions, unless it is part of a description or a course name.
     """
     try:
         response = co.chat(model="command-r-plus", message=prompt, temperature=0.6)
@@ -271,17 +285,12 @@ def query_cohere_llm_for_recommendations(completed_courses_text_list):
 
 def parse_llm_recommendation_response(llm_response_text):
     recommendations = []
-    # Regex to find blocks: Course, Description, URL, and optionally Suggested Next Courses
-    # (?s) is equivalent to re.DOTALL for inline usage
-    # Lookahead (?=\n*Course:|\Z) ensures matching up to the next course or end of string
+    # Regex to find blocks: Course, Description, URL, and now MANDATORY Suggested Next Courses line
     pattern = re.compile(
         r"Course:(.*?)\n"                       # Group 1: Course Name
         r"Description:(.*?)\n"                  # Group 2: Description
-        r"URL:(.*?)(?:\n"                       # Group 3: URL (must be followed by a newline)
-        r"Suggested Next Courses:(.*?))?\n*"    # Group 4 (Optional): Suggested Next Courses content
-                                                # This group captures the text after "Suggested Next Courses:"
-                                                # It might be empty or contain course names.
-                                                # The \n* after it consumes newlines before the lookahead.
+        r"URL:(.*?)\n"                          # Group 3: URL (must be followed by a newline)
+        r"Suggested Next Courses:(.*?)\n*"       # Group 4: Suggested Next Courses content (now expected)
         r"(?=\n*Course:|\Z)",                   # Positive lookahead for next "Course:" or end of string
         re.DOTALL | re.IGNORECASE
     )
@@ -302,34 +311,37 @@ def parse_llm_recommendation_response(llm_response_text):
         name = match.group(1).strip()
         description = match.group(2).strip()
         url = match.group(3).strip()
-        next_courses_text = match.group(4) # This might be None if "Suggested Next Courses:" wasn't present
+        next_courses_text = match.group(4).strip() if match.group(4) else "" # Ensure it's a string
 
         next_courses_list = []
         if next_courses_text:
-            next_courses_list = [nc.strip() for nc in next_courses_text.strip().split(',') if nc.strip()]
-
+            # Handle "None", "Not applicable", etc. for the next_courses list
+            if next_courses_text.lower() not in ["none", "not applicable", "n/a", ""]:
+                next_courses_list = [nc.strip() for nc in next_courses_text.split(',') if nc.strip()]
+        
         if name and description and url:
             if not (url.startswith("http://") or url.startswith("https://")):
                 logging.warning(f"Skipping LLM recommendation due to invalid URL: '{url}' for course '{name}'")
                 continue
             
-            if len(name) > 200:
-                 logging.warning(f"Skipping LLM recommendation due to potentially problematic name (too long or preamble-like): '{name[:70]}...'")
-                 continue
+            # Basic filtering for name field to avoid overly long or preamble-like names getting stored
+            # This check might need refinement based on observed LLM outputs
+            preamble_indicators_in_name = ["here are", "suggested courses", "recommendation based on", "course recommendations for"]
+            is_likely_preamble_in_name = any(indicator in name.lower() for indicator in preamble_indicators_in_name) and len(name.split()) > 5
             
-            preamble_indicators = ["here are", "suggested course", "based on your completion"]
-            if any(indicator in name.lower() for indicator in preamble_indicators) and len(name.split()) > 5:
-                 logging.warning(f"Skipping LLM recommendation as name looks like preamble: '{name[:70]}...'")
-                 continue
+            if is_likely_preamble_in_name:
+                logging.warning(f"LLM recommendation's 'Course' field looks like a preamble and not a specific course name: '{name[:100]}...'. Attempting to parse, but quality might be affected.")
+                # Potentially try to extract a real course name if a pattern emerges, or just log and proceed.
+                # For now, we log and proceed with the potentially problematic name.
 
             recommendations.append({
                 "name": name,
                 "description": description,
                 "url": url,
-                "next_courses": next_courses_list # Use "next_courses" to align with graph output
+                "next_courses": next_courses_list
             })
         else:
-            logging.warning(f"Could not parse a complete LLM recommendation from matched block. Name:'{name}', Desc:'{description}', URL:'{url}'")
+            logging.warning(f"Could not parse a complete LLM recommendation from matched block. Name:'{name}', Desc:'{description}', URL:'{url}', NextCoursesText:'{next_courses_text}'")
             
     if not recommendations and llm_response_text.strip() and (first_course_match or 'first_course_match_anywhere' in locals()):
         logging.warning(f"LLM response contained 'Course:' but no recommendations were successfully parsed. Ensure LLM output strictly follows format. Text fragment: {text_to_search[:500]}...")
@@ -627,3 +639,5 @@ if __name__ == "__main__":
     else:
         print(f"No images found in '{test_image_folder}' to test.")
 
+
+      
