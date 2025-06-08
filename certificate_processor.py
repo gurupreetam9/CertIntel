@@ -246,17 +246,16 @@ def query_cohere_llm_for_recommendations(completed_courses_text_list):
     prompt = f"""
     The user has completed the following courses or topics: {', '.join(completed_courses_text_list)}.
     Based on these, suggest 2-3 relevant next courses to advance their skills and career.
-    For each suggested course, you MUST provide:
-    1. "Course Name": The name of the course.
-    2. "Description": A concise 1-2 line description.
-    3. "URL": A URL to a reputable learning resource for this course.
-    4. "Suggested Next Courses": A comma-separated list of 2-3 *further* courses that could logically follow after completing the main course you just recommended. If no further courses are obvious for this suggestion, you MUST write "Suggested Next Courses: None" or "Suggested Next Courses: Not applicable" for this line.
 
-    Format each suggestion strictly as follows:
-    Course: [Course Name Here]
-    Description: [Description Here]
-    URL: [URL Here]
-    Suggested Next Courses: [Comma-separated list of further courses, or "None", or "Not applicable"]
+    IMPORTANT: Your entire response MUST consist of a list of course suggestions.
+    Each suggestion MUST start with "Course: [Actual Course Name Here]".
+    This "Course:" line must contain ONLY the name of the course you are recommending.
+    Followed immediately on the next line by "Description: [Description Here]".
+    Followed immediately on the next line by "URL: [URL Here]".
+    Followed immediately on the next line by "Suggested Next Courses: [Comma-separated list of 2-3 *further* courses, or "None", or "Not applicable"]".
+
+    Do NOT include any introductory phrases, summaries, or any text whatsoever before the very first "Course:" line of your response, or between the suggestion blocks.
+    The first line of your response MUST be "Course: ...".
 
     Example 1 (with further courses):
     Course: Advanced JavaScript
@@ -270,10 +269,8 @@ def query_cohere_llm_for_recommendations(completed_courses_text_list):
     URL: https://www.example.com/xyz-prep
     Suggested Next Courses: None
 
-    IMPORTANT:
-    - Do not recommend any of the courses the user has already completed: {', '.join(completed_courses_text_list)}.
-    - Ensure the output for each suggestion strictly follows the specified multi-line format including all four fields (Course, Description, URL, Suggested Next Courses).
-    - Do not add any extra text or preambles before the first "Course:" line or between suggestions, unless it is part of a description or a course name.
+    Do not recommend any of the courses the user has already completed: {', '.join(completed_courses_text_list)}.
+    Ensure the output for each suggestion strictly follows the specified multi-line format including all four fields (Course, Description, URL, Suggested Next Courses).
     """
     try:
         response = co.chat(model="command-r-plus", message=prompt, temperature=0.6)
@@ -295,27 +292,29 @@ def parse_llm_recommendation_response(llm_response_text):
         re.DOTALL | re.IGNORECASE
     )
 
-    first_course_match = re.search(r"^Course:", llm_response_text, re.MULTILINE | re.IGNORECASE)
-    if not first_course_match:
-        first_course_match_anywhere = re.search(r"Course:", llm_response_text, re.IGNORECASE)
+    # Start search from the beginning of the text, assuming the prompt's strictness is followed.
+    text_to_search = llm_response_text
+    
+    # Check if the response starts with "Course:" as strictly instructed
+    if not text_to_search.lstrip().upper().startswith("COURSE:"):
+        logging.warning(f"LLM response did not start with 'Course:' as strictly instructed. Response: {text_to_search[:200]}... Attempting to find first 'Course:' block anyway.")
+        # If not, try to find the first occurrence, but this indicates LLM didn't follow instructions perfectly
+        first_course_match_anywhere = re.search(r"Course:", text_to_search, re.IGNORECASE)
         if first_course_match_anywhere:
-            logging.info(f"LLM response preamble might be present. Starting search from first 'Course:' occurrence.")
-            text_to_search = llm_response_text[first_course_match_anywhere.start():]
+            text_to_search = text_to_search[first_course_match_anywhere.start():]
         else:
-            logging.warning(f"LLM response did not contain 'Course:' keyword as expected. Response: {llm_response_text[:200]}...")
+            logging.error(f"LLM response did not contain 'Course:' keyword. Cannot parse. Response: {text_to_search[:200]}...")
             return []
-    else:
-        text_to_search = llm_response_text[first_course_match.start():]
+
 
     for match in pattern.finditer(text_to_search):
         name = match.group(1).strip()
         description = match.group(2).strip()
         url = match.group(3).strip()
-        next_courses_text = match.group(4).strip() if match.group(4) else "" # Ensure it's a string
+        next_courses_text = match.group(4).strip() if match.group(4) else "" 
 
         next_courses_list = []
         if next_courses_text:
-            # Handle "None", "Not applicable", etc. for the next_courses list
             if next_courses_text.lower() not in ["none", "not applicable", "n/a", ""]:
                 next_courses_list = [nc.strip() for nc in next_courses_text.split(',') if nc.strip()]
         
@@ -324,15 +323,13 @@ def parse_llm_recommendation_response(llm_response_text):
                 logging.warning(f"Skipping LLM recommendation due to invalid URL: '{url}' for course '{name}'")
                 continue
             
-            # Basic filtering for name field to avoid overly long or preamble-like names getting stored
-            # This check might need refinement based on observed LLM outputs
-            preamble_indicators_in_name = ["here are", "suggested courses", "recommendation based on", "course recommendations for"]
-            is_likely_preamble_in_name = any(indicator in name.lower() for indicator in preamble_indicators_in_name) and len(name.split()) > 5
+            # Check for residual preambles in the name, despite the strict prompt
+            preamble_indicators_in_name = ["here are", "suggested courses", "recommendation based on", "course recommendations for", "here is a suggestion", "you might consider"]
+            is_likely_preamble_in_name = any(indicator in name.lower() for indicator in preamble_indicators_in_name) and (len(name.split()) > 7 or ":" in name)
             
             if is_likely_preamble_in_name:
-                logging.warning(f"LLM recommendation's 'Course' field looks like a preamble and not a specific course name: '{name[:100]}...'. Attempting to parse, but quality might be affected.")
-                # Potentially try to extract a real course name if a pattern emerges, or just log and proceed.
-                # For now, we log and proceed with the potentially problematic name.
+                logging.warning(f"LLM recommendation's 'Course' field still looks like a preamble: '{name[:100]}...'. This might affect display. The LLM should provide only the course title on this line.")
+                # No easy fix here if LLM includes preamble *as* the course name. Best is to show as-is or skip.
 
             recommendations.append({
                 "name": name,
@@ -343,8 +340,8 @@ def parse_llm_recommendation_response(llm_response_text):
         else:
             logging.warning(f"Could not parse a complete LLM recommendation from matched block. Name:'{name}', Desc:'{description}', URL:'{url}', NextCoursesText:'{next_courses_text}'")
             
-    if not recommendations and llm_response_text.strip() and (first_course_match or 'first_course_match_anywhere' in locals()):
-        logging.warning(f"LLM response contained 'Course:' but no recommendations were successfully parsed. Ensure LLM output strictly follows format. Text fragment: {text_to_search[:500]}...")
+    if not recommendations and llm_response_text.strip():
+        logging.warning(f"LLM response was non-empty but no recommendations were successfully parsed according to the strict format. Text fragment: {text_to_search[:500]}...")
 
     return recommendations
 
@@ -374,14 +371,14 @@ def generate_recommendations(user_completed_courses_list, previous_results_list=
                                 nc for nc in prev_rec.get("next_courses", [])
                                 if nc.lower() not in normalized_completed_set
                             ]
-                            if filtered_next_courses or not prev_rec.get("next_courses"): # Keep if next_courses is empty (meaning it's an end node)
+                            if filtered_next_courses or not prev_rec.get("next_courses"): 
                                 cached_graph_recommendation = {**prev_rec, "next_courses": filtered_next_courses}
                             break 
                 if cached_graph_recommendation:
                     break 
         
         if cached_graph_recommendation:
-            if cached_graph_recommendation.get("next_courses") or not cached_graph_recommendation.get("next_courses_defined_in_graph", True): # Ensure we add it even if next_courses list is empty after filtering
+            if cached_graph_recommendation.get("next_courses") or not cached_graph_recommendation.get("next_courses_defined_in_graph", True): 
                 recommendations_output.append(cached_graph_recommendation) 
             processed_courses.add(clean_course_name)
             if matched_course := cached_graph_recommendation.get('matched_course'):
@@ -395,25 +392,23 @@ def generate_recommendations(user_completed_courses_list, previous_results_list=
                 nc for nc in entry["next_courses"]
                 if nc.lower() not in normalized_completed_set 
             ]
-            # Add even if filtered_next_courses is empty, to show the completed course
             recommendations_output.append({
                 "type": "graph_direct", "completed_course": clean_course_name,
                 "description": entry["description"], "next_courses": filtered_next_courses,
                 "url": entry.get("url", "#"),
-                "next_courses_defined_in_graph": bool(entry["next_courses"]) # Track if original graph had next courses
+                "next_courses_defined_in_graph": bool(entry["next_courses"]) 
             })
             processed_courses.add(clean_course_name)
             continue 
 
-        if not is_unverified: # Only try similarity matching for verified courses
+        if not is_unverified: 
             best_match, score = get_closest_known_course(clean_course_name)
-            if best_match and score > 0.75 and best_match in course_graph: # Threshold for similarity
+            if best_match and score > 0.75 and best_match in course_graph: 
                 entry = course_graph[best_match]
                 filtered_next_courses = [
                     nc for nc in entry["next_courses"]
                     if nc.lower() not in normalized_completed_set 
                 ]
-                # Add even if filtered_next_courses is empty
                 recommendations_output.append({
                     "type": "graph_similar", "completed_course": clean_course_name,
                     "matched_course": best_match, "similarity_score": round(score, 2),
@@ -425,17 +420,10 @@ def generate_recommendations(user_completed_courses_list, previous_results_list=
                 processed_courses.add(best_match) 
                 continue 
         
-        # If not found in graph directly or via similarity, it's a candidate for LLM
         llm_candidate_courses.append(course_name_full)
-
-    # Consolidate all completed courses (verified, unverified, manual) for the LLM prompt context
-    # This ensures LLM has full context for "Do not recommend any of the courses the user has already completed"
-    llm_completed_courses_for_prompt_context = [c.replace(" [UNVERIFIED]", "").strip() for c in user_completed_courses_list]
     
-    # Create a unique key for caching LLM results based on the courses that *triggered* the LLM call
-    # (i.e., those not found in the graph)
+    llm_completed_courses_for_prompt_context = [c.replace(" [UNVERIFIED]", "").strip() for c in user_completed_courses_list]
     unique_llm_trigger_inputs = sorted(list(set(c.replace(" [UNVERIFIED]", "").strip() for c in llm_candidate_courses if c.replace(" [UNVERIFIED]", "").strip())))
-
 
     if unique_llm_trigger_inputs: 
         llm_cache_key = tuple(unique_llm_trigger_inputs)
@@ -448,13 +436,10 @@ def generate_recommendations(user_completed_courses_list, previous_results_list=
                 current_llm_recs_from_this_doc = []
                 is_relevant_cached_doc = False
                 for prev_rec in actual_prev_recommendations:
-                    # Check if the cached LLM recommendation was based on the same set of trigger courses
                     if prev_rec.get('type', '').startswith('llm') and \
                        tuple(sorted(prev_rec.get('based_on_courses', []))) == llm_cache_key:
                         is_relevant_cached_doc = True
-                        # Filter out if the LLM-recommended course itself has already been completed by the user
                         if prev_rec.get("name", "").lower() not in normalized_completed_set:
-                            # Also filter its next_courses against completed set
                             filtered_llm_next_courses = [
                                 nc for nc in prev_rec.get("next_courses", [])
                                 if nc.lower() not in normalized_completed_set
@@ -478,18 +463,16 @@ def generate_recommendations(user_completed_courses_list, previous_results_list=
                 if not parsed_llm_recs:
                      logging.warning(f"LLM response parsing yielded no recommendations for trigger input: {unique_llm_trigger_inputs}. Raw response was: {llm_response_text[:300]}...")
                 for rec_data in parsed_llm_recs:
-                    # Filter out if the LLM-recommended course itself has already been completed
                     if rec_data.get("name", "").lower() not in normalized_completed_set:
-                        # Filter its next_courses against completed set
                         filtered_llm_next_courses = [
                             nc for nc in rec_data.get("next_courses", [])
                             if nc.lower() not in normalized_completed_set
                         ]
                         recommendations_output.append({
                             "type": "llm", 
-                            "based_on_courses": unique_llm_trigger_inputs, # Store what triggered this LLM call
+                            "based_on_courses": unique_llm_trigger_inputs, 
                             **rec_data,
-                            "next_courses": filtered_llm_next_courses # Use the filtered list
+                            "next_courses": filtered_llm_next_courses 
                         })
             else: 
                 recommendations_output.append({
@@ -564,9 +547,6 @@ def extract_and_recommend_courses_from_image_data(
         for manual_course in additional_manual_courses:
             clean_manual_course = manual_course.strip() 
             if clean_manual_course and clean_manual_course not in unique_final_course_list:
-                # Add manual courses without "[UNVERIFIED]" tag initially,
-                # as they are user-provided. Verification against known lists
-                # will happen in generate_recommendations or matching.
                 unique_final_course_list.append(clean_manual_course)
         unique_final_course_list = sorted(list(set(unique_final_course_list))) 
         logging.info(f"Merged with manual courses. Final list for recommendations: {unique_final_course_list}")
@@ -639,5 +619,4 @@ if __name__ == "__main__":
     else:
         print(f"No images found in '{test_image_folder}' to test.")
 
-
-      
+    
