@@ -217,4 +217,4 @@ if __name__ == '__main__':
     app.logger.info("Flask application starting with __name__ == '__main__'")
     app_logger.info(f"Effective MONGODB_URI configured: {'Yes' if MONGODB_URI else 'No'}")
     app_logger.info(f"Effective MONGODB_DB_NAME: {DB_NAME}")
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)), debug=True)

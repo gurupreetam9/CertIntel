@@ -21,12 +21,12 @@ interface LLMSuggestion {
   url: string;
 }
 
-interface UserProcessedCourseData {
+interface UserProcessedCourseData { // For the final rich result items
   identified_course_name: string;
   description_from_graph?: string | null;
-  ai_description?: string | null; // New field for AI generated description of the identified course
-  llm_suggestions: LLMSuggestion[];
-  llm_error?: string | null;
+  ai_description?: string | null; // AI-generated description of the *identified_course_name*
+  llm_suggestions: LLMSuggestion[]; // List of detailed suggestions for the identified_course_name
+  llm_error?: string | null; // Error specific to this identified_course's LLM processing
 }
 
 interface FailedExtractionImage {
@@ -35,21 +35,21 @@ interface FailedExtractionImage {
   reason?: string;
 }
 
-// For Phase 1 (OCR only) response
+// For Phase 1 (OCR only) response from backend
 interface OcrPhaseResult {
   successfully_extracted_courses?: string[];
   failed_extraction_images?: FailedExtractionImage[];
-  processed_image_file_ids?: string[]; // IDs of all images attempted in OCR phase
+  processed_image_file_ids?: string[]; // IDs of all images *attempted* in OCR phase
   error?: string;
-  message?: string;
+  message?: string; // General message from backend
 }
 
-// For Phase 2 (Suggestions) response - this is also the final structure
+// For Phase 2 (Suggestions) response from backend - this is the final structure
 interface SuggestionsPhaseResult {
-  user_processed_data?: UserProcessedCourseData[];
-  llm_error_summary?: string | null;
-  error?: string;
-  message?: string; // General messages from backend
+  user_processed_data?: UserProcessedCourseData[]; // Main data
+  llm_error_summary?: string | null; // General error from LLM batch call if any
+  error?: string; // Top-level error from Flask
+  message?: string; // General message from Flask
 }
 
 type ProcessingPhase = 'initial' | 'manualNaming' | 'processingSuggestions' | 'results';
@@ -87,7 +87,7 @@ function AiFeaturePageContent() {
     setPhase('initial');
     setIsLoading(false);
     setError(null);
-    // setGeneralManualCoursesInput(''); // Optionally keep this
+    // setGeneralManualCoursesInput(''); // Optionally keep this if user wants to re-run with same manual general courses
     setOcrSuccessfullyExtracted([]);
     setOcrFailedImages([]);
     setOcrProcessedImageFileIds([]);
@@ -117,8 +117,8 @@ function AiFeaturePageContent() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             userId, 
-            mode: 'ocr_only',
-            additionalManualCourses: generalManualCourses 
+            mode: 'ocr_only', // Requesting OCR phase from backend
+            additionalManualCourses: generalManualCourses // Send general manual courses if any
           }),
         });
         const data: OcrPhaseResult = await response.json();
@@ -129,7 +129,7 @@ function AiFeaturePageContent() {
         
         setOcrSuccessfullyExtracted(data.successfully_extracted_courses || []);
         setOcrFailedImages(data.failed_extraction_images || []);
-        setOcrProcessedImageFileIds(data.processed_image_file_ids || []);
+        setOcrProcessedImageFileIds(data.processed_image_file_ids || []); // Store IDs of all images attempted in OCR
 
         if (data.failed_extraction_images && data.failed_extraction_images.length > 0) {
           setPhase('manualNaming');
@@ -141,10 +141,12 @@ function AiFeaturePageContent() {
         } else if ((data.successfully_extracted_courses && data.successfully_extracted_courses.length > 0) || generalManualCourses.length > 0) {
           // No OCR failures, but there are courses to process for suggestions
           // Automatically trigger the suggestions phase
-          setPhase('processingSuggestions'); // Intermediate state before calling suggestions
+          setPhase('processingSuggestions'); // Intermediate state before calling the next phase function
           // Use a brief timeout to allow state update before calling the next phase function
+          // This ensures that ocrSuccessfullyExtracted state is updated before being used in the next call.
           setTimeout(() => handlePrimaryButtonClick(), 0); 
         } else {
+          // No OCR successes, no OCR failures needing naming, and no general manual courses.
           toast({ title: 'Nothing to Process', description: data.message || 'No courses extracted and no manual courses provided.' });
           setPhase('initial'); // Stay initial or go to a specific "empty" state
         }
@@ -157,8 +159,8 @@ function AiFeaturePageContent() {
         setIsLoading(false); // Loading for OCR phase ends here
       }
 
-    } else if (phase === 'manualNaming' || phase === 'processingSuggestions') { // Trigger suggestions phase
-      setPhase('processingSuggestions'); // Ensure phase is set
+    } else if (phase === 'manualNaming' || phase === 'processingSuggestions') { // Trigger suggestions phase (Phase 2)
+      setPhase('processingSuggestions'); // Ensure phase is set correctly if coming from 'manualNaming'
       const userProvidedNamesForFailures = Object.values(manualNamesForFailedImages).map(name => name.trim()).filter(name => name.length > 0);
       const generalManualCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
       
@@ -166,9 +168,9 @@ function AiFeaturePageContent() {
         ...new Set([
           ...ocrSuccessfullyExtracted, 
           ...userProvidedNamesForFailures,
-          ...generalManualCourses
+          ...generalManualCourses // General manual courses are included here
         ])
-      ].filter(name => name.length > 0);
+      ].filter(name => name.length > 0); // Filter out any empty strings
 
       if (allKnownCourses.length === 0) {
         toast({ title: 'No Courses', description: 'No courses available to get suggestions for.', variant: 'destructive' });
@@ -183,9 +185,9 @@ function AiFeaturePageContent() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             userId, 
-            mode: 'suggestions_only',
+            mode: 'suggestions_only', // Requesting suggestions phase from backend
             knownCourseNames: allKnownCourses
-            // additionalManualCourses is implicitly included in knownCourseNames by frontend logic
+            // additionalManualCourses is now implicitly included in knownCourseNames by frontend logic
           }),
         });
         const data: SuggestionsPhaseResult = await response.json();
@@ -215,7 +217,7 @@ function AiFeaturePageContent() {
     }
   }, [userId, flaskServerBaseUrl, phase, generalManualCoursesInput, ocrSuccessfullyExtracted, manualNamesForFailedImages, toast]);
 
-  // Determine button text and icon
+  // Determine button text and icon based on current phase
   let buttonText = "Process Certificates for OCR";
   let ButtonIcon = ListChecks;
   if (phase === 'manualNaming') {
@@ -449,7 +451,3 @@ export default function AiFeaturePage() {
     </ProtectedPage>
   );
 }
-```
-</content>
-  </change>
-</changes>
