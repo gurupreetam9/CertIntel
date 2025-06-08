@@ -21,7 +21,8 @@ function HomePageContent() {
   const [refreshKey, setRefreshKey] = useState(0);
   const { userId } = useAuth();
   const { toast } = useToast();
-  const [imageFitMode, setImageFitMode] = useState<ImageFitMode>('contain'); // Explicitly default to 'contain'
+  // Ensure the default image fit mode is 'contain' to match the screenshot style
+  const [imageFitMode, setImageFitMode] = useState<ImageFitMode>('contain'); 
 
   const toggleImageFitMode = () => {
     setImageFitMode(prevMode => (prevMode === 'contain' ? 'cover' : 'contain'));
@@ -107,6 +108,7 @@ function HomePageContent() {
         </div>
         <Button onClick={toggleImageFitMode} variant="outline" size="sm" className="shrink-0">
           {imageFitMode === 'contain' ? <Minimize className="mr-2 h-4 w-4" /> : <Crop className="mr-2 h-4 w-4" /> }
+          {/* Text reflects the action: if current is 'contain', offer to switch to 'cover' */}
           {imageFitMode === 'contain' ? 'Switch to Cover' : 'Switch to Contain'}
         </Button>
       </div>
