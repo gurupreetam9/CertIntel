@@ -6,20 +6,20 @@ import { useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, Save, KeyRound, Palette, UserCircle, Phone } from 'lucide-react';
+import { ArrowLeft, Loader2, Save, KeyRound, UserCircle } from 'lucide-react'; // Removed Palette
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
+// import { Switch } from '@/components/ui/switch'; // Removed Switch
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { Separator } from '@/components/ui/separator';
+// import { Separator } from '@/components/ui/separator'; // Removed Separator if only used before theme
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { sendPasswordReset, updateUserProfileName } from '@/lib/firebase/auth';
-import { useTheme } from '@/hooks/themeContextManager';
+// import { useTheme } from '@/hooks/themeContextManager'; // Removed useTheme
 
 const profileFormSchema = z.object({
   displayName: z.string().min(1, 'Display name cannot be empty.').max(50, 'Display name is too long.'),
@@ -29,13 +29,12 @@ type ProfileFormValues = z.infer<typeof profileFormSchema>;
 function ProfileSettingsPageContent() {
   const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
-  const { theme, toggleTheme } = useTheme();
+  // const { theme, toggleTheme } = useTheme(); // Removed theme usage
 
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSendingReset, setIsSendingReset] = useState(false);
-  const [phoneNumber, setPhoneNumber] = useState(''); // UI only for now
-  const [mounted, setMounted] = useState(false);
-
+  const [phoneNumber, setPhoneNumber] = useState('');
+  // const [mounted, setMounted] = useState(false); // Removed mounted state, not needed without theme toggle
 
   const profileForm = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
@@ -44,9 +43,9 @@ function ProfileSettingsPageContent() {
     },
   });
   
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  // useEffect(() => { // Removed useEffect for mounted state
+  //   setMounted(true);
+  // }, []);
 
   useEffect(() => {
     if (user) {
@@ -81,7 +80,8 @@ function ProfileSettingsPageContent() {
     setIsSendingReset(false);
   };
 
-  if (authLoading || !user || !mounted) {
+  // Removed `|| !mounted` from condition
+  if (authLoading || !user) {
     return (
       <div className="flex h-[calc(100vh-var(--header-height,4rem))] items-center justify-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -150,7 +150,7 @@ function ProfileSettingsPageContent() {
         <Card id="account-settings">
           <CardHeader>
             <CardTitle className="text-xl font-headline flex items-center"><KeyRound className="mr-2" /> Account Settings</CardTitle>
-            <CardDescription>Manage your account security and preferences.</CardDescription>
+            <CardDescription>Manage your account security.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div>
@@ -163,24 +163,7 @@ function ProfileSettingsPageContent() {
                 Send Password Reset Email
               </Button>
             </div>
-            <Separator />
-            <div>
-              <h3 className="font-medium mb-2 flex items-center"><Palette className="mr-2" /> Theme Preference</h3>
-              <div className="flex items-center justify-between space-x-2 p-3 border rounded-md">
-                <Label htmlFor="dark-mode-toggle" className="text-sm capitalize">
-                   {theme} Mode
-                </Label>
-                <Switch
-                  id="dark-mode-toggle"
-                  checked={theme === 'dark'} 
-                  onCheckedChange={toggleTheme}
-                  aria-label={`Toggle to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-                />
-              </div>
-               <p className="text-xs text-muted-foreground mt-2">
-                  Current theme is: {theme}. Use the toggle to switch.
-                </p>
-            </div>
+            {/* Removed Theme Preference Section and Separator */}
           </CardContent>
         </Card>
       </div>

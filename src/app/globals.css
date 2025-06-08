@@ -1,3 +1,4 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -56,48 +57,7 @@ body {
     --sidebar-ring: 15 90% 50%;
   }
 
-  .dark {
-    /* Keeping dark theme structure, can be refined later. For now, invert or use darker shades. */
-    --background: 40 10% 10%; /* Dark Brown */
-    --foreground: 45 20% 90%; /* Light Beige */
-
-    --card: 40 10% 12%;
-    --card-foreground: 45 20% 90%;
-
-    --popover: 40 10% 12%;
-    --popover-foreground: 45 20% 90%;
-
-    --primary: 45 80% 55%; /* Slightly desaturated Gold for dark */
-    --primary-foreground: 40 10% 10%;
-
-    --secondary: 40 10% 20%;
-    --secondary-foreground: 45 20% 90%;
-
-    --muted: 40 10% 25%;
-    --muted-foreground: 45 20% 70%;
-
-    --accent: 15 80% 55%; /* Slightly desaturated Orange for dark */
-    --accent-foreground: 0 0% 0%;
-
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-
-    --border: 40 10% 25%;
-    --input: 40 10% 25%;
-    --ring: 15 80% 55%;
-
-    --chart-1: 45 80% 55%;
-    --chart-2: 15 80% 55%;
-
-    --sidebar-background: 40 10% 8%;
-    --sidebar-foreground: 45 20% 90%;
-    --sidebar-primary: 45 80% 55%;
-    --sidebar-primary-foreground: 40 10% 10%;
-    --sidebar-accent: 15 80% 55%;
-    --sidebar-accent-foreground: 0 0% 0%;
-    --sidebar-border: 40 10% 20%;
-    --sidebar-ring: 15 80% 55%;
-  }
+  /* Removed .dark class variables */
 }
 
 @layer base {

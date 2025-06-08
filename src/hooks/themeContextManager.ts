@@ -1,103 +1,51 @@
 
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, type ReactNode } from 'react';
+import React, { createContext, useContext, type ReactNode, useEffect } from 'react';
 
-type Theme = 'light' | 'dark';
+// Since dark mode is removed, theme is always 'light'.
+type Theme = 'light';
 
 interface ThemeContextType {
   theme: Theme;
+  // No-op functions as theme switching is removed
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
 }
 
-const defaultInitialTheme: Theme = 'light';
+// Default (and only) theme context value
+const defaultThemeContextValue: ThemeContextType = {
+  theme: 'light',
+  setTheme: () => {
+    // console.warn('setTheme called, but theme switching is disabled.');
+  },
+  toggleTheme: () => {
+    // console.warn('toggleTheme called, but theme switching is disabled.');
+  },
+};
 
-const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
+const ThemeContext = createContext<ThemeContextType>(defaultThemeContextValue);
 
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
-  const [currentTheme, setCurrentThemeState] = useState<Theme>(defaultInitialTheme); // Initialize with default
-  const [mounted, setMounted] = useState(false);
-
-  // Effect to set initial theme from localStorage or system preference ONCE
+  // Apply 'light' class to the documentElement on mount for consistency,
+  // though it might not be strictly necessary if all dark mode CSS is removed.
   useEffect(() => {
-    setMounted(true); // Mark as mounted first
-    let initialTheme = defaultInitialTheme;
-    try {
-      const storedTheme = localStorage.getItem('theme') as Theme | null;
-      if (storedTheme && (storedTheme === 'light' || storedTheme === 'dark')) {
-        initialTheme = storedTheme;
-      } else {
-        const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        initialTheme = systemPrefersDark ? 'dark' : 'light';
-      }
-    } catch (error) {
-      console.warn('ThemeProvider: Could not access localStorage to get theme. Defaulting theme.');
-    }
-    setCurrentThemeState(initialTheme); // This will trigger a re-render if different from default
-  }, []); // Empty dependency array: runs only on mount
-
-  // Effect to update HTML class and localStorage when theme changes
-  useEffect(() => {
-    if (mounted) { // Only run if mounted
-      document.documentElement.classList.remove('light', 'dark');
-      document.documentElement.classList.add(currentTheme);
-      try {
-        localStorage.setItem('theme', currentTheme);
-      } catch (error) {
-        console.warn('ThemeProvider: Could not save theme to localStorage.');
-      }
-    }
-  }, [currentTheme, mounted]); // Runs when currentTheme or mounted changes
-
-  const setThemeCallback = useCallback((theme: Theme) => {
-    setCurrentThemeState(theme);
+    document.documentElement.classList.remove('dark');
+    document.documentElement.classList.add('light');
   }, []);
 
-  const toggleThemeCallback = useCallback(() => {
-    setCurrentThemeState(prevTheme =>
-      prevTheme === 'light' ? 'dark' : 'light' // Simpler toggle
-    );
-  }, []);
-
-  const providerValue: ThemeContextType = useMemo(() => {
-    return {
-      theme: currentTheme, // currentTheme is always a Theme type here
-      setTheme: setThemeCallback,
-      toggleTheme: toggleThemeCallback,
-    };
-  }, [currentTheme, setThemeCallback, toggleThemeCallback]);
-
-  // Handle SSR or initial client render before theme is determined from localStorage.
-  // When not mounted, return children directly. useTheme hook will provide defaults.
-  // This avoids hydration mismatches and potential parsing errors with the Provider.
-  if (!mounted) {
-    return <>{children}</>;
-  }
-
-  // This is the main render path once mounted and theme is determined.
-  // The `providerValue` is guaranteed to be a valid `ThemeContextType` object.
-  return (
-    <ThemeContext.Provider value={providerValue}>
-      {children}
-    </ThemeContext.Provider>
-  );
+  // Extremely simplified ThemeProvider for diagnostic purposes.
+  // It no longer provides the ThemeContext.Provider itself,
+  // so useTheme will fall back to defaultThemeContextValue.
+  // The <React.Fragment> that previously caused errors is also removed.
+  return children;
 };
 
 export const useTheme = (): ThemeContextType => {
+  // useContext will return defaultThemeContextValue as ThemeProvider
+  // no longer wraps children with ThemeContext.Provider.
+  // Or, if somehow ThemeContext.Provider is used higher up, it would get that.
+  // For robustness, ensure it always returns a valid structure.
   const context = useContext(ThemeContext);
-  if (context === undefined) {
-    // This fallback is crucial for SSR and when the provider isn't fully ready
-    // (e.g., when ThemeProvider returns children directly during the !mounted phase).
-    return {
-        theme: defaultInitialTheme,
-        setTheme: () => {
-            // console.warn("setTheme called on ThemeContext with default fallback values.");
-        },
-        toggleTheme: () => {
-            // console.warn("toggleTheme called on ThemeContext with default fallback values.");
-        },
-    };
-  }
-  return context;
+  return context || defaultThemeContextValue;
 };
