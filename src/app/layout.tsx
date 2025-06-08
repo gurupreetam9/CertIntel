@@ -2,7 +2,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { AuthProvider } from '@/context/AuthContext';
-import { ThemeProvider } from '@/hooks/themeContextManager'; // Updated import
+import { ThemeProvider } from '@/hooks/themeContextManager'; // Will import the simplified version
 import { Toaster } from '@/components/ui/toaster';
 import SiteHeader from '@/components/layout/SiteHeader';
 
@@ -25,7 +25,7 @@ export default function RootLayout({
       </head>
       <body className="font-body antialiased">
         <AuthProvider>
-          <ThemeProvider> {/* Wrap with ThemeProvider */}
+          <ThemeProvider> {/* This will now be the simplified ThemeProvider */}
             <div className="flex flex-col min-h-screen">
               <SiteHeader />
               <main className="flex-1">{children}</main>
