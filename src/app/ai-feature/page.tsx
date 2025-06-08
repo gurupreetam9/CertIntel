@@ -125,7 +125,7 @@ function AiFeaturePageContent() {
          toast({ title: 'Processing Successful', description: `Processed ${responseData.user_processed_data.length} identified course(s)/topic(s).` });
       }
       if (responseData.llm_error_summary) {
-        toast({title: "LLM Warning", description: responseData.llm_error_summary, variant: "destructive", duration: 7000})
+        toast({title: "LLM Warning", description: responseData.llm_error_summary, variant: "destructive", duration: 7000});
       }
 
     } catch (err: any) {
@@ -260,7 +260,7 @@ function AiFeaturePageContent() {
              <Card className="border-amber-500 bg-amber-500/10">
               <CardHeader className="flex-row items-center gap-2">
                 <AlertTriangle className="w-5 h-5 text-amber-700" />
-                <CardTitle className="text-amber-700 text-lg">LLM Warning</CardHeader>
+                <CardTitle className="text-amber-700 text-lg">LLM Warning</CardTitle>
               </CardHeader>
               <CardContent><p className="text-amber-700">{result.llm_error_summary}</p></CardContent>
             </Card>
@@ -336,4 +336,6 @@ export default function AiFeaturePage() {
     </ProtectedPage>
   );
 }
+    
+
     
