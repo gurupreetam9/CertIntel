@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info } from 'lucide-react';
 import NextImage from 'next/image';
 import Link from 'next/link';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -54,6 +54,10 @@ function AiFeaturePageContent() {
   const [imagesForManualNaming, setImagesForManualNaming] = useState<FailedExtractionImage[] | null>(null);
   const [manualNamesForImages, setManualNamesForImages] = useState<{ [key: string]: string }>({});
 
+  useEffect(() => {
+    console.log("Current imagesForManualNaming state:", imagesForManualNaming);
+  }, [imagesForManualNaming]);
+
   const handleManualNameChange = (fileId: string, name: string) => {
     setManualNamesForImages(prev => ({ ...prev, [fileId]: name }));
   };
@@ -69,11 +73,10 @@ function AiFeaturePageContent() {
     }
 
     setIsLoading(true);
-    setResult(null); // Clear previous main result
-    setError(null); // Clear previous global error
+    setResult(null); 
+    setError(null); 
     setImagesForManualNaming(null); // Clear previous failed images UI *before* new request
-
-    const endpoint = `${flaskServerBaseUrl}/api/process-certificates`;
+                                   // Also ensures that if the new response has no failed images, the section is gone.
 
     const generalManualCourses = manualCoursesInput
       .split(',')
@@ -86,11 +89,10 @@ function AiFeaturePageContent() {
       
     const combinedManualCourses = [...new Set([...generalManualCourses, ...specificManualNamesForFailedImages])];
     
-    // Important: Clear specific manual names *state* for next round; general input remains as is.
-    // The UI for manual naming will be repopulated if the new response contains failed_extraction_images.
+    // Clear specific manual names *state* for next round; general input remains as is.
     setManualNamesForImages({}); 
 
-
+    const endpoint = `${flaskServerBaseUrl}/api/process-certificates`;
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -106,26 +108,25 @@ function AiFeaturePageContent() {
         throw new Error(errorMessage);
       }
       
-      setResult(responseData); // Set the main result object
+      setResult(responseData); 
 
-      // Now, specifically handle the failed_extraction_images for UI display
       if (responseData.failed_extraction_images && responseData.failed_extraction_images.length > 0) {
-        setImagesForManualNaming(responseData.failed_extraction_images); // This will trigger the UI section
+        setImagesForManualNaming(responseData.failed_extraction_images);
         toast({
-          title: 'Action Required',
-          description: `${responseData.failed_extraction_images.length} certificate(s) could not be automatically identified. Please name them manually below if desired, then process again.`,
-          variant: 'default',
-          duration: 8000,
+          title: 'Action Required for Some Certificates',
+          description: `${responseData.failed_extraction_images.length} certificate(s) could not be automatically identified or OCR failed. Please review the "Name Unidentified Certificates" section below. You can name them and click "Process My Certificates" again.`,
+          variant: 'default', // Using default, not destructive, as it's an informative action step.
+          duration: 10000, // Longer duration
         });
       } else {
-        setImagesForManualNaming(null); // Explicitly clear if none came back
+        // Ensure it's cleared if the API call was successful but returned no failed images this time.
+        setImagesForManualNaming(null);
       }
 
-      if (responseData.error) { // Global error from backend
+      if (responseData.error) { 
         toast({ title: 'Processing Error', description: responseData.error, variant: 'destructive' });
         setError(responseData.error);
       } else if (responseData.message && !responseData.user_processed_data?.length && (!responseData.failed_extraction_images || responseData.failed_extraction_images.length === 0)) {
-         // Show general message only if no data and no failed images to name
          toast({ title: 'Processing Info', description: responseData.message });
       } else if (responseData.user_processed_data?.length) {
          toast({ title: 'Processing Successful', description: `Processed ${responseData.user_processed_data.length} identified course(s)/topic(s).` });
@@ -142,14 +143,10 @@ function AiFeaturePageContent() {
     } finally {
       setIsLoading(false);
     }
-  }, [userId, flaskServerBaseUrl, manualCoursesInput, manualNamesForImages, toast]); // manualNamesForImages is needed here if we read it directly for the call
-
-  // For debugging purposes:
-  // console.log("Current imagesForManualNaming state:", imagesForManualNaming);
-  // console.log("Current result object state:", result);
+  }, [userId, flaskServerBaseUrl, manualCoursesInput, manualNamesForImages, toast]); 
 
   return (
-    <div className="container mx-auto px-4 py-8 md:px-6 lg:px-8 flex flex-col h-[calc(100vh-var(--header-height,4rem))]">
+    <div className="container mx-auto px-4 py-8 md:px-6 lg:px-8 flex flex-col h-[calc(100vh-var(--header-height,4rem)-1px)]">
       <div className="mb-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Button asChild variant="outline" size="icon" aria-label="Go back to Home">
@@ -197,22 +194,26 @@ function AiFeaturePageContent() {
               <AlertTriangle className="mr-2 h-5 w-5" /> Name Unidentified Certificates
             </CardTitle>
             <CardDescription>
-              We couldn&apos;t automatically identify course names from the following certificate images. 
-              Please enter the course name for each. These names will be included when you click &quot;Process My Certificates&quot; again.
+              We couldn&apos;t automatically identify course names from the following certificate images, or OCR failed. 
+              Please review each, enter the course name if known, and then click &quot;Process My Certificates&quot; again to include them.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 max-h-96 overflow-y-auto pr-2">
             {imagesForManualNaming.map(img => (
               <div key={img.file_id} className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-3 border rounded-md bg-background/50 shadow-sm">
                 <div className="relative w-full sm:w-24 h-32 sm:h-24 rounded-md overflow-hidden shrink-0 border">
-                   <NextImage 
-                    src={`/api/images/${img.file_id}`} 
-                    alt={`Certificate: ${img.original_filename}`}
-                    fill
-                    sizes="(max-width: 640px) 100vw, 96px"
-                    className="object-contain"
-                    data-ai-hint="certificate needs naming"
-                   />
+                   {img.file_id !== 'N/A' ? (
+                     <NextImage 
+                      src={`/api/images/${img.file_id}`} 
+                      alt={`Certificate: ${img.original_filename}`}
+                      fill
+                      sizes="(max-width: 640px) 100vw, 96px"
+                      className="object-contain"
+                      data-ai-hint="certificate needs naming"
+                     />
+                   ) : (
+                     <div className="w-full h-full bg-muted flex items-center justify-center text-xs text-muted-foreground">No Preview (ID missing)</div>
+                   )}
                 </div>
                 <div className="flex-grow space-y-1 w-full sm:w-auto">
                   <p className="text-xs font-semibold text-muted-foreground truncate" title={img.original_filename}>{img.original_filename}</p>
@@ -323,7 +324,6 @@ function AiFeaturePageContent() {
               ))}
             </div>
           )}
-          {/* Raw JSON Output - Keep this for debugging or remove if not needed in prod */}
           <div className="mt-6 pt-4 border-t">
             <Label htmlFor="rawJsonOutput" className="text-xs text-muted-foreground">Raw JSON Output (for debugging):</Label>
             <Textarea
@@ -350,6 +350,8 @@ export default function AiFeaturePage() {
     </ProtectedPage>
   );
 }
+    
+
     
 
     
