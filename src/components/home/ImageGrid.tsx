@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
+import type { ImageFitMode } from '@/app/page'; // Import the type
 
 export interface UserImage {
   fileId: string;
@@ -36,9 +37,10 @@ interface ImageGridProps {
   error: string | null;
   onImageDeleted: () => void;
   currentUserId: string | null;
+  imageFitMode: ImageFitMode; // Add the new prop
 }
 
-export default function ImageGrid({ images, isLoading, error, onImageDeleted, currentUserId }: ImageGridProps) {
+export default function ImageGrid({ images, isLoading, error, onImageDeleted, currentUserId, imageFitMode }: ImageGridProps) {
   const [selectedImageForView, setSelectedImageForView] = useState<UserImage | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [imageToDelete, setImageToDelete] = useState<UserImage | null>(null);
@@ -139,10 +141,11 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
         {images.map((image) => {
           const imageSrc = `/api/images/${image.fileId}`;
           const isPdf = image.contentType === 'application/pdf';
+          const imageFitClass = imageFitMode === 'cover' ? 'object-cover' : 'object-contain';
           return (
             <Card key={image.fileId} className="overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 group relative">
               <CardContent className="p-0 cursor-pointer" onClick={() => openViewModal(image)}>
-                <div className="aspect-square w-full relative flex items-center justify-center"> {/* Removed bg-muted here */}
+                <div className="aspect-square w-full relative flex items-center justify-center">
                   {isPdf ? (
                      <FileText className="w-1/2 h-1/2 text-muted-foreground" />
                   ) : (
@@ -151,7 +154,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
                       alt={image.originalName || image.filename}
                       fill
                       sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"
-                      className="object-contain group-hover:scale-105 transition-transform duration-300"
+                      className={`${imageFitClass} group-hover:scale-105 transition-transform duration-300`}
                       placeholder="blur"
                       blurDataURL="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
                       data-ai-hint={image.dataAiHint || 'uploaded certificate'}

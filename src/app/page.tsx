@@ -9,6 +9,10 @@ import AiFAB from '@/components/home/AiFAB';
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
+import { Button } from '@/components/ui/button';
+import { Crop, Minimize } from 'lucide-react';
+
+export type ImageFitMode = 'contain' | 'cover';
 
 function HomePageContent() {
   const [images, setImages] = useState<UserImage[]>([]);
@@ -17,6 +21,11 @@ function HomePageContent() {
   const [refreshKey, setRefreshKey] = useState(0);
   const { userId } = useAuth();
   const { toast } = useToast();
+  const [imageFitMode, setImageFitMode] = useState<ImageFitMode>('contain');
+
+  const toggleImageFitMode = () => {
+    setImageFitMode(prevMode => (prevMode === 'contain' ? 'cover' : 'contain'));
+  };
 
   const triggerRefresh = useCallback(() => {
     console.log("HomePageContent: Triggering refresh by incrementing refreshKey.");
@@ -57,7 +66,6 @@ function HomePageContent() {
           }
         }
         const displayErrorMessage = errorData.message || `Failed to load certificates. Server responded with status ${response.status}.`;
-        // Log the full structured errorData received from the API for better client-side debugging
         console.error(`HomePageContent: API error while fetching certificates. Status: ${response.status}. Full errorData from API:`, errorData);
         throw new Error(`API Error: ${displayErrorMessage}`);
       }
@@ -92,9 +100,15 @@ function HomePageContent() {
 
   return (
     <div className="container mx-auto px-4 py-8 md:px-6 lg:px-8">
-      <div className="mb-8 text-center md:text-left">
-        <h1 className="text-3xl md:text-4xl font-bold font-headline mb-2">Your Certificate Hub</h1>
-        <p className="text-muted-foreground text-lg">Browse, upload, and manage your certificates.</p>
+      <div className="mb-8 flex flex-col md:flex-row justify-between items-center gap-4">
+        <div className="text-center md:text-left">
+            <h1 className="text-3xl md:text-4xl font-bold font-headline mb-2">Your Certificate Hub</h1>
+            <p className="text-muted-foreground text-lg">Browse, upload, and manage your certificates.</p>
+        </div>
+        <Button onClick={toggleImageFitMode} variant="outline" size="sm" className="shrink-0">
+          {imageFitMode === 'contain' ? <Crop className="mr-2 h-4 w-4" /> : <Minimize className="mr-2 h-4 w-4" />}
+          {imageFitMode === 'contain' ? 'Fit: Cover' : 'Fit: Contain'}
+        </Button>
       </div>
       <ImageGrid
         images={images}
@@ -102,6 +116,7 @@ function HomePageContent() {
         error={error}
         onImageDeleted={triggerRefresh}
         currentUserId={userId}
+        imageFitMode={imageFitMode}
       />
       <UploadFAB onUploadSuccess={triggerRefresh} />
       <AiFAB />
