@@ -7,8 +7,8 @@ import { Toaster } from '@/components/ui/toaster';
 import SiteHeader from '@/components/layout/SiteHeader';
 
 export const metadata: Metadata = {
-  title: 'ImageVerse',
-  description: 'Upload, manage, and enhance your images with AI.',
+  title: 'CertIntel',
+  description: 'Extract insights and manage your certificates with AI.',
 };
 
 export default function RootLayout({

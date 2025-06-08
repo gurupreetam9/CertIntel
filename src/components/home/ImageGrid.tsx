@@ -3,7 +3,7 @@
 
 import Image from 'next/image';
 import { Card, CardContent } from '@/components/ui/card';
-import { ImageIcon, Loader2, Eye, Trash2, ExternalLink, Download } from 'lucide-react';
+import { ImageIcon, Loader2, Eye, Trash2, ExternalLink, Download, FileText } from 'lucide-react';
 import { useState } from 'react';
 import ViewImageModal from './ViewImageModal';
 import {
@@ -82,17 +82,17 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
       const responseBody = await response.json().catch(() => ({ message: 'Failed to parse delete response from server.'}));
 
       if (!response.ok) {
-        throw new Error(responseBody.message || `Failed to delete image. Status: ${response.status}`);
+        throw new Error(responseBody.message || `Failed to delete file. Status: ${response.status}`);
       }
 
       toast({
-        title: 'Image Deleted',
+        title: 'File Deleted',
         description: `"${imageToDelete.originalName}" has been successfully deleted.`,
       });
       onImageDeleted();
     } catch (err: any) {
       toast({
-        title: 'Error Deleting Image',
+        title: 'Error Deleting File',
         description: err.message || 'An unexpected error occurred.',
         variant: 'destructive',
       });
@@ -107,7 +107,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
     return (
       <div className="flex flex-col items-center justify-center text-center py-12">
         <Loader2 className="w-16 h-16 text-primary animate-spin mb-4" />
-        <h2 className="text-2xl font-headline mb-2">Loading Your Images...</h2>
+        <h2 className="text-2xl font-headline mb-2">Loading Your Certificates...</h2>
         <p className="text-muted-foreground">Please wait a moment.</p>
       </div>
     );
@@ -116,8 +116,8 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center text-center py-12 text-destructive">
-        <ImageIcon className="w-16 h-16 mb-4" />
-        <h2 className="text-2xl font-headline mb-2">Error Loading Images</h2>
+        <FileText className="w-16 h-16 mb-4" />
+        <h2 className="text-2xl font-headline mb-2">Error Loading Certificates</h2>
         <p>{error}</p>
       </div>
     );
@@ -126,9 +126,9 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
   if (images.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center text-center py-12">
-        <ImageIcon className="w-16 h-16 text-muted-foreground mb-4" />
-        <h2 className="text-2xl font-headline mb-2">Your ImageVerse is Empty</h2>
-        <p className="text-muted-foreground">Start by uploading your first image using the &apos;+&apos; button.</p>
+        <FileText className="w-16 h-16 text-muted-foreground mb-4" />
+        <h2 className="text-2xl font-headline mb-2">Your CertIntel Hub is Empty</h2>
+        <p className="text-muted-foreground">Start by uploading your first certificate using the &apos;+&apos; button.</p>
       </div>
     );
   }
@@ -138,30 +138,35 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
         {images.map((image) => {
           const imageSrc = `/api/images/${image.fileId}`;
+          const isPdf = image.contentType === 'application/pdf';
           return (
             <Card key={image.fileId} className="overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 group relative">
               <CardContent className="p-0 cursor-pointer" onClick={() => openViewModal(image)}>
-                <div className="aspect-square w-full relative">
-                  <Image
-                    src={imageSrc}
-                    alt={image.originalName || image.filename}
-                    fill
-                    sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"
-                    className="object-cover group-hover:scale-105 transition-transform duration-300"
-                    placeholder="blur"
-                    blurDataURL="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
-                    data-ai-hint={image.dataAiHint || 'uploaded image'}
-                    onError={(e) => {
-                      console.error(`ImageGrid: Error loading image with src: ${imageSrc}`, e);
-                    }}
-                  />
+                <div className="aspect-square w-full relative bg-muted flex items-center justify-center">
+                  {isPdf ? (
+                     <FileText className="w-1/2 h-1/2 text-muted-foreground" />
+                  ) : (
+                    <Image
+                      src={imageSrc}
+                      alt={image.originalName || image.filename}
+                      fill
+                      sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                      className="object-contain group-hover:scale-105 transition-transform duration-300"
+                      placeholder="blur"
+                      blurDataURL="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+                      data-ai-hint={image.dataAiHint || 'uploaded certificate'}
+                      onError={(e) => {
+                        console.error(`ImageGrid: Error loading image with src: ${imageSrc}`, e);
+                      }}
+                    />
+                  )}
                 </div>
               </CardContent>
               <div className="absolute top-2 right-2 flex flex-col space-y-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-10">
-                <Button variant="ghost" size="icon" className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white" onClick={(e) => { e.stopPropagation(); openViewModal(image);}} title="View Image">
+                <Button variant="ghost" size="icon" className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white" onClick={(e) => { e.stopPropagation(); openViewModal(image);}} title="View File">
                   <Eye className="h-4 w-4" />
                 </Button>
-                <Button variant="ghost" size="icon" className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white" onClick={(e) => { e.stopPropagation(); handleImageLinkOpen(image.fileId); }} title="Open Image in New Tab">
+                <Button variant="ghost" size="icon" className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white" onClick={(e) => { e.stopPropagation(); handleImageLinkOpen(image.fileId); }} title="Open File in New Tab">
                   <ExternalLink className="h-4 w-4" />
                 </Button>
                 <Button
@@ -169,7 +174,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white"
-                  title="Download Image"
+                  title="Download File"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <a
@@ -179,7 +184,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
                     <Download className="h-4 w-4" />
                   </a>
                 </Button>
-                <Button variant="ghost" size="icon" className="h-8 w-8 bg-destructive/70 hover:bg-destructive/90 text-white" onClick={(e) => { e.stopPropagation(); openDeleteConfirmDialog(image);}} title="Delete Image">
+                <Button variant="ghost" size="icon" className="h-8 w-8 bg-destructive/70 hover:bg-destructive/90 text-white" onClick={(e) => { e.stopPropagation(); openDeleteConfirmDialog(image);}} title="Delete File">
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
@@ -205,7 +210,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
             <AlertDialogHeader>
               <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
               <AlertDialogDescription>
-                This action cannot be undone. This will permanently delete the image
+                This action cannot be undone. This will permanently delete the file
                 &quot;{imageToDelete.originalName}&quot;.
               </AlertDialogDescription>
             </AlertDialogHeader>

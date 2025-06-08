@@ -1,3 +1,4 @@
+
 'use client';
 
 import Link from 'next/link';
@@ -14,7 +15,7 @@ export default function SiteHeader() {
       style={{ '--header-height': '4rem' } as React.CSSProperties}
     >
       <div className="container flex h-16 max-w-screen-2xl items-center justify-between">
-        <Link href="/" aria-label="ImageVerse Home">
+        <Link href="/" aria-label="CertIntel Home">
           <AppLogo size={7} />
         </Link>
         {user && <ProfileDropdown />}

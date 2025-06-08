@@ -100,7 +100,7 @@ export default function ForgotPasswordPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
       <div className="mb-8">
-        <Link href="/" aria-label="ImageVerse Home">
+        <Link href="/" aria-label="CertIntel Home">
           <AppLogo size={40} />
         </Link>
       </div>

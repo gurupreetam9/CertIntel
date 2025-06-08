@@ -39,7 +39,7 @@ function HomePageContent() {
       const response = await fetch(fetchUrl);
 
       if (!response.ok) {
-        let errorData = { message: `Error ${response.status}: Failed to load images from API.`, detail: `Status code ${response.status}`, errorKey: 'UNKNOWN_CLIENT_ERROR' };
+        let errorData = { message: `Error ${response.status}: Failed to load certificates from API.`, detail: `Status code ${response.status}`, errorKey: 'UNKNOWN_CLIENT_ERROR' };
         try {
           const parsedJson = await response.json();
           if (parsedJson && typeof parsedJson === 'object') {
@@ -56,20 +56,20 @@ function HomePageContent() {
             console.error("HomePageContent: Could not read raw error response text from API.", textReadError);
           }
         }
-        const displayErrorMessage = errorData.message || `Failed to load images. Server responded with status ${response.status}.`;
+        const displayErrorMessage = errorData.message || `Failed to load certificates. Server responded with status ${response.status}.`;
         // Log the full structured errorData received from the API for better client-side debugging
-        console.error(`HomePageContent: API error while fetching images. Status: ${response.status}. Full errorData from API:`, errorData);
+        console.error(`HomePageContent: API error while fetching certificates. Status: ${response.status}. Full errorData from API:`, errorData);
         throw new Error(`API Error: ${displayErrorMessage}`);
       }
       const data: UserImage[] = await response.json();
-      console.log("HomePageContent: Successfully fetched image data. Count:", data.length);
+      console.log("HomePageContent: Successfully fetched certificate data. Count:", data.length);
       setImages(data);
     } catch (err: any) {
       console.error("HomePageContent: Error in fetchImages catch block:", err);
-      const errorMessage = err.message || "Could not load your images due to an unexpected error.";
+      const errorMessage = err.message || "Could not load your certificates due to an unexpected error.";
       setError(errorMessage);
       toast({
-        title: "Error Loading Images",
+        title: "Error Loading Certificates",
         description: errorMessage,
         variant: "destructive",
       });
@@ -93,8 +93,8 @@ function HomePageContent() {
   return (
     <div className="container mx-auto px-4 py-8 md:px-6 lg:px-8">
       <div className="mb-8 text-center md:text-left">
-        <h1 className="text-3xl md:text-4xl font-bold font-headline mb-2">Your Image Gallery</h1>
-        <p className="text-muted-foreground text-lg">Browse, upload, and manage your images.</p>
+        <h1 className="text-3xl md:text-4xl font-bold font-headline mb-2">Your Certificate Hub</h1>
+        <p className="text-muted-foreground text-lg">Browse, upload, and manage your certificates.</p>
       </div>
       <ImageGrid
         images={images}

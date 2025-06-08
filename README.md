@@ -1,6 +1,7 @@
-# ImageVerse
 
-This is a Next.js application scaffolded for ImageVerse, featuring Firebase Authentication and Storage, with planned MongoDB integration for metadata and a Flask server for AI features.
+# CertIntel
+
+This is a Next.js application scaffolded for CertIntel, featuring Firebase Authentication and Storage, with planned MongoDB integration for metadata and a Flask server for AI features.
 
 ## Getting Started
 
@@ -75,17 +76,16 @@ Open [http://localhost:9002](http://localhost:9002) (or the port specified in yo
 
 *   **User Authentication**: Login and Registration pages using Firebase Authentication (Email & Password).
 *   **Image Upload**:
-    *   Central "+" icon (Floating Action Button) for uploading images.
+    *   Central "+" icon (Floating Action Button) for uploading images/certificates.
     *   Image previews and upload progress.
-    *   Uploads images to Firebase Cloud Storage.
-    *   Basic UI for selecting images from device or camera (on mobile).
+    *   Uploads files to GridFS (via Next.js backend, which then saves to MongoDB).
+    *   Basic UI for selecting images/PDFs from device or camera (on mobile).
 *   **Metadata Storage**:
-    *   After upload, sends metadata (filename, user ID, timestamp, downloadURL) to an API endpoint (`/api/metadata`).
-    *   The API endpoint is set up to receive data; MongoDB integration logic needs to be completed by the user.
+    *   The `upload-image` API route handles file storage in GridFS and associates metadata like userId, originalName, contentType.
 *   **Profile Management**: Profile icon on the Home screen (top right) with a Logout option.
 *   **AI Integration**:
     *   An AI icon (Floating Action Button) linking to `/ai-feature`.
-    *   The AI feature page embeds content from a configured Python Flask server endpoint using an iframe.
+    *   The AI feature page interacts with a configured Python Flask server endpoint for certificate processing and course suggestions.
 *   **Styling**:
     *   Uses Tailwind CSS and ShadCN UI components.
     *   Custom theme based on the provided color palette (Gold, Light Beige, Vivid Orange).
@@ -95,9 +95,11 @@ Open [http://localhost:9002](http://localhost:9002) (or the port specified in yo
 ## Further Development
 
 *   **Image Editor**: Implement crop and resize functionality (currently a placeholder).
-*   **MongoDB Integration**: Complete the MongoDB connection and data saving logic in `/src/app/api/metadata/route.ts`.
-*   **Image Display**: Fetch and display user-uploaded images from MongoDB on the home page grid.
+*   **MongoDB Integration**: Logic for `user_course_processing_results` and `manual_course_names` is in `app.py`.
+*   **Image Display**: Fetch and display user-uploaded images/certificates from GridFS on the home page grid.
 *   **Advanced Mobile Upload**: Refine the Camera vs. File Manager prompt on mobile.
 *   **Desktop Folder Upload**: Implement or provide clear instructions for folder uploads on desktop.
 *   **Error Handling and UI Feedback**: Enhance error handling and user feedback across the application.
 *   **Testing**: Add unit and integration tests.
+
+```

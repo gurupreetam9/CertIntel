@@ -75,7 +75,7 @@ const verifyEmailOtpAndRegisterFlow = ai.defineFlow(
       return { success: false, message: errorMessage };
     } else { // User is an object, registration successful
       delete otpStore[email]; // Important: Clean up OTP after successful registration
-      return { success: true, message: 'Registration successful! Welcome to ImageVerse!', userId: result.uid };
+      return { success: true, message: 'Registration successful! Welcome to CertIntel!', userId: result.uid };
     }
   }
 );

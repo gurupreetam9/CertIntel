@@ -22,7 +22,7 @@ interface AppLogoProps {
 const AppLogo = ({ size = 8, iconOnly = false }: AppLogoProps) => (
   <div className="flex items-center gap-2 select-none">
     <DefaultLogoIcon className={`h-${size} w-${size} text-primary`} />
-    {!iconOnly && <span className="text-2xl font-bold font-headline text-foreground">ImageVerse</span>}
+    {!iconOnly && <span className="text-2xl font-bold font-headline text-foreground">CertIntel</span>}
   </div>
 );
 export default AppLogo;

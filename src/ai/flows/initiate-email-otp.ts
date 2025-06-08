@@ -74,11 +74,11 @@ const initiateEmailOtpFlow = ai.defineFlow(
     });
 
     const mailOptions = {
-      from: `"ImageVerse" <${GMAIL_EMAIL_ADDRESS}>`, // Sender address
+      from: `"CertIntel" <${GMAIL_EMAIL_ADDRESS}>`, // Sender address
       to: email, // List of receivers
-      subject: 'Your ImageVerse OTP Code', // Subject line
-      text: `Your OTP code for ImageVerse is: ${otp}. This code will expire in 5 minutes.`, // Plain text body
-      html: `<p>Your OTP code for ImageVerse is: <strong>${otp}</strong>.</p><p>This code will expire in 5 minutes.</p>`, // HTML body
+      subject: 'Your CertIntel OTP Code', // Subject line
+      text: `Your OTP code for CertIntel is: ${otp}. This code will expire in 5 minutes.`, // Plain text body
+      html: `<p>Your OTP code for CertIntel is: <strong>${otp}</strong>.</p><p>This code will expire in 5 minutes.</p>`, // HTML body
     };
 
     try {

@@ -64,7 +64,7 @@ export default function LoginPage() {
         schema={SignInSchema}
         onSubmit={handleLogin}
         title="Welcome Back!"
-        description="Sign in to access your ImageVerse."
+        description="Sign in to access your CertIntel."
         submitButtonText="Login"
       />
       <div className="mt-4 text-center text-sm">
