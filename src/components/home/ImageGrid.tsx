@@ -142,7 +142,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
           return (
             <Card key={image.fileId} className="overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 group relative">
               <CardContent className="p-0 cursor-pointer" onClick={() => openViewModal(image)}>
-                <div className="aspect-square w-full relative bg-muted flex items-center justify-center">
+                <div className="aspect-square w-full relative flex items-center justify-center"> {/* Removed bg-muted here */}
                   {isPdf ? (
                      <FileText className="w-1/2 h-1/2 text-muted-foreground" />
                   ) : (
