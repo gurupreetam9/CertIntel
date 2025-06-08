@@ -140,7 +140,7 @@ function AiFeaturePageContent() {
       )}
 
       {result && (
-        <div className="flex-grow border border-border rounded-lg shadow-md overflow-hidden p-4 bg-card space-y-6">
+        <div className="flex-grow border border-border rounded-lg shadow-md overflow-y-auto p-4 bg-card space-y-6">
           <h2 className="text-2xl font-headline mb-4 border-b pb-2">Processing Result:</h2>
           
           {result.processed_image_file_ids && result.processed_image_file_ids.length > 0 && (
