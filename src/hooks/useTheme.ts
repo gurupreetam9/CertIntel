@@ -1,105 +1,127 @@
 
 'use client';
 
-import React, {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  useMemo,
-  useCallback,
-  type ReactNode,
-} from 'react';
+import React, { type ReactNode } from 'react';
 
 type Theme = 'light' | 'dark';
 
-interface ThemeContextType {
+interface MyThemeContextType {
   theme: Theme;
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
 }
 
-// Default context value
-const defaultContextValue: ThemeContextType = {
+// Define a default context value that matches the type
+const defaultMyThemeContextValue: MyThemeContextType = {
   theme: 'light',
-  setTheme: (theme: Theme) => {
-    console.warn('ThemeProvider not found: setTheme called outside provider with theme:', theme);
+  setTheme: (newTheme: Theme) => {
+    // This function should ideally not be called if the provider is correctly set up.
+    // console.warn(
+    //   'MyThemeProvider not found or not initialized: setTheme called on default context with theme:',
+    //   newTheme
+    // );
   },
   toggleTheme: () => {
-    console.warn('ThemeProvider not found: toggleTheme called outside provider');
+    // console.warn(
+    //   'MyThemeProvider not found or not initialized: toggleTheme called on default context'
+    // );
   },
 };
 
-const ThemeContext = createContext<ThemeContextType>(defaultContextValue);
+const MyThemeContext = React.createContext<MyThemeContextType>(defaultMyThemeContextValue);
 
-interface ThemeProviderProps {
+interface MyThemeProviderProps {
   children: ReactNode;
 }
 
-export const ThemeProvider = ({ children }: ThemeProviderProps) => {
-  const [theme, setThemeInternal] = useState<Theme>(() => {
-    // Initialize theme on the client side only
+export const ThemeProvider = ({ children }: MyThemeProviderProps) => {
+  const [currentTheme, setCurrentThemeInternal] = React.useState<Theme>('light');
+
+  // Effect for initial theme setting from localStorage or system preference
+  React.useEffect(() => {
+    let initialTheme: Theme = 'light';
     if (typeof window !== 'undefined') {
       try {
         const storedTheme = localStorage.getItem('theme') as Theme | null;
         if (storedTheme === 'light' || storedTheme === 'dark') {
-          return storedTheme;
+          initialTheme = storedTheme;
+        } else {
+          const prefersDark = window.matchMedia(
+            '(prefers-color-scheme: dark)'
+          ).matches;
+          initialTheme = prefersDark ? 'dark' : 'light';
         }
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        return prefersDark ? 'dark' : 'light';
       } catch (error) {
-        console.error("Error accessing localStorage for theme initialization:", error);
-        // Fallback to system preference if localStorage access fails
+        // console.error(
+        //   'Error accessing localStorage for theme initialization:',
+        //   error
+        // );
+        // Fallback to system preference if localStorage fails
         if (typeof window.matchMedia === 'function') {
-           const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-           return prefersDark ? 'dark' : 'light';
+          const prefersDark = window.matchMedia(
+            '(prefers-color-scheme: dark)'
+          ).matches;
+          initialTheme = prefersDark ? 'dark' : 'light';
         }
       }
     }
-    return 'light'; // Default server-side or if window is undefined
-  });
+    setCurrentThemeInternal(initialTheme);
+  }, []); // Empty dependency array ensures this runs once on mount
 
-  useEffect(() => {
+  // Effect for applying theme class to HTML element and saving to localStorage
+  React.useEffect(() => {
     if (typeof window !== 'undefined') {
-      if (theme === 'dark') {
+      if (currentTheme === 'dark') {
         document.documentElement.classList.add('dark');
       } else {
         document.documentElement.classList.remove('dark');
       }
       try {
-        localStorage.setItem('theme', theme);
+        localStorage.setItem('theme', currentTheme);
       } catch (error) {
-        console.error("Error setting theme in localStorage:", error);
+        // console.error('Error setting theme in localStorage:', error);
       }
     }
-  }, [theme]);
+  }, [currentTheme]);
 
-  const setTheme = useCallback((newTheme: Theme) => {
+  const handleSetTheme = React.useCallback((newTheme: Theme) => {
     if (newTheme === 'light' || newTheme === 'dark') {
-      setThemeInternal(newTheme);
+      setCurrentThemeInternal(newTheme);
     } else {
-      console.warn(`Attempted to set invalid theme: ${newTheme}`);
+      // console.warn(
+      //   `Attempted to set invalid theme: ${newTheme}. Allowed themes are 'light' or 'dark'.`
+      // );
     }
   }, []);
 
-  const toggleTheme = useCallback(() => {
-    setThemeInternal((prevTheme) => (prevTheme === 'light' ? 'dark' : 'light'));
+  const handleToggleTheme = React.useCallback(() => {
+    setCurrentThemeInternal((prevTheme) =>
+      prevTheme === 'light' ? 'dark' : 'light'
+    );
   }, []);
 
-  // Inlining the context value directly for diagnostic purposes
+  const providerDynamicValue = React.useMemo(
+    () => ({
+      theme: currentTheme,
+      setTheme: handleSetTheme,
+      toggleTheme: handleToggleTheme,
+    }),
+    [currentTheme, handleSetTheme, handleToggleTheme]
+  );
+
   return (
-    <ThemeContext.Provider value={{ theme, setTheme, toggleTheme }}>
+    <MyThemeContext.Provider value={providerDynamicValue}>
       {children}
-    </ThemeContext.Provider>
+    </MyThemeContext.Provider>
   );
 };
 
-export const useTheme = (): ThemeContextType => {
-  const context = useContext(ThemeContext);
-  if (context === defaultContextValue && process.env.NODE_ENV !== 'production') {
-    // This warning might appear if the component using useTheme renders before ThemeProvider is fully initialized
-    // For now, it's a safety check.
-    // console.warn('useTheme might be used outside of a fully initialized ThemeProvider. Check component tree.');
+export const useTheme = (): MyThemeContextType => {
+  const context = React.useContext(MyThemeContext);
+  // Check if the context is still the default value, which might indicate misuse
+  if (context === defaultMyThemeContextValue && process.env.NODE_ENV !== 'production') {
+    // This warning helps catch if useTheme is used outside a ThemeProvider.
+    // console.warn('useTheme hook used outside of a ThemeProvider or ThemeProvider not fully initialized. Using default theme values.');
   }
   return context;
 };
