@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { type ReactNode } from 'react';
+import React, { type ReactNode } from 'react'; // Ensure React is imported
 
 type Theme = 'light' | 'dark';
 
@@ -32,15 +32,13 @@ interface ThemeProviderProps {
 // ThemeProvider will now be a simple pass-through.
 // The actual Provider component that was causing parsing errors is removed.
 export const ThemeProvider = ({ children }: ThemeProviderProps) => {
-  // The problematic <AppThemeContext.Provider value={...}> line is removed
-  // to see if the app can parse and build without it.
-  // We're simply returning children, meaning no actual context is being provided
-  // by *this* component anymore in a way that uses the dynamic <Provider>.
-  // The useTheme hook below will rely on the default value of AppThemeContext.
+  // The problematic line has been here previously.
   if (process.env.NODE_ENV === 'development') {
     console.log("Simplified ThemeProvider: Rendering children directly. No dynamic Provider. Theme is fixed to light.");
   }
-  return <>{children}</>;
+  // Returning children directly. This might be an issue if children is an array.
+  // This is purely to see if the "Unterminated regexp literal" on the fragment closing tag goes away.
+  return children;
 };
 
 export const useTheme = (): ThemeContextType => {
@@ -52,4 +50,3 @@ export const useTheme = (): ThemeContextType => {
   // return the static default to be safe.
   return context || defaultStaticContextValue;
 };
-
