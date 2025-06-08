@@ -51,16 +51,15 @@ export default function ViewImageModal({ isOpen, onClose, image }: ViewImageModa
         
         <div
           key={`${image.fileId}-image-stage`}
-          // Added position: relative for NextImage with fill prop
           className="flex-1 min-h-0 w-full flex items-center justify-center overflow-auto p-2 sm:p-4 relative" 
         >
           <Image
             key={`${image.fileId}-modal-image`}
             src={imageSrc}
             alt={`View of ${image.originalName}`}
-            fill // Use fill to make image cover the parent
-            sizes="(max-width: 640px) 90vw, (max-width: 1024px) 80vw, 70vw" // Provide sizes for optimization with fill
-            className="object-contain rounded-md" // object-contain ensures aspect ratio is maintained
+            fill
+            sizes="(max-width: 767px) 90vw, 700px" // Adjusted sizes prop
+            className="object-contain rounded-md" 
             data-ai-hint={image.dataAiHint || 'full view image'}
             unoptimized={process.env.NODE_ENV === 'development'} 
             onLoad={(event) => {
