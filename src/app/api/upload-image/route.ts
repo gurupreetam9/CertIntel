@@ -204,8 +204,8 @@ export async function POST(request: NextRequest) {
         originalName: actualOriginalName,
         userId,
         uploadedAt: new Date().toISOString(),
-        sourceContentType: fileType,
-        explicitContentType: fileType,
+        sourceContentType: fileType, // Original type
+        explicitContentType: fileType, // Type being stored
         reqIdParent: reqId,
       };
 
