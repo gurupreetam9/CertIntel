@@ -21,7 +21,7 @@ interface UploadedFileEntry {
   status: 'pending' | 'uploading' | 'success' | 'error';
   error?: string;
   fileId?: string; 
-  isGeneratingDescription: boolean; // Ensure this is part of the interface
+  isGeneratingDescription: boolean; 
   isPdf: boolean;
 }
 
@@ -172,20 +172,27 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
         const responseText = await response.text();
 
         if (!response.ok) { 
-          let errorMsg = `Server error: ${response.status}.`;
-          let parsedErrorJson = null;
+          let errorMsg = `Upload failed. Server responded with status ${response.status}.`;
+          // let errorKey = 'UPLOAD_FAILED'; // errorKey not used directly in UI message here
+          let reqIdFromServer = null;
+
           try {
-            parsedErrorJson = JSON.parse(responseText); 
-            const serverErrorDetail = Array.isArray(parsedErrorJson) ? parsedErrorJson[0] : parsedErrorJson;
-            errorMsg = serverErrorDetail?.message || serverErrorDetail?.error || errorMsg;
-             if (parsedErrorJson?.reqId) {
-              errorMsg += ` (Req ID: ${parsedErrorJson.reqId})`;
+            const parsedError = JSON.parse(responseText);
+            if (typeof parsedError === 'object' && parsedError !== null) {
+              errorMsg = parsedError.message || errorMsg;
+              // errorKey = parsedError.errorKey || errorKey;
+              reqIdFromServer = parsedError.reqId || null;
+              if (reqIdFromServer && !errorMsg.includes('Req ID:')) {
+                errorMsg += ` (Req ID: ${reqIdFromServer})`;
+              }
+            } else {
+                errorMsg = responseText.length < 100 ? responseText : `Server error ${response.status}. Invalid error format received.`;
             }
           } catch (e) {
             console.warn(`ImageUploader: Server error response for ${fileEntry.file.name} was not valid JSON. Status: ${response.status}. Raw Response:`, responseText.substring(0,500));
-            errorMsg = `Server error ${response.status}: ${responseText.substring(0, 150)}${responseText.length > 150 ? '...' : ''}`;
+            errorMsg = responseText.length < 200 ? `Server error ${response.status}: ${responseText}` : `Server error ${response.status}. See console for details.`;
           }
-          console.error(`ImageUploader: Upload failed for ${fileEntry.file.name}. Status: ${response.status}. Parsed/Raw Error:`, parsedErrorJson || responseText.substring(0,500));
+          console.error(`ImageUploader: Upload failed for ${fileEntry.file.name}. Status: ${response.status}. Error:`, errorMsg);
           setSelectedFiles(prev => prev.map(f => f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified ? { ...f, status: 'error', error: errorMsg, progress: 0 } : f));
           continue; 
         }
@@ -220,7 +227,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
 
     if (allUploadedFileMetas.length > 0) {
       onUploadComplete(allUploadedFileMetas);
-      toast({ title: 'Upload Process Complete', description: `${allUploadedFileMetas.length} image(s)/page(s) processed.` });
+      toast({ title: 'Upload Process Complete', description: `${allUploadedFileMetas.length} file(s) processed.` });
     } else if (filesToUpload.length > 0) {
       toast({ title: 'Upload Failed', description: 'No files were successfully uploaded in this batch.', variant: 'destructive' });
     }
@@ -307,7 +314,10 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
                    {uploadedFile.status === 'uploading' && <p className="text-xs text-primary flex items-center"><Loader2 className="w-3 h-3 mr-1 animate-spin"/>Processing &amp; Uploading...</p>}
                   {uploadedFile.status === 'success' && (
                     <>
-                      <p className="text-xs text-green-600 flex items-center"><CheckCircle className="w-3 h-3 mr-1"/>{uploadedFile.isPdf ? 'PDF processed & pages uploaded' : 'Uploaded to DB'}</p>
+                      <p className="text-xs text-green-600 flex items-center">
+                        <CheckCircle className="w-3 h-3 mr-1"/>
+                        {uploadedFile.isPdf ? 'PDF uploaded to DB' : 'Image uploaded to DB'}
+                      </p>
                       {!uploadedFile.isPdf && ( 
                         <Button 
                           size="sm" 
@@ -357,5 +367,3 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     </div>
   );
 }
-
-    
