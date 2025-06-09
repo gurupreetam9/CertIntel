@@ -8,6 +8,15 @@ from gridfs import GridFS
 from dotenv import load_dotenv
 from datetime import datetime, timezone
 import json
+import io # Added import
+from werkzeug.utils import secure_filename # Added import
+from pdf2image import convert_from_bytes, pdfinfo_from_bytes # Added import
+from pdf2image.exceptions import ( # Added import
+    PDFInfoNotInstalledError,
+    PDFPageCountError,
+    PDFSyntaxError,
+    PDFPopplerTimeoutError
+)
 
 # --- Initial Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -59,7 +68,7 @@ except Exception as e:
 
 POPPLER_PATH = os.getenv("POPPLER_PATH", None)
 if POPPLER_PATH: app_logger.info(f"Flask app.py: POPPLER_PATH found: {POPPLER_PATH}")
-else: app_logger.info("Flask app.py: POPPLER_PATH not set.")
+else: app_logger.info("Flask app.py: POPPLER_PATH not set (pdf2image will try to find Poppler in PATH).")
 
 
 @app.route('/', methods=['GET'])
@@ -345,10 +354,11 @@ def convert_pdf_to_images_route():
         
         # Poppler self-check using pdfinfo_from_bytes
         try:
-            pdfinfo = pdfinfo_from_bytes(pdf_bytes, userpw=None, poppler_path=None)
+            app.logger.info(f"Flask (Req ID: {req_id}): Using POPPLER_PATH for pdfinfo: '{POPPLER_PATH if POPPLER_PATH else 'System Default'}'")
+            pdfinfo = pdfinfo_from_bytes(pdf_bytes, userpw=None, poppler_path=POPPLER_PATH)
             app.logger.info(f"Flask (Req ID: {req_id}): Poppler self-check (pdfinfo) successful. PDF Info: {pdfinfo}")
         except PDFInfoNotInstalledError:
-            app.logger.error(f"Flask (Req ID: {req_id}): CRITICAL - Poppler (pdfinfo) utilities not found or not executable. Please ensure 'poppler-utils' is installed and in the system PATH for the Flask server environment.")
+            app.logger.error(f"Flask (Req ID: {req_id}): CRITICAL - Poppler (pdfinfo) utilities not found or not executable (POPPLER_PATH: '{POPPLER_PATH}'). Please ensure 'poppler-utils' is installed and in the system PATH for the Flask server environment or POPPLER_PATH is correctly set in .env.")
             return jsonify({"error": "PDF processing utilities (Poppler/pdfinfo) are not installed or configured correctly on the server."}), 500
         except PDFPopplerTimeoutError:
             app.logger.error(f"Flask (Req ID: {req_id}): Poppler (pdfinfo) timed out processing the PDF. The PDF might be too complex or corrupted.")
@@ -357,8 +367,8 @@ def convert_pdf_to_images_route():
             app.logger.error(f"Flask (Req ID: {req_id}): Error getting PDF info with Poppler: {str(info_err)}", exc_info=True)
             return jsonify({"error": f"Failed to retrieve PDF info: {str(info_err)}"}), 500
 
-        app.logger.info(f"Flask (Req ID: {req_id}): Attempting to convert PDF bytes to images using pdf2image (convert_from_bytes).")
-        images_from_pdf = convert_from_bytes(pdf_bytes, dpi=200, fmt='png', poppler_path=None) 
+        app.logger.info(f"Flask (Req ID: {req_id}): Attempting to convert PDF bytes to images using pdf2image (convert_from_bytes). POPPLER_PATH for conversion: '{POPPLER_PATH if POPPLER_PATH else 'System Default'}'")
+        images_from_pdf = convert_from_bytes(pdf_bytes, dpi=200, fmt='png', poppler_path=POPPLER_PATH) 
         app.logger.info(f"Flask (Req ID: {req_id}): PDF '{original_pdf_name}' converted to {len(images_from_pdf)} image(s).")
 
         converted_files_metadata = []
@@ -409,7 +419,7 @@ def convert_pdf_to_images_route():
         app.logger.error(f"Flask (Req ID: {req_id}): Error during PDF conversion or storage for '{original_pdf_name}': {str(e)}", exc_info=True)
         # Check if the error string or type suggests Poppler is not installed (during conversion stage)
         if "PopplerNotInstalledError" in str(type(e)) or "pdftoppm" in str(e).lower() or "pdfinfo" in str(e).lower():
-             app.logger.error(f"Flask (Req ID: {req_id}): CRITICAL - Poppler utilities (pdftoppm/pdfinfo) not found or not executable.")
+             app.logger.error(f"Flask (Req ID: {req_id}): CRITICAL - Poppler utilities (pdftoppm/pdfinfo) not found or not executable (POPPLER_PATH: '{POPPLER_PATH}').")
              return jsonify({"error": "PDF processing utilities (Poppler) are not installed or configured correctly on the server (conversion stage)."}), 500
         return jsonify({"error": f"An unexpected error occurred during PDF processing: {str(e)}"}), 500
 
@@ -421,3 +431,5 @@ if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)), debug=True)
 
     
+
+  
