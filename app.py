@@ -386,19 +386,21 @@ def convert_pdf_to_images_route():
                 "originalName": f"{original_pdf_name} (Page {page_number})", 
                 "userId": user_id,
                 "uploadedAt": datetime.utcnow().isoformat(),
-                "sourceContentType": "application/pdf",
-                "convertedTo": "image/png",
+                "sourceContentType": "application/pdf", # Original was PDF
+                "convertedTo": "image/png", # Stored as PNG
                 "pageNumber": page_number,
                 "reqIdParent": req_id 
             }
             
             app.logger.info(f"Flask (Req ID: {req_id}): Storing page {page_number} as '{gridfs_filename}' in GridFS with metadata: {metadata_for_gridfs}")
+            # The actual contentType for GridFS should be 'image/png' for the converted file
             file_id_obj = fs_images.put(img_byte_arr_val, filename=gridfs_filename, contentType='image/png', metadata=metadata_for_gridfs)
             
             converted_files_metadata.append({
                 "originalName": metadata_for_gridfs["originalName"],
                 "fileId": str(file_id_obj),
                 "filename": gridfs_filename,
+                "contentType": 'image/png', # This is the type of the file stored in GridFS
                 "pageNumber": page_number
             })
             app.logger.info(f"Flask (Req ID: {req_id}): Stored page {page_number} with GridFS ID: {str(file_id_obj)}.")
@@ -433,3 +435,5 @@ if __name__ == '__main__':
     
 
   
+
+    
