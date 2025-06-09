@@ -74,6 +74,7 @@ const parseFormRevised = async (req: NextRequest, reqId: string): Promise<Custom
 
 const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 const SUPPORTED_PDF_TYPE = 'application/pdf';
+const FLASK_SERVER_URL = process.env.NEXT_PUBLIC_FLASK_SERVER_URL;
 
 export async function POST(request: NextRequest) {
   const reqId = Math.random().toString(36).substring(2, 9);
@@ -81,6 +82,11 @@ export async function POST(request: NextRequest) {
 
   let tempFilePathsToDelete: string[] = [];
   let mainError: Error | null = null;
+
+  if (!FLASK_SERVER_URL) {
+    console.error(`API /api/upload-image (Req ID: ${reqId}): Configuration Error - NEXT_PUBLIC_FLASK_SERVER_URL is not set.`);
+    return NextResponse.json({ message: 'Server configuration error: Flask server URL not set.', errorKey: 'FLASK_URL_MISSING' }, { status: 500 });
+  }
 
   try {
     let dbConnection;
@@ -140,43 +146,54 @@ export async function POST(request: NextRequest) {
 
     console.log(`API /api/upload-image (Req ID: ${reqId}): Processing file: ${actualOriginalName}, Type: ${fileType}, Temp path: ${tempFilePath}`);
 
-    const results: { originalName: string; fileId: string; filename: string; contentType: string; }[] = [];
+    let results: { originalName: string; fileId: string; filename: string; contentType: string; pageNumber?: number }[] = [];
 
     if (fileType === SUPPORTED_PDF_TYPE) {
-      console.log(`API /api/upload-image (Req ID: ${reqId}): PDF file detected. Uploading directly to GridFS for file '${actualOriginalName}'.`);
-      const pdfFilename = `${userId}_${Date.now()}_${actualOriginalName.replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
-      const metadata = {
-        originalName: actualOriginalName,
-        userId,
-        uploadedAt: new Date().toISOString(),
-        sourceContentType: SUPPORTED_PDF_TYPE, 
-        explicitContentType: SUPPORTED_PDF_TYPE, 
-        reqIdParent: reqId,
-      };
+      console.log(`API /api/upload-image (Req ID: ${reqId}): PDF file detected. Sending to Flask for conversion: '${actualOriginalName}'.`);
+      
+      const flaskFormData = new FormData();
+      const fileBuffer = await fsPromises.readFile(tempFilePath);
+      const blob = new Blob([fileBuffer], { type: SUPPORTED_PDF_TYPE });
+      
+      flaskFormData.append('pdf_file', blob, actualOriginalName);
+      flaskFormData.append('userId', userId);
+      flaskFormData.append('originalName', actualOriginalName);
 
       try {
-        const uploadStream = bucket.openUploadStream(pdfFilename, { contentType: SUPPORTED_PDF_TYPE, metadata });
-        const readable = fs.createReadStream(tempFilePath);
-
-        await new Promise<void>((resolveStream, rejectStream) => {
-          readable.on('error', (err) => {
-            console.error(`API /api/upload-image (Req ID: ${reqId}): Error reading temp PDF file ${tempFilePath} for ${pdfFilename}. Name: ${err.name}, Message: ${err.message}`);
-            rejectStream(new Error(`Error reading temporary PDF file: ${err.message}`));
-          });
-          uploadStream.on('error', (err: MongoError) => {
-            console.error(`API /api/upload-image (Req ID: ${reqId}): GridFS Stream Error for PDF ${pdfFilename}. Name: ${err.name}, Message: ${err.message}`);
-            rejectStream(new Error(`GridFS upload error for PDF: ${err.message}`));
-          });
-          uploadStream.on('finish', () => {
-            console.log(`API /api/upload-image (Req ID: ${reqId}): GridFS Upload finished successfully for PDF: ${pdfFilename}, ID: ${uploadStream.id}.`);
-            results.push({ originalName: actualOriginalName, fileId: uploadStream.id.toString(), filename: pdfFilename, contentType: SUPPORTED_PDF_TYPE });
-            resolveStream();
-          });
-          readable.pipe(uploadStream);
+        const flaskResponse = await fetch(`${FLASK_SERVER_URL}/api/convert-pdf-to-images`, {
+          method: 'POST',
+          body: flaskFormData,
         });
+
+        const flaskResponseText = await flaskResponse.text();
+        console.log(`API /api/upload-image (Req ID: ${reqId}): Flask response for PDF conversion. Status: ${flaskResponse.status}. Body preview: ${flaskResponseText.substring(0, 200)}`);
+
+
+        if (!flaskResponse.ok) {
+          let flaskErrorMsg = `Flask server failed to process PDF. Status: ${flaskResponse.status}.`;
+          try {
+            const parsedFlaskError = JSON.parse(flaskResponseText);
+            flaskErrorMsg = parsedFlaskError.error || flaskErrorMsg;
+          } catch (e) { /* ignore parsing error, use default */ }
+          throw new Error(flaskErrorMsg);
+        }
+        
+        const flaskResult = JSON.parse(flaskResponseText);
+        if (flaskResult.converted_files && Array.isArray(flaskResult.converted_files)) {
+          results = flaskResult.converted_files.map((convertedFile: any) => ({
+            originalName: convertedFile.originalName,
+            fileId: convertedFile.fileId,
+            filename: convertedFile.filename,
+            contentType: 'image/png', // Flask endpoint converts to PNG
+            pageNumber: convertedFile.pageNumber,
+          }));
+          console.log(`API /api/upload-image (Req ID: ${reqId}): PDF successfully converted by Flask. ${results.length} page(s) processed.`);
+        } else {
+          throw new Error('Flask server did not return expected "converted_files" array.');
+        }
       } catch (pdfProcessingError: any) {
-        console.error(`API /api/upload-image (Req ID: ${reqId}): Error during direct PDF processing/upload for '${actualOriginalName}'. Message: ${pdfProcessingError.message}`);
-        mainError = new Error(`Failed during PDF processing for '${actualOriginalName}': ${pdfProcessingError.message}`);
+        console.error(`API /api/upload-image (Req ID: ${reqId}): Error during PDF processing via Flask for '${actualOriginalName}'. Message: ${pdfProcessingError.message}`);
+        mainError = new Error(`Failed PDF processing for '${actualOriginalName}': ${pdfProcessingError.message}`);
         throw mainError;
       }
     }
@@ -260,5 +277,3 @@ export async function POST(request: NextRequest) {
     }
   }
 }
-
-    
