@@ -1,3 +1,4 @@
+
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 const execFileAsync = promisify(execFile);
@@ -72,6 +73,7 @@ const parseFormRevised = async (req: NextRequest, reqId: string): Promise<Custom
 };
 
 const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+const SUPPORTED_PDF_TYPE = 'application/pdf';
 
 export async function POST(request: NextRequest) {
   const reqId = Math.random().toString(36).substring(2, 9);
@@ -138,70 +140,46 @@ export async function POST(request: NextRequest) {
 
     console.log(`API /api/upload-image (Req ID: ${reqId}): Processing file: ${actualOriginalName}, Type: ${fileType}, Temp path: ${tempFilePath}`);
 
-    const results: { originalName: string; fileId: string; filename: string; }[] = [];
+    const results: { originalName: string; fileId: string; filename: string; contentType: string; }[] = [];
 
-    // === New: PDF to image conversion and upload ===
-    if (fileType === 'application/pdf') {
-      console.log(`API /api/upload-image (Req ID: ${reqId}): PDF file detected. Starting conversion to image.`);
-
-      // Path for converted image output
-      const outputImageName = `${userId}_${Date.now()}_${actualOriginalName.replace(/[^a-zA-Z0-9_.-]/g, '_')}_page1.png`;
-      const outputImagePath = path.join(os.tmpdir(), outputImageName);
-      tempFilePathsToDelete.push(outputImagePath);
+    if (fileType === SUPPORTED_PDF_TYPE) {
+      console.log(`API /api/upload-image (Req ID: ${reqId}): PDF file detected. Uploading directly to GridFS for file '${actualOriginalName}'.`);
+      const pdfFilename = `${userId}_${Date.now()}_${actualOriginalName.replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
+      const metadata = {
+        originalName: actualOriginalName,
+        userId,
+        uploadedAt: new Date().toISOString(),
+        sourceContentType: SUPPORTED_PDF_TYPE, 
+        explicitContentType: SUPPORTED_PDF_TYPE, 
+        reqIdParent: reqId,
+      };
 
       try {
-        // Use 'pdftoppm' CLI to convert first page of PDF to PNG image (ensure 'pdftoppm' installed on server)
-        // Command: pdftoppm -png -singlefile <input.pdf> <output-path-without-extension>
-        // outputImagePath is full path with extension, so remove extension for command:
-        const outputPathWithoutExt = outputImagePath.replace(/\.png$/, '');
-
-        console.log(`API /api/upload-image (Req ID: ${reqId}): Running pdftoppm to convert PDF to PNG image.`);
-        await execFileAsync('pdftoppm', ['-png', '-singlefile', '-f', '1', '-l', '1', tempFilePath, outputPathWithoutExt]);
-
-        if (!fs.existsSync(outputImagePath)) {
-          throw new Error('PDF conversion to image failed: output PNG not found');
-        }
-        console.log(`API /api/upload-image (Req ID: ${reqId}): PDF converted to image at ${outputImagePath}. Uploading to GridFS...`);
-
-        // Now upload this image to GridFS (like your existing flow)
-        const imageFilename = outputImageName;
-        const metadata = {
-          originalName: actualOriginalName,
-          userId,
-          uploadedAt: new Date().toISOString(),
-          sourceContentType: 'image/png',
-          explicitContentType: 'image/png',
-          reqIdParent: reqId,
-          derivedFromPdf: true,
-        };
-
-        const uploadStream = bucket.openUploadStream(imageFilename, { contentType: 'image/png', metadata });
-        const readable = fs.createReadStream(outputImagePath);
+        const uploadStream = bucket.openUploadStream(pdfFilename, { contentType: SUPPORTED_PDF_TYPE, metadata });
+        const readable = fs.createReadStream(tempFilePath);
 
         await new Promise<void>((resolveStream, rejectStream) => {
           readable.on('error', (err) => {
-            console.error(`API /api/upload-image (Req ID: ${reqId}): Error reading temp PNG file ${outputImagePath}. Name: ${err.name}, Message: ${err.message}`);
-            rejectStream(new Error(`Error reading converted image file: ${err.message}`));
+            console.error(`API /api/upload-image (Req ID: ${reqId}): Error reading temp PDF file ${tempFilePath} for ${pdfFilename}. Name: ${err.name}, Message: ${err.message}`);
+            rejectStream(new Error(`Error reading temporary PDF file: ${err.message}`));
           });
           uploadStream.on('error', (err: MongoError) => {
-            console.error(`API /api/upload-image (Req ID: ${reqId}): GridFS upload error for converted image ${imageFilename}. Name: ${err.name}, Message: ${err.message}`);
-            rejectStream(new Error(`GridFS upload error: ${err.message}`));
+            console.error(`API /api/upload-image (Req ID: ${reqId}): GridFS Stream Error for PDF ${pdfFilename}. Name: ${err.name}, Message: ${err.message}`);
+            rejectStream(new Error(`GridFS upload error for PDF: ${err.message}`));
           });
           uploadStream.on('finish', () => {
-            console.log(`API /api/upload-image (Req ID: ${reqId}): GridFS Upload finished for converted image: ${imageFilename}, ID: ${uploadStream.id}.`);
-            results.push({ originalName: actualOriginalName, fileId: uploadStream.id.toString(), filename: imageFilename });
+            console.log(`API /api/upload-image (Req ID: ${reqId}): GridFS Upload finished successfully for PDF: ${pdfFilename}, ID: ${uploadStream.id}.`);
+            results.push({ originalName: actualOriginalName, fileId: uploadStream.id.toString(), filename: pdfFilename, contentType: SUPPORTED_PDF_TYPE });
             resolveStream();
           });
           readable.pipe(uploadStream);
         });
-
-      } catch (pdfConvertError: any) {
-        console.error(`API /api/upload-image (Req ID: ${reqId}): PDF to image conversion/upload failed. Error: ${pdfConvertError.message}`);
-        mainError = new Error(`PDF processing failed: ${pdfConvertError.message}`);
+      } catch (pdfProcessingError: any) {
+        console.error(`API /api/upload-image (Req ID: ${reqId}): Error during direct PDF processing/upload for '${actualOriginalName}'. Message: ${pdfProcessingError.message}`);
+        mainError = new Error(`Failed during PDF processing for '${actualOriginalName}': ${pdfProcessingError.message}`);
         throw mainError;
       }
     }
-    // === Existing image file types (unchanged) ===
     else if (fileType && SUPPORTED_IMAGE_TYPES.includes(fileType)) {
       console.log(`API /api/upload-image (Req ID: ${reqId}): Supported image file type (${fileType}) detected. Uploading directly to GridFS for file '${actualOriginalName}'.`);
       const imageFilename = `${userId}_${Date.now()}_${actualOriginalName.replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
@@ -229,7 +207,7 @@ export async function POST(request: NextRequest) {
           });
           uploadStream.on('finish', () => {
             console.log(`API /api/upload-image (Req ID: ${reqId}): GridFS Upload finished successfully for image: ${imageFilename}, ID: ${uploadStream.id}.`);
-            results.push({ originalName: actualOriginalName, fileId: uploadStream.id.toString(), filename: imageFilename });
+            results.push({ originalName: actualOriginalName, fileId: uploadStream.id.toString(), filename: imageFilename, contentType: fileType });
             resolveStream();
           });
           readable.pipe(uploadStream);
@@ -282,3 +260,5 @@ export async function POST(request: NextRequest) {
     }
   }
 }
+
+    
