@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
     let results: { originalName: string; fileId: string; filename: string; contentType: string; pageNumber?: number }[] = [];
 
     if (fileType === SUPPORTED_PDF_TYPE) {
-      console.log(`API /api/upload-image (Req ID: ${reqId}): PDF file detected. Sending to Flask for conversion: '${actualOriginalName}'.`);
+      console.log(`API /api/upload-image (Req ID: ${reqId}): PDF file detected. Sending to Flask for conversion: '${actualOriginalName}'. Target: ${FLASK_SERVER_URL}/api/convert-pdf-to-images`);
       
       const flaskFormData = new FormData();
       const fileBuffer = await fsPromises.readFile(tempFilePath);
@@ -168,13 +168,14 @@ export async function POST(request: NextRequest) {
         const flaskResponseText = await flaskResponse.text();
         console.log(`API /api/upload-image (Req ID: ${reqId}): Flask response for PDF conversion. Status: ${flaskResponse.status}. Body preview: ${flaskResponseText.substring(0, 200)}`);
 
-
         if (!flaskResponse.ok) {
-          let flaskErrorMsg = `Flask server failed to process PDF. Status: ${flaskResponse.status}.`;
+          let flaskErrorMsg = `Flask server failed to process PDF '${actualOriginalName}'. Status: ${flaskResponse.status}.`;
           try {
             const parsedFlaskError = JSON.parse(flaskResponseText);
             flaskErrorMsg = parsedFlaskError.error || flaskErrorMsg;
-          } catch (e) { /* ignore parsing error, use default */ }
+          } catch (e) { /* ignore parsing error, use status and raw text if short */ 
+             if (flaskResponseText.length < 200) flaskErrorMsg += ` Response: ${flaskResponseText}`;
+          }
           throw new Error(flaskErrorMsg);
         }
         
@@ -184,16 +185,22 @@ export async function POST(request: NextRequest) {
             originalName: convertedFile.originalName,
             fileId: convertedFile.fileId,
             filename: convertedFile.filename,
-            contentType: 'image/png', // Flask endpoint converts to PNG
+            contentType: 'image/png', 
             pageNumber: convertedFile.pageNumber,
           }));
-          console.log(`API /api/upload-image (Req ID: ${reqId}): PDF successfully converted by Flask. ${results.length} page(s) processed.`);
+          console.log(`API /api/upload-image (Req ID: ${reqId}): PDF successfully converted by Flask. ${results.length} page(s) processed for '${actualOriginalName}'.`);
         } else {
-          throw new Error('Flask server did not return expected "converted_files" array.');
+          throw new Error(`Flask server (for PDF '${actualOriginalName}') did not return expected "converted_files" array.`);
         }
       } catch (pdfProcessingError: any) {
-        console.error(`API /api/upload-image (Req ID: ${reqId}): Error during PDF processing via Flask for '${actualOriginalName}'. Message: ${pdfProcessingError.message}`);
-        mainError = new Error(`Failed PDF processing for '${actualOriginalName}': ${pdfProcessingError.message}`);
+        let detailedErrorMessage = `Failed PDF processing for '${actualOriginalName}'.`;
+        if (pdfProcessingError.message && pdfProcessingError.message.toLowerCase().includes('fetch failed')) {
+          detailedErrorMessage += ` The Next.js server could not connect to the Flask server at ${FLASK_SERVER_URL}/api/convert-pdf-to-images. Please ensure the Flask server is running, accessible, and the URL is correct. Original error: ${pdfProcessingError.message}`;
+        } else {
+          detailedErrorMessage += ` Error during communication with or processing by Flask server: ${pdfProcessingError.message}`;
+        }
+        console.error(`API /api/upload-image (Req ID: ${reqId}): Error during PDF processing via Flask for '${actualOriginalName}'. Detailed Message: ${detailedErrorMessage}`);
+        mainError = new Error(detailedErrorMessage);
         throw mainError;
       }
     }
@@ -204,8 +211,8 @@ export async function POST(request: NextRequest) {
         originalName: actualOriginalName,
         userId,
         uploadedAt: new Date().toISOString(),
-        sourceContentType: fileType, // Original type
-        explicitContentType: fileType, // Type being stored
+        sourceContentType: fileType, 
+        explicitContentType: fileType, 
         reqIdParent: reqId,
       };
 
@@ -258,7 +265,6 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   } finally {
-    // Cleanup temporary files from /tmp or wherever
     if (tempFilePathsToDelete.length > 0) {
       for (const filePath of tempFilePathsToDelete) {
         try {
@@ -268,9 +274,9 @@ export async function POST(request: NextRequest) {
           }
         } catch (cleanupErr: unknown) {
           if (cleanupErr instanceof Error) {
-            console.error(`Cleanup error: ${cleanupErr.message}`);
+            console.error(`Cleanup error deleting temp file ${filePath}: ${cleanupErr.message}`);
           } else {
-            console.error('Cleanup error is not an Error instance:', cleanupErr);
+            console.error('Cleanup error (unknown type) for temp file ${filePath}:', cleanupErr);
           }
         }
       }
