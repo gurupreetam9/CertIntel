@@ -1,5 +1,6 @@
 
-import { firestore } from '@/lib/firebase/config';
+import { firestore } from '@/lib/firebase/config'; // For client-side SDK Firestore
+import { adminFirestore } from '@/lib/firebase/adminConfig'; // For Admin SDK Firestore
 import type { UserProfile, AdminProfile, StudentLinkRequest, UserRole, LinkRequestStatus } from '@/lib/models/user';
 import {
   doc,
@@ -13,72 +14,99 @@ import {
   serverTimestamp,
   getDocs,
   limit,
-} from 'firebase/firestore';
+} from 'firebase/firestore'; // Client-side SDK imports
 import { v4 as uuidv4 } from 'uuid';
 
 const USERS_COLLECTION = 'users';
 const ADMINS_COLLECTION = 'admins';
 const STUDENT_LINK_REQUESTS_COLLECTION = 'studentLinkRequests';
 
-// --- User Profile (Common) ---
+// --- User Profile (Common, client-side SDK) ---
 export const createUserProfileDocument = async (
   userId: string,
   email: string,
   role: UserRole,
   additionalData: Partial<UserProfile> = {}
 ): Promise<UserProfile> => {
-  const userDocRef = doc(firestore, USERS_COLLECTION, userId);
+  const userDocRef = doc(firestore, USERS_COLLECTION, userId); // Uses client-side `firestore`
   const now = Timestamp.now();
   
-  // Start with base profile data common to all roles
   const profileData: Partial<UserProfile> = {
     uid: userId,
     email,
     role,
-    displayName: additionalData.displayName || email.split('@')[0], // Default display name
+    displayName: additionalData.displayName || email.split('@')[0],
     createdAt: now,
     updatedAt: now,
   };
 
-  // Add role-specific fields, ensuring 'null' for empty optional student fields
-  // and handling adminUniqueId for admins.
   if (role === 'student') {
-    // rollNo is string | null, never undefined if coming from verify-email-otp-and-register
     profileData.rollNo = additionalData.rollNo !== undefined ? additionalData.rollNo : null;
     profileData.linkRequestStatus = additionalData.linkRequestStatus || 'none';
-    // associatedAdminFirebaseId is set by updateStudentLinkRequestStatusAndLinkStudent or during link failure in registration
     profileData.associatedAdminFirebaseId = additionalData.associatedAdminFirebaseId !== undefined ? additionalData.associatedAdminFirebaseId : null;
-    // associatedAdminUniqueId is the ID the student tried to link with
     profileData.associatedAdminUniqueId = additionalData.associatedAdminUniqueId !== undefined ? additionalData.associatedAdminUniqueId : null;
   } else if (role === 'admin') {
-    // adminUniqueId is specific to admin role within the 'users' collection context
-    // It's primarily stored in the 'admins' collection but denormalized here for easier access.
-    // If createAdminProfile calls this, it will pass adminUniqueId in additionalData.
     if (additionalData.adminUniqueId) {
       profileData.adminUniqueId = additionalData.adminUniqueId;
     }
   }
 
-  // Remove any top-level 'undefined' properties before writing to Firestore
   const finalProfileData = Object.fromEntries(
     Object.entries(profileData).filter(([_, v]) => v !== undefined)
-  );
+  ) as UserProfile;
 
   await setDoc(userDocRef, finalProfileData, { merge: true });
-  // We cast here because we've constructed it to match UserProfile
-  return finalProfileData as UserProfile; 
+  return finalProfileData; 
 };
 
+// Used by client-side AuthContext and potentially other client components
 export const getUserProfile = async (userId: string): Promise<UserProfile | null> => {
-  const userDocRef = doc(firestore, USERS_COLLECTION, userId);
-  const userDocSnap = await getDoc(userDocRef);
-  if (userDocSnap.exists()) {
-    return userDocSnap.data() as UserProfile;
+  if (!userId) {
+    console.warn("userService (getUserProfile - client): Called with no userId.");
+    return null;
   }
-  return null;
+  const userDocRef = doc(firestore, USERS_COLLECTION, userId); // Uses client-side `firestore`
+  try {
+    const userDocSnap = await getDoc(userDocRef);
+    if (userDocSnap.exists()) {
+      return userDocSnap.data() as UserProfile;
+    }
+    console.log(`userService (getUserProfile - client): No profile found for userId ${userId}.`);
+    return null;
+  } catch (error: any) {
+     console.error(`userService (getUserProfile - client): Error fetching profile for userId ${userId}: ${error.message}`, error);
+     // Consider how to handle this - rethrow, return null with error state, etc.
+     // For client-side, often returning null and letting UI handle "profile not found" is okay.
+     return null;
+  }
 };
 
-// --- Admin Specific ---
+// --- User Profile (Admin SDK - for server-side use) ---
+export const getAnyUserProfileWithAdmin = async (userId: string): Promise<UserProfile | null> => {
+  if (!userId) {
+    console.warn("userService (getAnyUserProfileWithAdmin): Called with no userId.");
+    return null;
+  }
+  if (!adminFirestore || typeof adminFirestore.collection !== 'function') {
+    console.error("userService (getAnyUserProfileWithAdmin): adminFirestore is not initialized properly.");
+    throw new Error("Admin Firestore service not available.");
+  }
+  try {
+    const userDocRef = adminFirestore.collection(USERS_COLLECTION).doc(userId);
+    const userDocSnap = await userDocRef.get();
+    if (userDocSnap.exists) {
+      return userDocSnap.data() as UserProfile;
+    }
+    console.log(`userService (getAnyUserProfileWithAdmin): No profile found for userId ${userId}.`);
+    return null;
+  } catch (error: any) {
+    console.error(`userService (getAnyUserProfileWithAdmin): Error fetching profile for UID ${userId}:`, error.message, error);
+    throw error; 
+  }
+};
+
+
+// --- Admin Specific (Client SDK for admin actions triggered from client, e.g. profile creation) ---
 export const createAdminProfile = async (userId: string, email: string): Promise<AdminProfile> => {
   const adminDocRef = doc(firestore, ADMINS_COLLECTION, userId); 
   const adminUniqueId = uuidv4().substring(0, 8).toUpperCase();
@@ -91,11 +119,7 @@ export const createAdminProfile = async (userId: string, email: string): Promise
     createdAt: now,
   };
   await setDoc(adminDocRef, adminProfile);
-
-  // Also create/update their main user profile document in 'users' collection
-  // Pass the generated adminUniqueId to be stored there as well.
   await createUserProfileDocument(userId, email, 'admin', { adminUniqueId });
-
   return adminProfile;
 };
 
@@ -108,12 +132,12 @@ export const getAdminByUniqueId = async (adminUniqueId: string): Promise<AdminPr
   return null;
 };
 
-// --- Student Specific & Linkage ---
+// --- Student Specific & Linkage (Client SDK) ---
 export const createStudentLinkRequest = async (
   studentUserId: string,
   studentEmail: string,
   studentName: string,
-  studentRollNo: string | null, // Can be null
+  studentRollNo: string | null,
   targetAdminUniqueId: string,
   targetAdminFirebaseId: string
 ): Promise<StudentLinkRequest> => {
@@ -125,7 +149,6 @@ export const createStudentLinkRequest = async (
     studentUserId,
     studentEmail,
     studentName,
-    // studentRollNo can be string or null, store as is
     studentRollNo: studentRollNo !== undefined ? studentRollNo : null, 
     adminUniqueIdTargeted: targetAdminUniqueId,
     adminFirebaseId: targetAdminFirebaseId,
@@ -134,13 +157,11 @@ export const createStudentLinkRequest = async (
   };
   await setDoc(requestDocRef, linkRequest);
   
-  // Update student's user profile to reflect pending request and targeted admin
-  // This is also handled in verify-email-otp-and-register flow, but good for consistency if called elsewhere.
   const studentUserDocRef = doc(firestore, USERS_COLLECTION, studentUserId);
   await setDoc(studentUserDocRef, { 
     linkRequestStatus: 'pending', 
-    associatedAdminUniqueId: targetAdminUniqueId, // Store the ID they are trying to link to
-    associatedAdminFirebaseId: targetAdminFirebaseId, // Store the actual Firebase UID of the admin
+    associatedAdminUniqueId: targetAdminUniqueId, 
+    associatedAdminFirebaseId: targetAdminFirebaseId,
     updatedAt: serverTimestamp() 
   }, { merge: true });
 
@@ -189,12 +210,8 @@ export const updateStudentLinkRequestStatusAndLinkStudent = async (
   };
 
   if (newStatus === 'accepted') {
-    // associatedAdminUniqueId should already be set from the request initiation
-    // Ensure associatedAdminFirebaseId is set to the resolving admin's Firebase UID
     studentUpdateData.associatedAdminFirebaseId = adminFirebaseIdResolving;
   } else { 
-    // If rejected, we might clear the associated admin IDs, or leave associatedAdminUniqueId
-    // for the student to know which request was rejected. For now, let's clear FirebaseId.
     studentUpdateData.associatedAdminFirebaseId = null; 
   }
   batch.update(studentUserDocRef, studentUpdateData);
@@ -212,4 +229,3 @@ export const getStudentsForAdmin = async (adminFirebaseId: string): Promise<User
   const querySnapshot = await getDocs(q);
   return querySnapshot.docs.map(docSnap => docSnap.data() as UserProfile);
 };
-

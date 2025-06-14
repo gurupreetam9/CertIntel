@@ -15,7 +15,7 @@ import type { UserProfile as StudentUserProfileType } from '@/lib/models/user';
 import Link from 'next/link';
 
 function StudentCertificatesPageContent() {
-  const { user, userProfile: adminUserProfile, loading: authLoading } = useAuth(); // Renamed userProfile to adminUserProfile for clarity
+  const { user, userProfile: adminUserProfile, loading: authLoading } = useAuth();
   const router = useRouter();
   const params = useParams();
   const studentId = params.studentId as string;
@@ -23,7 +23,7 @@ function StudentCertificatesPageContent() {
   const { toast } = useToast();
   const [images, setImages] = useState<UserImage[]>([]);
   const [isLoadingImages, setIsLoadingImages] = useState(true);
-  const [studentProfile, setStudentProfile] = useState<StudentUserProfileType | null>(null);
+  const [studentProfile, setStudentProfile] = useState<StudentUserProfileType | null>(null); // Student's profile
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -31,10 +31,11 @@ function StudentCertificatesPageContent() {
     setRefreshKey(prevKey => prevKey + 1);
   }, []);
 
+  // Fetch student's profile details first
   useEffect(() => {
-    if (studentId) {
-      setIsLoadingImages(true); // Set loading while fetching student profile too
-      getUserProfile(studentId)
+    if (studentId && adminUserProfile?.role === 'admin') { // Only fetch if admin is viewing
+      setIsLoadingImages(true); 
+      getUserProfile(studentId) // Uses client-side SDK, fine for displaying name
         .then(profile => {
           if (profile && profile.role === 'student') {
             setStudentProfile(profile);
@@ -49,43 +50,35 @@ function StudentCertificatesPageContent() {
           setStudentProfile(null);
         });
     }
-  }, [studentId]);
+  }, [studentId, adminUserProfile?.role]);
 
   const fetchStudentImages = useCallback(async () => {
-    if (!user || adminUserProfile?.role !== 'admin' || !studentId || !studentProfile) {
+    if (!user || adminUserProfile?.role !== 'admin' || !studentId) {
       setIsLoadingImages(false);
-      if (studentProfile === null && studentId) { // If studentProfile failed to load, don't try to fetch images.
-          // Error already set by studentProfile fetch.
-      } else if (!studentProfile && studentId) {
-          // Still waiting for studentProfile to load
-      }
-      else {
-        setImages([]);
-      }
+      setImages([]);
       return;
     }
-
-    // Ensure admin is actually linked to this student before fetching
-    if (studentProfile.associatedAdminFirebaseId !== user.uid || studentProfile.linkRequestStatus !== 'accepted') {
-        setError("Access Denied: You are not linked to this student, or the link is not active.");
-        setIsLoadingImages(false);
-        setImages([]);
-        return;
-    }
-
+    // Student profile might still be loading here, or failed to load.
+    // The API call will do its own checks with Admin SDK.
 
     setIsLoadingImages(true);
     setError(null);
     try {
+      const idToken = await user.getIdToken();
+      if (!idToken) {
+        throw new Error("Authentication token not available.");
+      }
+
       const fetchUrl = `/api/user-images?userId=${studentId}&adminRequesterId=${user.uid}`; 
-      const response = await fetch(fetchUrl);
+      const response = await fetch(fetchUrl, {
+        headers: {
+          'Authorization': `Bearer ${idToken}`
+        }
+      });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ message: `Error ${response.status}` }));
-        if (response.status === 403) {
-             throw new Error(errorData.message || "Access Denied: You may not have permission to view this student's certificates.");
-        }
-        throw new Error(errorData.message || `Failed to load student certificates.`);
+        throw new Error(errorData.message || `Failed to load student certificates. Server responded with ${response.status}`);
       }
       const data: UserImage[] = await response.json();
       setImages(data);
@@ -96,21 +89,22 @@ function StudentCertificatesPageContent() {
     } finally {
       setIsLoadingImages(false);
     }
-  }, [user, adminUserProfile?.role, studentId, toast, refreshKey, studentProfile]);
+  }, [user, adminUserProfile?.role, studentId, toast, refreshKey]); // Removed studentProfile from deps, API handles it
 
   useEffect(() => {
     if (!authLoading && user && adminUserProfile) {
       if (adminUserProfile.role !== 'admin') {
         toast({ title: 'Access Denied', description: 'You are not authorized.', variant: 'destructive' });
         router.replace('/');
-      } else if (studentId && studentProfile !== undefined) { // studentProfile could be null if not found, or loaded
-        fetchStudentImages();
+      } else if (studentId) { 
+        fetchStudentImages(); // Fetch images once admin role is confirmed
       }
     }
-  }, [user, adminUserProfile, authLoading, studentId, router, toast, fetchStudentImages, studentProfile]);
+  }, [user, adminUserProfile, authLoading, studentId, router, toast, fetchStudentImages]);
 
 
-  if (authLoading || !adminUserProfile || (adminUserProfile.role === 'admin' && studentProfile === undefined) ) {
+  if (authLoading || !adminUserProfile || (adminUserProfile.role === 'admin' && studentProfile === undefined && studentId)) {
+    // Show loader if auth is loading, or if admin is viewing this page and student profile hasn't loaded/failed yet
     return (
       <div className="flex h-[calc(100vh-var(--header-height,4rem))] items-center justify-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -119,6 +113,7 @@ function StudentCertificatesPageContent() {
   }
 
   if (adminUserProfile.role !== 'admin') {
+    // This case should be caught by ProtectedPage or the effect above, but as a fallback:
     return (
       <div className="container mx-auto px-4 py-8 text-center">
         <ShieldAlert className="mx-auto h-16 w-16 text-destructive mb-4" />
@@ -127,7 +122,7 @@ function StudentCertificatesPageContent() {
     );
   }
   
-  const studentNameDisplay = studentProfile?.displayName || studentProfile?.email?.split('@')[0] || "Student";
+  const studentNameDisplay = studentProfile?.displayName || studentProfile?.email?.split('@')[0] || (studentId ? "Student" : "Loading student...");
 
   return (
     <div className="container mx-auto px-4 py-8 md:px-6 lg:px-8">
@@ -142,7 +137,7 @@ function StudentCertificatesPageContent() {
                     {studentNameDisplay}'s Certificates
                 </h1>
                 {studentProfile?.email && <p className="text-sm text-muted-foreground">{studentProfile.email}</p>}
-                {!studentProfile && !isLoadingImages && <p className="text-sm text-destructive">Student details could not be loaded.</p>}
+                {!studentProfile && !isLoadingImages && !error && studentId && <p className="text-sm text-muted-foreground">Loading student details...</p>}
             </div>
         </div>
       </div>
@@ -152,30 +147,29 @@ function StudentCertificatesPageContent() {
             <FileWarning className="w-16 h-16 mb-4" />
             <h2 className="text-2xl font-headline mb-2">Could Not Load Certificates</h2>
             <p className="max-w-md">{error}</p>
-            { studentProfile && <Button onClick={fetchStudentImages} className="mt-4">Try Again</Button> }
+            <Button onClick={fetchStudentImages} className="mt-4">Try Again</Button>
         </div>
       )}
 
-      {!error && studentProfile && (
+      {!error && ( // Render ImageGrid even if studentProfile is still loading, API will handle auth
         <ImageGrid
             images={images}
-            isLoading={isLoadingImages}
-            error={null} 
+            isLoading={isLoadingImages} // ImageGrid loading is tied to image fetching
+            error={null} // Error is handled above
             onImageDeleted={triggerRefresh} 
             currentUserId={studentId} 
         />
       )}
-       {!error && !studentProfile && !isLoadingImages && (
+       {!error && !studentProfile && !isLoadingImages && !studentId && ( // Case where studentId itself is missing
          <div className="flex flex-col items-center justify-center text-center py-12 text-muted-foreground">
             <UserIcon className="w-16 h-16 mb-4" />
-            <h2 className="text-2xl font-headline mb-2">Student Not Found</h2>
-            <p className="max-w-md">The details for this student could not be loaded, or they are not linked to you.</p>
+            <h2 className="text-2xl font-headline mb-2">Student Not Specified</h2>
+            <p className="max-w-md">No student ID was provided to view certificates.</p>
         </div>
        )}
     </div>
   );
 }
-
 
 export default function StudentCertificatesPage() {
   return (
@@ -184,5 +178,3 @@ export default function StudentCertificatesPage() {
     </ProtectedPage>
   );
 }
-
-    
