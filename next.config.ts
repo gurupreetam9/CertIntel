@@ -40,25 +40,6 @@ const nextConfig: NextConfig = {
         os: false,
         path: false,
         http2: false,
-        events: false, // For 'events'
-        'node:events': false, // For 'node:events'
-        crypto: false, 
-        'node:crypto': false,
-        stream: false, 
-        'node:stream': false,
-        util: false,   
-        'node:util': false,
-        zlib: false,   
-        'node:zlib': false,
-        assert: false, 
-        'node:assert': false,
-        constants: false, 
-        'node:constants': false,
-        vm: false, 
-        'node:vm': false,
-        'google-auth-library': false,
-        'gcp-metadata': false,
-        'firebase-admin': false, 
       };
     }
     return config;
