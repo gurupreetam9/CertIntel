@@ -40,6 +40,12 @@ const nextConfig: NextConfig = {
         os: false,
         path: false,
         http2: false,
+        // Added 'events' here as it's a common Node.js module
+        // that can cause issues if not polyfilled or excluded
+        events: false,
+        // Attempt to stub out modules that are known to cause issues if pulled client-side
+        // 'google-auth-library': false, // Keep this commented for now to see if other fallbacks are enough
+        // 'gcp-metadata': false, // Keep this commented for now
       };
     }
     return config;
