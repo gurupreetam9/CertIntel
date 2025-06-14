@@ -1,6 +1,6 @@
 
 import { firestore } from '@/lib/firebase/config'; // For client-side SDK Firestore
-import { adminFirestore } from '@/lib/firebase/adminConfig'; // For Admin SDK Firestore
+// Removed: import { adminFirestore } from '@/lib/firebase/adminConfig'; 
 import type { UserProfile, AdminProfile, StudentLinkRequest, UserRole, LinkRequestStatus } from '@/lib/models/user';
 import {
   doc,
@@ -81,29 +81,8 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
   }
 };
 
-// --- User Profile (Admin SDK - for server-side use) ---
-export const getAnyUserProfileWithAdmin = async (userId: string): Promise<UserProfile | null> => {
-  if (!userId) {
-    console.warn("userService (getAnyUserProfileWithAdmin): Called with no userId.");
-    return null;
-  }
-  if (!adminFirestore || typeof adminFirestore.collection !== 'function') {
-    console.error("userService (getAnyUserProfileWithAdmin): adminFirestore is not initialized properly.");
-    throw new Error("Admin Firestore service not available.");
-  }
-  try {
-    const userDocRef = adminFirestore.collection(USERS_COLLECTION).doc(userId);
-    const userDocSnap = await userDocRef.get();
-    if (userDocSnap.exists) {
-      return userDocSnap.data() as UserProfile;
-    }
-    console.log(`userService (getAnyUserProfileWithAdmin): No profile found for userId ${userId}.`);
-    return null;
-  } catch (error: any) {
-    console.error(`userService (getAnyUserProfileWithAdmin): Error fetching profile for UID ${userId}:`, error.message, error);
-    throw error; 
-  }
-};
+// --- REMOVED getAnyUserProfileWithAdmin as it used adminFirestore ---
+// This function's logic will be inlined into the API route that needs it.
 
 
 // --- Admin Specific (Client SDK for admin actions triggered from client, e.g. profile creation) ---
@@ -228,4 +207,17 @@ export const getStudentsForAdmin = async (adminFirebaseId: string): Promise<User
   );
   const querySnapshot = await getDocs(q);
   return querySnapshot.docs.map(docSnap => docSnap.data() as UserProfile);
+};
+
+// Make sure updateUserProfileDocument is defined and exported if used in ProfileSettings
+export const updateUserProfileDocument = async (userId: string, data: Partial<UserProfile>): Promise<{ success: boolean, message?: string }> => {
+  if (!userId) return { success: false, message: 'User ID is required.'};
+  const userDocRef = doc(firestore, USERS_COLLECTION, userId);
+  try {
+    await setDoc(userDocRef, { ...data, updatedAt: serverTimestamp() }, { merge: true });
+    return { success: true };
+  } catch (error: any) {
+    console.error("Error updating user profile document:", error);
+    return { success: false, message: error.message || "Failed to update profile." };
+  }
 };

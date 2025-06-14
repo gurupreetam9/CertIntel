@@ -2,9 +2,35 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { connectToDb } from '@/lib/mongodb';
-import { adminAuth } from '@/lib/firebase/adminConfig'; // Using Firebase Admin SDK
-import { getAnyUserProfileWithAdmin } from '@/lib/services/userService'; // Using Admin SDK for profile fetch
+import { adminAuth, adminFirestore } from '@/lib/firebase/adminConfig'; // Using Firebase Admin SDK
 import type { UserProfile } from '@/lib/models/user';
+
+const USERS_COLLECTION = 'users'; // Define collection name for local use
+
+// Local implementation of getAnyUserProfileWithAdmin for this API route
+const getAnyUserProfileWithAdminLocally = async (userId: string): Promise<UserProfile | null> => {
+  if (!userId) {
+    console.warn("user-images API (getAnyUserProfileWithAdminLocally): Called with no userId.");
+    return null;
+  }
+  if (!adminFirestore || typeof adminFirestore.collection !== 'function') {
+    console.error("user-images API (getAnyUserProfileWithAdminLocally): adminFirestore is not initialized properly.");
+    throw new Error("Admin Firestore service not available.");
+  }
+  try {
+    const userDocRef = adminFirestore.collection(USERS_COLLECTION).doc(userId);
+    const userDocSnap = await userDocRef.get();
+    if (userDocSnap.exists) {
+      return userDocSnap.data() as UserProfile;
+    }
+    console.log(`user-images API (getAnyUserProfileWithAdminLocally): No profile found for userId ${userId}.`);
+    return null;
+  } catch (error: any) {
+    console.error(`user-images API (getAnyUserProfileWithAdminLocally): Error fetching profile for UID ${userId}:`, error.message, error);
+    throw error; 
+  }
+};
+
 
 export async function GET(request: NextRequest) {
   const reqId = Math.random().toString(36).substring(2, 9);
@@ -51,7 +77,7 @@ export async function GET(request: NextRequest) {
   try {
     // Authorization Check using Admin SDK to fetch profiles
     console.log(`API Route /api/user-images (Req ID: ${reqId}): AUTH - Fetching admin profile for UID: ${authenticatedUserId} using Admin SDK...`);
-    const adminProfile: UserProfile | null = await getAnyUserProfileWithAdmin(authenticatedUserId);
+    const adminProfile: UserProfile | null = await getAnyUserProfileWithAdminLocally(authenticatedUserId);
     
     if (!adminProfile) {
       console.warn(`API Route /api/user-images (Req ID: ${reqId}): AUTH FAIL - Admin profile for ${authenticatedUserId} NOT FOUND in Firestore (via Admin SDK).`);
@@ -65,7 +91,7 @@ export async function GET(request: NextRequest) {
     }
     console.log(`API Route /api/user-images (Req ID: ${reqId}): AUTH - Admin role VERIFIED for ${authenticatedUserId}. Fetching target student profile ${targetUserId} using Admin SDK...`);
 
-    const targetUserProfile: UserProfile | null = await getAnyUserProfileWithAdmin(targetUserId);
+    const targetUserProfile: UserProfile | null = await getAnyUserProfileWithAdminLocally(targetUserId);
     if (!targetUserProfile) {
       console.warn(`API Route /api/user-images (Req ID: ${reqId}): AUTH FAIL - Target student profile ${targetUserId} NOT FOUND in Firestore (via Admin SDK).`);
       return NextResponse.json({ message: 'Unauthorized: Student profile not found.', errorKey: 'STUDENT_PROFILE_NOT_FOUND' }, { status: 403 });
