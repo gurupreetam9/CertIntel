@@ -6,7 +6,7 @@ import { getUserProfile } from '@/lib/services/userService'; // For checking adm
 
 export async function GET(request: NextRequest) {
   const reqId = Math.random().toString(36).substring(2, 9);
-  console.log(`API Route /api/user-images (Req ID: ${reqId}): GET request received.`);
+  console.log(`API Route /api/user-images (Req ID: ${reqId}): GET request received. URL: ${request.url}`);
 
   const targetUserId = request.nextUrl.searchParams.get('userId'); // This is the user whose images are being requested
   const adminRequesterId = request.nextUrl.searchParams.get('adminRequesterId'); // UID of admin making request, if any
@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   console.log(`API Route /api/user-images (Req ID: ${reqId}): Target userId: ${targetUserId}, AdminRequesterId: ${adminRequesterId}`);
 
   if (!targetUserId) {
-    console.warn(`API Route /api/user-images (Req ID: ${reqId}): targetUserId query parameter is required.`);
+    console.warn(`API Route /api/user-images (Req ID: ${reqId}): FAIL - targetUserId query parameter is required.`);
     return NextResponse.json({ message: 'targetUserId query parameter is required.', errorKey: 'MISSING_TARGET_USER_ID' }, { status: 400 });
   }
 
@@ -22,39 +22,64 @@ export async function GET(request: NextRequest) {
   try {
     // Authorization Check
     if (adminRequesterId && adminRequesterId !== targetUserId) {
-      console.log(`API Route /api/user-images (Req ID: ${reqId}): Admin ${adminRequesterId} is requesting images for student ${targetUserId}. Fetching admin profile...`);
+      console.log(`API Route /api/user-images (Req ID: ${reqId}): AUTH - Admin access attempt by ${adminRequesterId} for student ${targetUserId}. Fetching admin profile...`);
       const adminProfile = await getUserProfile(adminRequesterId);
       
       if (!adminProfile) {
-        console.warn(`API Route /api/user-images (Req ID: ${reqId}): Admin profile for ${adminRequesterId} not found or access denied by Firestore rules. This is the first point of failure if permissions are insufficient for an admin to read their own profile, or if the profile document doesn't exist.`);
-        return NextResponse.json({ message: 'Unauthorized: Admin profile not found or inaccessible.', errorKey: 'ADMIN_PROFILE_INACCESSIBLE' }, { status: 403 });
+        console.warn(`API Route /api/user-images (Req ID: ${reqId}): AUTH FAIL - Admin profile for ${adminRequesterId} NOT FOUND in Firestore.`);
+        return NextResponse.json({ message: 'Unauthorized: Admin identity could not be verified (profile not found).', errorKey: 'ADMIN_PROFILE_NOT_FOUND' }, { status: 403 });
       }
-      console.log(`API Route /api/user-images (Req ID: ${reqId}): Admin profile fetched. UID: ${adminProfile.uid}, Role: ${adminProfile.role}, DisplayName: ${adminProfile.displayName}`);
+      console.log(`API Route /api/user-images (Req ID: ${reqId}): AUTH - Admin profile fetched. UID: ${adminProfile.uid}, Role: '${adminProfile.role}', DisplayName: ${adminProfile.displayName}`);
       
       if (adminProfile.role !== 'admin') {
-        console.warn(`API Route /api/user-images (Req ID: ${reqId}): Unauthorized. Requester ${adminRequesterId} is not an admin (role found: ${adminProfile.role}). Ensure the 'role' field is correctly set to 'admin' in their Firestore user document.`);
-        return NextResponse.json({ message: 'Unauthorized: Requester is not an admin.', errorKey: 'NOT_AN_ADMIN' }, { status: 403 });
+        console.warn(`API Route /api/user-images (Req ID: ${reqId}): AUTH FAIL - Requester ${adminRequesterId} is NOT an admin. Actual role: '${adminProfile.role}'.`);
+        return NextResponse.json({ message: 'Unauthorized: Requester does not have admin privileges.', errorKey: 'NOT_AN_ADMIN' }, { status: 403 });
       }
+      console.log(`API Route /api/user-images (Req ID: ${reqId}): AUTH - Admin role VERIFIED for ${adminRequesterId}. Fetching target student profile ${targetUserId}...`);
 
-      console.log(`API Route /api/user-images (Req ID: ${reqId}): Admin role confirmed for ${adminRequesterId}. Fetching target student profile ${targetUserId}...`);
       const targetUserProfile = await getUserProfile(targetUserId);
       if (!targetUserProfile) {
-        console.warn(`API Route /api/user-images (Req ID: ${reqId}): Target student profile ${targetUserId} not found or access denied by Firestore rules.`);
-        return NextResponse.json({ message: 'Unauthorized: Student profile not found or inaccessible.', errorKey: 'STUDENT_PROFILE_INACCESSIBLE' }, { status: 403 });
+        console.warn(`API Route /api/user-images (Req ID: ${reqId}): AUTH FAIL - Target student profile ${targetUserId} NOT FOUND in Firestore.`);
+        return NextResponse.json({ message: 'Unauthorized: Student profile not found.', errorKey: 'STUDENT_PROFILE_NOT_FOUND' }, { status: 403 });
       }
-      console.log(`API Route /api/user-images (Req ID: ${reqId}): Student profile fetched. UID: ${targetUserProfile.uid}, Role: ${targetUserProfile.role}, LinkedAdminFirebaseId: ${targetUserProfile.associatedAdminFirebaseId}, LinkStatus: ${targetUserProfile.linkRequestStatus}`);
+      console.log(`API Route /api/user-images (Req ID: ${reqId}): AUTH - Student profile fetched. UID: ${targetUserProfile.uid}, Role: '${targetUserProfile.role}', LinkedAdminFirebaseId: '${targetUserProfile.associatedAdminFirebaseId}', LinkStatus: '${targetUserProfile.linkRequestStatus}'`);
 
-      if (targetUserProfile.role !== 'student' || targetUserProfile.associatedAdminFirebaseId !== adminRequesterId || targetUserProfile.linkRequestStatus !== 'accepted') {
-        console.warn(`API Route /api/user-images (Req ID: ${reqId}): Admin ${adminRequesterId} not authorized to view images for user ${targetUserId}. Linkage invalid or student role incorrect. Student role: ${targetUserProfile.role}, Linked Admin UID: ${targetUserProfile.associatedAdminFirebaseId}, Link Status: ${targetUserProfile.linkRequestStatus}`);
-        return NextResponse.json({ message: 'Unauthorized: Admin not linked to this student or student role invalid.', errorKey: 'ADMIN_STUDENT_LINK_INVALID' }, { status: 403 });
+      if (targetUserProfile.role !== 'student') {
+        console.warn(`API Route /api/user-images (Req ID: ${reqId}): AUTH FAIL - Target user ${targetUserId} is not a student. Actual role: '${targetUserProfile.role}'.`);
+        return NextResponse.json({ message: 'Unauthorized: Target user is not registered as a student.', errorKey: 'TARGET_NOT_STUDENT'}, { status: 403 });
       }
-      console.log(`API Route /api/user-images (Req ID: ${reqId}): Admin ${adminRequesterId} authorized to view images for student ${targetUserId}. Proceeding to fetch from MongoDB.`);
-    } else if (!adminRequesterId && !request.headers.get('X-Internal-Call')) { 
-      console.log(`API Route /api/user-images (Req ID: ${reqId}): Assuming user ${targetUserId} is fetching their own images. (No adminRequesterId provided, and not marked as internal call)`);
-      // This branch is for users fetching their own images. The client-side ProtectedPage should handle basic auth.
-      // If you require specific authorization for users to fetch their own images beyond simple authentication,
-      // you might need to verify the `targetUserId` against the authenticated user's ID token if available.
-      // For this app, the primary use case for this API is admin access or own-user access (from homepage).
+
+      if (targetUserProfile.associatedAdminFirebaseId !== adminRequesterId) {
+        console.warn(`API Route /api/user-images (Req ID: ${reqId}): AUTH FAIL - Student ${targetUserId} is not linked to requesting admin ${adminRequesterId}. Student's linked admin UID: '${targetUserProfile.associatedAdminFirebaseId}'.`);
+        return NextResponse.json({ message: 'Unauthorized: Admin is not linked to this student.', errorKey: 'ADMIN_STUDENT_LINK_INVALID_UID' }, { status: 403 });
+      }
+      
+      if (targetUserProfile.linkRequestStatus !== 'accepted') {
+        console.warn(`API Route /api/user-images (Req ID: ${reqId}): AUTH FAIL - Student ${targetUserId} link status with admin ${adminRequesterId} is not 'accepted'. Actual status: '${targetUserProfile.linkRequestStatus}'.`);
+        return NextResponse.json({ message: 'Unauthorized: Student link request not in accepted state.', errorKey: 'ADMIN_STUDENT_LINK_NOT_ACCEPTED' }, { status: 403 });
+      }
+      
+      console.log(`API Route /api/user-images (Req ID: ${reqId}): AUTH SUCCESS - Admin ${adminRequesterId} fully authorized for student ${targetUserId}. Proceeding to MongoDB.`);
+
+    } else if (!adminRequesterId && targetUserId) {
+      // This case is for a user fetching their OWN images.
+      // Requires that targetUserId is the UID of the *currently authenticated user*.
+      // This is not directly verifiable here without an ID token from the client.
+      // We are trusting the client sends its own UID as targetUserId.
+      // For the Admin Dashboard flow, adminRequesterId MUST be present.
+      // This log indicates the call might not be from an admin page.
+      console.log(`API Route /api/user-images (Req ID: ${reqId}): AUTH - User ${targetUserId} fetching their own images (adminRequesterId is null/undefined).`);
+      // No specific 403 here; let it proceed to MongoDB. If targetUserId is not self, and there's no admin override, it's just fetching for that UID.
+    } else {
+      // Fallback for unusual cases, e.g., targetUserId is present but adminRequesterId is also missing.
+      // Or if adminRequesterId === targetUserId (admin viewing own, should have passed above if 'admin' role, or this path if not admin)
+       console.warn(`API Route /api/user-images (Req ID: ${reqId}): AUTH - Ambiguous request or self-access. targetUserId: ${targetUserId}, adminRequesterId: ${adminRequesterId}.`);
+       // If it's an admin viewing their own page, they shouldn't hit the "adminRequesterId && adminRequesterId !== targetUserId" block.
+       // If they are a student viewing their own, this is fine.
+       // If this path is hit from the Admin Student Certs page, it means adminRequesterId was missing from the client call.
+       if (!targetUserId && !adminRequesterId) { // Should be caught by earlier targetUserId check
+          return NextResponse.json({ message: 'User identification missing.', errorKey: 'USER_ID_MISSING_COMPLETELY' }, { status: 400 });
+       }
     }
 
 
@@ -97,7 +122,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(formattedImages, { status: 200 });
 
   } catch (error: any) {
-    console.error(`API Route /api/user-images (Req ID: ${reqId}): Error during image fetching process. Name: ${error.name}, Message: ${error.message}`);
+    console.error(`API Route /api/user-images (Req ID: ${reqId}): ERROR during image fetching process. Name: ${error.name}, Message: ${error.message}`);
     if (error.stack) {
         console.error(`API Route /api/user-images (Req ID: ${reqId}): Error stack (first 500 chars): ${error.stack.substring(0,500)}...`);
     }
@@ -109,15 +134,15 @@ export async function GET(request: NextRequest) {
     if (error.message && error.message.toLowerCase().includes('mongodb connection error')) {
       responseMessage = 'Database connection error.';
       errorKey = 'DB_CONNECTION_ERROR';
-    } else if (error.message && (error.message.includes('Unauthorized') || error.message.includes('Access Denied') || error.message.includes('profile not found or inaccessible'))) {
+    } else if (error.message && (error.message.includes('Unauthorized') || error.message.includes('Access Denied') || error.message.includes('profile not found'))) {
       responseMessage = error.message; 
-      errorKey = (error as any).errorKey || 'UNAUTHORIZED_ACCESS'; 
+      errorKey = (error as any).errorKey || 'UNAUTHORIZED_ACCESS_DETAIL_IN_MESSAGE'; 
       statusCode = 403;
     } else if (error.message) {
         responseMessage = error.message;
     }
 
-    const errorPayload = { message: responseMessage, errorKey, detail: error.message };
+    const errorPayload = { message: responseMessage, errorKey, detail: error.message }; // Use the detailed message from error if it's specific
     console.log(`API Route /api/user-images (Req ID: ${reqId}): Preparing to send error response:`, errorPayload);
     return NextResponse.json(errorPayload, { status: statusCode });
   }
