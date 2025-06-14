@@ -24,33 +24,37 @@ export async function GET(request: NextRequest) {
     if (adminRequesterId && adminRequesterId !== targetUserId) {
       console.log(`API Route /api/user-images (Req ID: ${reqId}): Admin ${adminRequesterId} is requesting images for student ${targetUserId}. Fetching admin profile...`);
       const adminProfile = await getUserProfile(adminRequesterId);
+      
       if (!adminProfile) {
-        console.warn(`API Route /api/user-images (Req ID: ${reqId}): Admin profile for ${adminRequesterId} not found or access denied by Firestore rules.`);
+        console.warn(`API Route /api/user-images (Req ID: ${reqId}): Admin profile for ${adminRequesterId} not found or access denied by Firestore rules. This is the first point of failure if permissions are insufficient for an admin to read their own profile, or if the profile document doesn't exist.`);
         return NextResponse.json({ message: 'Unauthorized: Admin profile not found or inaccessible.', errorKey: 'ADMIN_PROFILE_INACCESSIBLE' }, { status: 403 });
       }
-      console.log(`API Route /api/user-images (Req ID: ${reqId}): Admin profile fetched. Role: ${adminProfile.role}`);
+      console.log(`API Route /api/user-images (Req ID: ${reqId}): Admin profile fetched. UID: ${adminProfile.uid}, Role: ${adminProfile.role}, DisplayName: ${adminProfile.displayName}`);
+      
       if (adminProfile.role !== 'admin') {
-        console.warn(`API Route /api/user-images (Req ID: ${reqId}): Unauthorized. Requester ${adminRequesterId} is not an admin (role: ${adminProfile.role}).`);
+        console.warn(`API Route /api/user-images (Req ID: ${reqId}): Unauthorized. Requester ${adminRequesterId} is not an admin (role found: ${adminProfile.role}). Ensure the 'role' field is correctly set to 'admin' in their Firestore user document.`);
         return NextResponse.json({ message: 'Unauthorized: Requester is not an admin.', errorKey: 'NOT_AN_ADMIN' }, { status: 403 });
       }
 
-      console.log(`API Route /api/user-images (Req ID: ${reqId}): Admin confirmed. Fetching target student profile ${targetUserId}...`);
+      console.log(`API Route /api/user-images (Req ID: ${reqId}): Admin role confirmed for ${adminRequesterId}. Fetching target student profile ${targetUserId}...`);
       const targetUserProfile = await getUserProfile(targetUserId);
       if (!targetUserProfile) {
         console.warn(`API Route /api/user-images (Req ID: ${reqId}): Target student profile ${targetUserId} not found or access denied by Firestore rules.`);
         return NextResponse.json({ message: 'Unauthorized: Student profile not found or inaccessible.', errorKey: 'STUDENT_PROFILE_INACCESSIBLE' }, { status: 403 });
       }
-      console.log(`API Route /api/user-images (Req ID: ${reqId}): Student profile fetched. Role: ${targetUserProfile.role}, LinkedAdmin: ${targetUserProfile.associatedAdminFirebaseId}, LinkStatus: ${targetUserProfile.linkRequestStatus}`);
+      console.log(`API Route /api/user-images (Req ID: ${reqId}): Student profile fetched. UID: ${targetUserProfile.uid}, Role: ${targetUserProfile.role}, LinkedAdminFirebaseId: ${targetUserProfile.associatedAdminFirebaseId}, LinkStatus: ${targetUserProfile.linkRequestStatus}`);
 
       if (targetUserProfile.role !== 'student' || targetUserProfile.associatedAdminFirebaseId !== adminRequesterId || targetUserProfile.linkRequestStatus !== 'accepted') {
-        console.warn(`API Route /api/user-images (Req ID: ${reqId}): Admin ${adminRequesterId} not authorized to view images for user ${targetUserId}. Linkage invalid or student role incorrect. Student role: ${targetUserProfile.role}, Linked Admin: ${targetUserProfile.associatedAdminFirebaseId}, Link Status: ${targetUserProfile.linkRequestStatus}`);
+        console.warn(`API Route /api/user-images (Req ID: ${reqId}): Admin ${adminRequesterId} not authorized to view images for user ${targetUserId}. Linkage invalid or student role incorrect. Student role: ${targetUserProfile.role}, Linked Admin UID: ${targetUserProfile.associatedAdminFirebaseId}, Link Status: ${targetUserProfile.linkRequestStatus}`);
         return NextResponse.json({ message: 'Unauthorized: Admin not linked to this student or student role invalid.', errorKey: 'ADMIN_STUDENT_LINK_INVALID' }, { status: 403 });
       }
       console.log(`API Route /api/user-images (Req ID: ${reqId}): Admin ${adminRequesterId} authorized to view images for student ${targetUserId}. Proceeding to fetch from MongoDB.`);
     } else if (!adminRequesterId && !request.headers.get('X-Internal-Call')) { 
-      console.log(`API Route /api/user-images (Req ID: ${reqId}): Assuming user ${targetUserId} is fetching their own images. (No adminRequesterId)`);
-      // Further checks might be needed here if users can only fetch their own images directly.
-      // For now, assuming the main protection is via ProtectedPage on the client.
+      console.log(`API Route /api/user-images (Req ID: ${reqId}): Assuming user ${targetUserId} is fetching their own images. (No adminRequesterId provided, and not marked as internal call)`);
+      // This branch is for users fetching their own images. The client-side ProtectedPage should handle basic auth.
+      // If you require specific authorization for users to fetch their own images beyond simple authentication,
+      // you might need to verify the `targetUserId` against the authenticated user's ID token if available.
+      // For this app, the primary use case for this API is admin access or own-user access (from homepage).
     }
 
 
@@ -106,8 +110,8 @@ export async function GET(request: NextRequest) {
       responseMessage = 'Database connection error.';
       errorKey = 'DB_CONNECTION_ERROR';
     } else if (error.message && (error.message.includes('Unauthorized') || error.message.includes('Access Denied') || error.message.includes('profile not found or inaccessible'))) {
-      responseMessage = error.message; // Use the more specific message from the try block.
-      errorKey = error.errorKey || 'UNAUTHORIZED_ACCESS'; // If errorKey was set in the try block.
+      responseMessage = error.message; 
+      errorKey = (error as any).errorKey || 'UNAUTHORIZED_ACCESS'; 
       statusCode = 403;
     } else if (error.message) {
         responseMessage = error.message;
