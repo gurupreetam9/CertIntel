@@ -2,28 +2,59 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { connectToDb } from '@/lib/mongodb';
+import { getUserProfile } from '@/lib/services/userService'; // For checking admin roles
 
 export async function GET(request: NextRequest) {
   const reqId = Math.random().toString(36).substring(2, 9);
   console.log(`API Route /api/user-images (Req ID: ${reqId}): GET request received.`);
 
-  const userId = request.nextUrl.searchParams.get('userId');
-  console.log(`API Route /api/user-images (Req ID: ${reqId}): Using userId from query param: ${userId}`);
+  const targetUserId = request.nextUrl.searchParams.get('userId'); // This is the user whose images are being requested
+  const adminRequesterId = request.nextUrl.searchParams.get('adminRequesterId'); // UID of admin making request, if any
 
-  if (!userId) {
-    console.warn(`API Route /api/user-images (Req ID: ${reqId}): userId query parameter is required.`);
-    return NextResponse.json({ message: 'userId query parameter is required.', errorKey: 'MISSING_USER_ID' }, { status: 400 });
+  console.log(`API Route /api/user-images (Req ID: ${reqId}): Target userId: ${targetUserId}, AdminRequesterId: ${adminRequesterId}`);
+
+  if (!targetUserId) {
+    console.warn(`API Route /api/user-images (Req ID: ${reqId}): targetUserId query parameter is required.`);
+    return NextResponse.json({ message: 'targetUserId query parameter is required.', errorKey: 'MISSING_TARGET_USER_ID' }, { status: 400 });
   }
 
   let dbConnection;
   try {
+    // Authorization Check
+    if (adminRequesterId && adminRequesterId !== targetUserId) {
+      // An admin is requesting another user's images. Verify admin role and linkage.
+      const adminProfile = await getUserProfile(adminRequesterId);
+      if (!adminProfile || adminProfile.role !== 'admin') {
+        console.warn(`API Route /api/user-images (Req ID: ${reqId}): Unauthorized. Requester ${adminRequesterId} is not an admin.`);
+        return NextResponse.json({ message: 'Unauthorized: Requester is not an admin.', errorKey: 'NOT_AN_ADMIN' }, { status: 403 });
+      }
+
+      // Now check if the targetUser (student) is actually linked to this admin
+      const targetUserProfile = await getUserProfile(targetUserId);
+      if (!targetUserProfile || targetUserProfile.role !== 'student' || targetUserProfile.associatedAdminFirebaseId !== adminRequesterId || targetUserProfile.linkRequestStatus !== 'accepted') {
+        console.warn(`API Route /api/user-images (Req ID: ${reqId}): Admin ${adminRequesterId} not authorized to view images for user ${targetUserId}. Linkage invalid or student role incorrect.`);
+        return NextResponse.json({ message: 'Unauthorized: Admin not linked to this student or student role invalid.', errorKey: 'ADMIN_STUDENT_LINK_INVALID' }, { status: 403 });
+      }
+      console.log(`API Route /api/user-images (Req ID: ${reqId}): Admin ${adminRequesterId} authorized to view images for student ${targetUserId}.`);
+    } else if (!adminRequesterId && !request.headers.get('X-Internal-Call')) { 
+      // If no adminRequesterId, it implies user is fetching their own images.
+      // This requires authentication check, typically done via middleware verifying an ID token.
+      // For this project, direct user-image access might be simpler if client sends their own UID as targetUserId.
+      // The ProtectedPage component client-side ensures only logged-in users can reach pages that call this.
+      // A more robust check here would involve verifying a Firebase ID token if passed in headers.
+      // For now, we assume if adminRequesterId is missing, it's the user themselves.
+      // The X-Internal-Call header is a hypothetical way to allow server-to-server calls without auth if needed.
+      console.log(`API Route /api/user-images (Req ID: ${reqId}): Assuming user ${targetUserId} is fetching their own images. (No adminRequesterId)`);
+    }
+
+
     console.log(`API Route /api/user-images (Req ID: ${reqId}): Attempting to connect to DB...`);
-    dbConnection = await connectToDb(); // This now has more detailed internal logging
+    dbConnection = await connectToDb();
     const { db } = dbConnection;
     console.log(`API Route /api/user-images (Req ID: ${reqId}): DB connected successfully. Accessing 'images.files' collection.`);
 
     const filesCollection = db.collection('images.files');
-    const query = { 'metadata.userId': userId };
+    const query = { 'metadata.userId': targetUserId }; // Query by the actual owner of the image
     console.log(`API Route /api/user-images (Req ID: ${reqId}): Querying 'images.files' with:`, query);
 
     const userImages = await filesCollection.find(
@@ -40,8 +71,7 @@ export async function GET(request: NextRequest) {
       }
     ).sort({ uploadDate: -1 }).toArray();
 
-    console.log(`API Route /api/user-images (Req ID: ${reqId}): Found ${userImages.length} images for userId ${userId}.`);
-    // console.log(`API Route /api/user-images (Req ID: ${reqId}): Raw data sample:`, userImages.slice(0,1)); // Less verbose
+    console.log(`API Route /api/user-images (Req ID: ${reqId}): Found ${userImages.length} images for targetUserId ${targetUserId}.`);
 
     const formattedImages = userImages.map(img => ({
       fileId: img._id.toString(),
@@ -51,10 +81,9 @@ export async function GET(request: NextRequest) {
       originalName: img.metadata?.originalName || img.filename,
       dataAiHint: img.metadata?.dataAiHint || '',
       size: img.length || 0,
-      userId: img.metadata?.userId,
+      userId: img.metadata?.userId, // This is the student's/owner's UID
     }));
 
-    // console.log(`API Route /api/user-images (Req ID: ${reqId}): Returning ${formattedImages.length} formatted images. Sample:`, formattedImages.slice(0,1)); // Less verbose
     return NextResponse.json(formattedImages, { status: 200 });
 
   } catch (error: any) {
@@ -65,17 +94,21 @@ export async function GET(request: NextRequest) {
 
     let responseMessage = 'Error fetching user images.';
     let errorKey = 'FETCH_IMAGES_FAILED';
+    let statusCode = 500;
 
-    // Check if the error message *includes* 'MongoDB connection error', which is how connectToDb now throws its errors
     if (error.message && error.message.toLowerCase().includes('mongodb connection error')) {
-      responseMessage = 'Database connection error.'; // Consistent message for frontend
+      responseMessage = 'Database connection error.';
       errorKey = 'DB_CONNECTION_ERROR';
-    } else if (error.message) { // Fallback for other types of errors
+    } else if (error.message && (error.message.includes('Unauthorized') || error.message.includes('Access Denied'))) {
+      responseMessage = error.message;
+      errorKey = 'UNAUTHORIZED_ACCESS';
+      statusCode = 403;
+    } else if (error.message) {
         responseMessage = error.message;
     }
 
-    const errorPayload = { message: responseMessage, errorKey, detail: error.message }; // Keep original error in detail
+    const errorPayload = { message: responseMessage, errorKey, detail: error.message };
     console.log(`API Route /api/user-images (Req ID: ${reqId}): Preparing to send error response:`, errorPayload);
-    return NextResponse.json(errorPayload, { status: 500 });
+    return NextResponse.json(errorPayload, { status: statusCode });
   }
 }
