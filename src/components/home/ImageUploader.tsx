@@ -12,16 +12,17 @@ import { AlertCircle, Bot, Camera, CheckCircle, FileText, FileUp, ImagePlus, Loa
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { generateImageDescription, type GenerateImageDescriptionOutput } from '@/ai/flows/generate-image-description';
+// Removed direct import of generateImageDescription
+// import { generateImageDescription, type GenerateImageDescriptionOutput } from '@/ai/flows/generate-image-description';
 
 interface UploadedFileEntry {
   file: File;
-  previewUrl: string; 
+  previewUrl: string;
   progress: number;
   status: 'pending' | 'uploading' | 'success' | 'error';
   error?: string;
-  fileId?: string; 
-  isGeneratingDescription: boolean; 
+  fileId?: string;
+  isGeneratingDescription: boolean;
   isPdf: boolean;
 }
 
@@ -68,7 +69,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
           };
         });
       setSelectedFiles(prev => [...prev, ...newFileEntries]);
-      if(event.target) event.target.value = ""; 
+      if(event.target) event.target.value = "";
     }
   };
 
@@ -76,16 +77,16 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     if (fileInputRef.current) {
       if (isMobile && source === 'camera') {
         fileInputRef.current.setAttribute('capture', 'environment');
-        fileInputRef.current.accept = 'image/*'; 
+        fileInputRef.current.accept = 'image/*';
       } else {
         fileInputRef.current.removeAttribute('capture');
-        fileInputRef.current.accept = 'image/*,application/pdf'; 
+        fileInputRef.current.accept = 'image/*,application/pdf';
       }
       fileInputRef.current.click();
     }
   };
 
-  const removeFile = (identity: string) => { 
+  const removeFile = (identity: string) => {
     setSelectedFiles(prev => {
       const fileToRemove = prev.find(f => f.file.name + f.file.lastModified === identity);
       if (fileToRemove?.previewUrl && !fileToRemove.isPdf) {
@@ -102,16 +103,28 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
       toast({ title: 'Cannot get description', description: 'AI description is only available for successfully uploaded single images.', variant: 'destructive'});
       return;
     }
-    
-    setSelectedFiles(prev => prev.map(f => 
+
+    setSelectedFiles(prev => prev.map(f =>
       f.file.name + f.file.lastModified === fileIdentity ? { ...f, isGeneratingDescription: true } : f
     ));
 
     try {
       const photoDataUri = await fileToDataUri(targetFileEntry.file);
-      console.log(`ImageUploader: Calling Genkit 'generateImageDescription' for ${targetFileEntry.file.name}`);
-      
-      const result: GenerateImageDescriptionOutput = await generateImageDescription({ photoDataUri });
+      console.log(`ImageUploader: Calling API '/api/ai/generate-description' for ${targetFileEntry.file.name}`);
+
+      const response = await fetch('/api/ai/generate-description', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ photoDataUri }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to generate description from API.');
+      }
 
       if (result.description) {
         toast({
@@ -120,7 +133,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
           duration: 8000, // Give more time to read
         });
       } else {
-        throw new Error('AI did not return a description.');
+        throw new Error('API did not return a description.');
       }
     } catch (error: any) {
       console.error(`ImageUploader: Error generating AI description for ${targetFileEntry.file.name}:`, error);
@@ -130,7 +143,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
         variant: 'destructive',
       });
     } finally {
-      setSelectedFiles(prev => prev.map(f => 
+      setSelectedFiles(prev => prev.map(f =>
         f.file.name + f.file.lastModified === fileIdentity ? { ...f, isGeneratingDescription: false } : f
       ));
     }
@@ -154,7 +167,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
 
     for (const fileEntry of filesToUpload) {
       setSelectedFiles(prev => prev.map(f => f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified ? { ...f, status: 'uploading', progress: 30, error: undefined } : f));
-      
+
       const formData = new FormData();
       formData.append('file', fileEntry.file);
       formData.append('userId', userId);
@@ -163,15 +176,15 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
 
       try {
         setSelectedFiles(prev => prev.map(f => f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified ? { ...f, progress: 60 } : f));
-        
+
         const response = await fetch('/api/upload-image', {
           method: 'POST',
           body: formData,
         });
-        
+
         const responseText = await response.text();
 
-        if (!response.ok) { 
+        if (!response.ok) {
           let errorMsg = `Upload failed. Server responded with status ${response.status}.`;
           // let errorKey = 'UPLOAD_FAILED'; // errorKey not used directly in UI message here
           let reqIdFromServer = null;
@@ -194,7 +207,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
           }
           console.error(`ImageUploader: Upload failed for ${fileEntry.file.name}. Status: ${response.status}. Error:`, errorMsg);
           setSelectedFiles(prev => prev.map(f => f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified ? { ...f, status: 'error', error: errorMsg, progress: 0 } : f));
-          continue; 
+          continue;
         }
 
         let responseBodyArray;
@@ -203,9 +216,9 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
         } catch (e) {
             console.error(`ImageUploader: Successfully received 2xx response for ${fileEntry.file.name}, but body was not valid JSON. Raw text:`, responseText.substring(0,500));
             setSelectedFiles(prev => prev.map(f => f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified ? { ...f, status: 'error', error: 'Server sent success status but invalid data format.', progress: 0 } : f));
-            continue; 
+            continue;
         }
-        
+
         const successfulUploadsForThisFile = (Array.isArray(responseBodyArray) ? responseBodyArray : [responseBodyArray]).filter((meta: any) => meta.fileId);
         allUploadedFileMetas.push(...successfulUploadsForThisFile);
 
@@ -215,13 +228,13 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
           }
           return f;
         }));
-        
-      } catch (networkError: any) { 
+
+      } catch (networkError: any) {
         console.error(`ImageUploader: Network error during upload for file: ${fileEntry.file.name}. Error:`, networkError.message, networkError);
         const errorMessage = networkError.message || 'Upload failed due to a network issue.';
         setSelectedFiles(prev => prev.map(f => f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified ? { ...f, status: 'error', error: errorMessage, progress: 0 } : f));
       }
-    } 
+    }
 
     setIsUploading(false);
 
@@ -248,7 +261,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     <div className="space-y-6">
       <Input
           type="file"
-          accept="image/*,application/pdf" 
+          accept="image/*,application/pdf"
           multiple
           onChange={handleFileChange}
           className="hidden"
@@ -282,13 +295,13 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
                    {uploadedFile.isPdf ? (
                      <FileText className="w-12 h-12 text-muted-foreground" />
                    ) : (
-                     <Image 
-                        src={uploadedFile.previewUrl} 
-                        alt={`Preview ${uploadedFile.file.name}`} 
+                     <Image
+                        src={uploadedFile.previewUrl}
+                        alt={`Preview ${uploadedFile.file.name}`}
                         fill
                         sizes="(max-width: 640px) 96px, 128px"
                         className="object-cover"
-                        data-ai-hint="uploaded file preview" 
+                        data-ai-hint="uploaded file preview"
                       />
                    )}
                 </div>
@@ -318,10 +331,10 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
                         <CheckCircle className="w-3 h-3 mr-1"/>
                         {uploadedFile.isPdf ? 'PDF uploaded to DB' : 'Image uploaded to DB'}
                       </p>
-                      {!uploadedFile.isPdf && ( 
-                        <Button 
-                          size="sm" 
-                          variant="outline" 
+                      {!uploadedFile.isPdf && (
+                        <Button
+                          size="sm"
+                          variant="outline"
                           className="mt-2"
                           onClick={() => handleGenerateDescription(uploadedFile)}
                           disabled={uploadedFile.isGeneratingDescription || uploadedFile.isPdf || uploadedFile.status !== 'success'}
