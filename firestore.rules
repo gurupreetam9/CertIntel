@@ -4,67 +4,53 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Users collection
+    // Users:
+    // - Allow any authenticated user to create their own user document.
+    // - Allow any authenticated user to read any user document (TEMPORARILY WIDE for debugging).
+    // - Allow a user to update only their own specific fields (like displayName, rollNo).
+    // - Allow an admin to update specific linkage-related fields on a student's profile.
+    // - Deny deletes for now.
     match /users/{userId} {
-      // Allow a user to create their own profile.
-      allow create: if request.auth.uid == userId;
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null; // TEMPORARILY WIDENED RULE
 
-      // ANY authenticated user can read ANY user profile.
-      // The API layer (/api/user-images) will be responsible for specific authorization
-      // (e.g., is the reader an admin, and are they linked to the student they're trying to view).
-      allow read: if request.auth != null;
-
-      // Allow a user to update their own profile (specific fields like displayName, rollNo, updatedAt).
-      // Allow an admin to update specific fields of a student's profile (e.g., link status, associatedAdmin IDs, updatedAt).
-      allow update: if
-        request.auth.uid == userId &&
-        request.resource.data.keys().hasOnly(['displayName', 'rollNo', 'updatedAt'])
-        ||
-        (
-          request.auth != null &&
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' &&
-          (
-            // Admin can update these specific fields on any user (typically a student)
-            request.resource.data.keys().hasOnly([
-              'linkRequestStatus', 'associatedAdminFirebaseId', 'associatedAdminUniqueId', 'updatedAt',
-              'displayName', 'rollNo' // Allow admin to also potentially update these for a student
-            ])
-          )
-        );
-
-      // No public delete for user profiles for now.
+      allow update: if request.auth != null && (
+                      // User updating their own allowed fields
+                      (request.auth.uid == userId &&
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'rollNo', 'updatedAt'])) ||
+                      // Admin updating specific student linkage fields
+                      (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' &&
+                       resource.data.role == 'student' && // Ensure target is a student
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['linkRequestStatus', 'associatedAdminFirebaseId', 'associatedAdminUniqueId', 'updatedAt']))
+                    );
       allow delete: if false;
     }
 
-    // Admins collection (stores unique admin IDs)
-    match /admins/{adminId} { // adminId here is the Firebase UID of the admin
-      // Only an authenticated user who is creating their own admin entry can create.
-      // The server-side flow (e.g., verifyEmailOtpAndRegister) should ensure this.
-      allow create: if request.auth.uid == adminId;
-      // Any authenticated user can read admin profiles (e.g., to find an admin by unique ID).
+    // Admins Collection (stores unique admin ID mapping)
+    // - Allow creation if the user is authenticated and creating their own admin record.
+    // - Allow reads by any authenticated user (e.g., for student registration to validate an admin ID).
+    match /admins/{adminId} {
+      allow create: if request.auth != null && request.auth.uid == adminId;
       allow read: if request.auth != null;
-      allow update, delete: if false; // Admins shouldn't typically change their unique ID once set.
+      allow update, delete: if false;
     }
 
-    // StudentLinkRequests collection
+    // StudentLinkRequests Collection
+    // - Allow creation if the user is authenticated and creating their own request.
+    // - Allow read/update by an authenticated admin if they are the admin targeted by the request.
     match /studentLinkRequests/{requestId} {
-      // Student can create their own link request.
-      allow create: if request.auth.uid == request.resource.data.studentUserId;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.studentUserId;
+      // Admin must be the one targeted in the request to read/update it
+      allow read, update: if request.auth != null &&
+                              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' &&
+                              resource.data.adminFirebaseId == request.auth.uid &&
+                              (request.method == 'get' || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resolvedAt', 'resolvedBy']));
+      allow delete: if false;
+    }
 
-      // Admin can read requests targeted to them. Student can read their own request.
-      allow read: if request.auth != null &&
-                    (request.auth.uid == resource.data.studentUserId ||
-                     (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' &&
-                      request.auth.uid == resource.data.adminFirebaseId));
-
-      // Admin can update status, resolvedAt, resolvedBy if the request is targeted to them.
-      allow update: if request.auth != null &&
-                      get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' &&
-                      request.auth.uid == resource.data.adminFirebaseId &&
-                      request.resource.data.keys().hasAll(['status', 'resolvedAt', 'resolvedBy']) &&
-                      !request.resource.data.keys().hasAny(['studentUserId', 'studentEmail', 'studentName', 'adminUniqueIdTargeted', 'adminFirebaseId', 'requestedAt']); // Prevent other fields from being changed by admin
-
-      allow delete: if false; // Requests are resolved, not deleted.
+    // Default deny all other paths not explicitly matched
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
