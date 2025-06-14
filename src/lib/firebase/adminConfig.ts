@@ -8,25 +8,38 @@ if (typeof window !== 'undefined') {
 
 if (!admin.apps.length) {
   try {
-    // For Firebase App Hosting and environments with GOOGLE_APPLICATION_CREDENTIALS set,
-    // initializeApp() without arguments should work.
-    // For local development without GOOGLE_APPLICATION_CREDENTIALS, you might need:
-    // const serviceAccount = require('/path/to/your/serviceAccountKey.json'); // Adjust path
-    // admin.initializeApp({
-    //   credential: admin.credential.cert(serviceAccount)
-    // });
-    admin.initializeApp();
-    console.log('Firebase Admin SDK initialized successfully.');
-  } catch (error: any) {
-    console.error('Firebase Admin SDK initialization error:', error.message);
-    // Depending on your error handling strategy, you might want to:
-    // 1. Rethrow the error to halt server startup if Admin SDK is critical.
-    // 2. Log and continue, letting downstream operations fail if they depend on it.
-    // For now, log and continue. Routes using admin will fail if not initialized.
-    // Consider adding process.env.NODE_ENV === 'development' check for more detailed local errors.
-    if (process.env.NODE_ENV === 'development' && error.message.includes('GOOGLE_APPLICATION_CREDENTIALS')) {
-        console.warn("DEVELOPMENT HINT: To use Firebase Admin SDK locally, ensure the GOOGLE_APPLICATION_CREDENTIALS environment variable is set to the path of your service account key JSON file, or initialize admin.initializeApp({ credential: admin.credential.cert(...) }) with your service account details directly in this file (for local testing only).");
+    const serviceAccountEnv = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+
+    if (serviceAccountEnv) {
+      if (serviceAccountEnv.trim().startsWith('{')) {
+        // Environment variable likely contains JSON content directly
+        const serviceAccount = JSON.parse(serviceAccountEnv);
+        admin.initializeApp({
+          credential: admin.credential.cert(serviceAccount)
+        });
+        console.log('Firebase Admin SDK initialized successfully using JSON content from GOOGLE_APPLICATION_CREDENTIALS.');
+      } else {
+        // Environment variable likely contains a file path, let initializeApp handle it
+        // This also covers the case where GOOGLE_APPLICATION_CREDENTIALS is correctly set to a path
+        admin.initializeApp();
+        console.log('Firebase Admin SDK initialized successfully using GOOGLE_APPLICATION_CREDENTIALS file path or Application Default Credentials.');
+      }
+    } else {
+      // GOOGLE_APPLICATION_CREDENTIALS is not set, rely on Application Default Credentials (e.g., for App Hosting)
+      admin.initializeApp();
+      console.log('Firebase Admin SDK initialized successfully using Application Default Credentials.');
     }
+  } catch (error: any) {
+    console.error('Firebase Admin SDK initialization error:', error.message, error);
+    // More detailed logging for development
+    if (process.env.NODE_ENV === 'development') {
+        console.warn("DEVELOPMENT HINT: For local Firebase Admin SDK, ensure GOOGLE_APPLICATION_CREDENTIALS points to your service account key JSON *file*, or that the JSON content is correctly parsed if provided directly in an environment variable.");
+        if (error.message && error.message.includes("ENOENT")) {
+             console.warn("The error ENOENT (no such file or directory) often means the value of GOOGLE_APPLICATION_CREDENTIALS was treated as a file path but was actually JSON content or an invalid path. The updated config tries to handle JSON content directly.");
+        }
+    }
+     // Depending on your error handling strategy, you might want to rethrow.
+     // For now, the instances below will be uninitialized if this fails.
   }
 }
 
