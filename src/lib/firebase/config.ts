@@ -28,19 +28,27 @@ Please ensure:
 This is a local environment configuration issue. The application code cannot proceed.
 `;
   console.error(errorMessage);
-  // Throwing an error here will stop further execution and provide this message
-  // on the Next.js error page, making the root cause clearer.
   throw new Error("CRITICAL FIREBASE CONFIGURATION ERROR: NEXT_PUBLIC_FIREBASE_API_KEY is missing. Check console for details.");
+} else if (!firebaseConfig.projectId) {
+  const errorMessage = `
+CRITICAL FIREBASE CONFIGURATION ERROR: NEXT_PUBLIC_FIREBASE_PROJECT_ID is missing.
+
+Firestore (and other services) cannot function without a Project ID.
+Please ensure:
+1. You have a .env.local file in the root of your project.
+2. NEXT_PUBLIC_FIREBASE_PROJECT_ID is correctly set in this file.
+3. You have RESTARTED your Next.js development server after modifying the .env.local file.
+`;
+  console.error(errorMessage);
+  throw new Error("CRITICAL FIREBASE CONFIGURATION ERROR: NEXT_PUBLIC_FIREBASE_PROJECT_ID is missing. Check console for details.");
 } else if (
   !firebaseConfig.authDomain ||
-  !firebaseConfig.projectId ||
   !firebaseConfig.storageBucket ||
   !firebaseConfig.messagingSenderId ||
   !firebaseConfig.appId
 ) {
-  // This warning is for other missing fields, assuming API key is present.
   console.warn(
-    'Firebase configuration is incomplete (other fields like authDomain, projectId, etc., might be missing, but API_KEY was found). Please check your .env.local file thoroughly. Some Firebase features may not work as expected.'
+    'Firebase configuration is incomplete (other fields like authDomain, storageBucket, etc., might be missing, but API_KEY and PROJECT_ID were found). Please check your .env.local file thoroughly. Some Firebase features may not work as expected.'
   );
 }
 
@@ -57,3 +65,4 @@ const storage: FirebaseStorage = getStorage(app);
 const firestore: Firestore = getFirestore(app); // Initialize Firestore
 
 export { app, auth, storage, firestore }; // Export firestore
+

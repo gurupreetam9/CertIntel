@@ -30,29 +30,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(async (firebaseUser) => {
-      // Set loading to true at the very start of processing an auth state change.
       setLoading(true);
+      console.log("AuthContext: onAuthStateChanged triggered. Firebase user:", firebaseUser ? firebaseUser.uid : 'null');
       setUser(firebaseUser);
       setUserId(firebaseUser ? firebaseUser.uid : null);
 
       if (firebaseUser) {
         try {
-          console.log("AuthContext: User authenticated, fetching profile for UID:", firebaseUser.uid);
+          console.log("AuthContext: User authenticated, attempting to fetch profile for UID:", firebaseUser.uid);
           const profile = await getUserProfile(firebaseUser.uid);
           setUserProfile(profile);
           if (!profile) {
-            console.warn("AuthContext: User profile not found in Firestore for UID:", firebaseUser.uid, "This might be expected for a new user pre-profile creation, or indicate an issue if profile should exist.");
+            console.warn("AuthContext: User profile NOT FOUND in Firestore for UID:", firebaseUser.uid, ". This might be expected for a new user immediately after registration (before profile document is created) or it could indicate an issue if the profile should exist.");
           } else {
             console.log("AuthContext: User profile fetched successfully:", profile);
           }
-        } catch (error) {
-          // This is a critical point. If "client is offline" happens here, it means Firestore is not reachable.
-          console.error("AuthContext: CRITICAL - Failed to fetch user profile. This could be due to Firestore being offline, misconfigured, or permission issues. Error:", error);
+        } catch (error: any) {
+          console.error("AuthContext: CRITICAL ERROR fetching user profile. This often indicates Firestore is offline for the client, misconfigured, or there are permission issues. Error message:", error.message, "Error object:", error);
           setUserProfile(null); 
-          // Consider setting a global error state here to inform the user more directly.
+          // Consider setting a global error state here to inform the user more directly about the problem.
         } finally {
-          // Set loading to false only after all async operations (profile fetching) are complete.
-          console.log("AuthContext: Finished processing auth state and profile fetch attempt. Setting loading to false.");
+          console.log("AuthContext: Profile fetch attempt complete. Setting loading to false.");
           setLoading(false);
         }
       } else {
@@ -68,7 +66,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.log("AuthContext: Unsubscribing from onAuthStateChanged.");
       unsubscribe();
     };
-  }, []); // Empty dependency array ensures this runs only once on mount and unmount.
+  }, []);
 
   if (loading) {
     return (
@@ -85,4 +83,3 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     </AuthContext.Provider>
   );
 };
-
