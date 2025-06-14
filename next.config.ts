@@ -40,10 +40,19 @@ const nextConfig: NextConfig = {
         path: false,
         http2: false,
         events: false,
-        // More aggressive stubs for potentially problematic libraries
+        // Fallbacks for modules often problematic with firebase-admin or google-auth-library
         'google-auth-library': false,
         'gcp-metadata': false,
         'firebase-admin': false,
+        // Explicitly handle node-prefixed versions if encountered
+        'node:child_process': false,
+        'node:fs': false,
+        'node:net': false,
+        'node:tls': false,
+        'node:os': false,
+        'node:path': false,
+        'node:http2': false,
+        'node:events': false,
       };
     }
     return config;
