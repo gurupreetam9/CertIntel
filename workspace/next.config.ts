@@ -32,7 +32,7 @@ const nextConfig: NextConfig = {
       // Prevent client-side bundling of Node.js core modules by providing fallbacks
       config.resolve.fallback = {
         ...(config.resolve.fallback || {}),
-        child_process: false,
+        child_process: false, // Explicitly provide fallback for child_process
         fs: false,
         net: false,
         tls: false,
@@ -41,6 +41,7 @@ const nextConfig: NextConfig = {
         http2: false,
         events: false,
         // More aggressive stubs for potentially problematic libraries
+        // These might help prevent these libraries from trying to require Node built-ins on the client
         'google-auth-library': false,
         'gcp-metadata': false,
         'firebase-admin': false,
