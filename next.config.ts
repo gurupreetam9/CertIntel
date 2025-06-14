@@ -2,7 +2,6 @@
 import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
-  /* config options here */
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -34,13 +33,13 @@ const nextConfig: NextConfig = {
       config.resolve.fallback = {
         ...(config.resolve.fallback || {}),
         fs: false,
-        child_process: false,
+        child_process: false, // Explicitly add back child_process
         net: false,
         tls: false,
         os: false,
         path: false,
         http2: false,
-        events: false, // Added for 'node:events' and similar
+        events: false,
         // More aggressive stubs for potentially problematic libraries
         'google-auth-library': false,
         'gcp-metadata': false,
