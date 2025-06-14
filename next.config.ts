@@ -35,8 +35,8 @@ const nextConfig: NextConfig = {
         child_process: false, // Child process module
         net: false, // Net module
         tls: false, // TLS module
-        // os: false, // OS module - uncomment if 'os' causes issues
-        // path: false, // Path module - uncomment if 'path' causes issues
+        os: false, // OS module 
+        path: false, // Path module
       };
     }
     return config;
