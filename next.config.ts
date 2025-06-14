@@ -35,8 +35,11 @@ const nextConfig: NextConfig = {
         child_process: false, // Child process module
         net: false, // Net module
         tls: false, // TLS module
-        os: false, // OS module 
+        os: false, // OS module
         path: false, // Path module
+        http2: false, // HTTP/2 module
+        'google-auth-library': false, // Attempt to fully stub out google-auth-library on client
+        'gcp-metadata': false, // If gcp-metadata is also causing issues
       };
     }
     return config;

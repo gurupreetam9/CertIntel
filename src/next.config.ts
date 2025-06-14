@@ -37,8 +37,9 @@ const nextConfig: NextConfig = {
         tls: false, // TLS module
         os: false, // OS module
         path: false, // Path module
+        http2: false, // HTTP/2 module
         'google-auth-library': false, // Attempt to fully stub out google-auth-library on client
-        gcp_metadata: false, // If gcp-metadata is also causing issues
+        'gcp-metadata': false, // If gcp-metadata is also causing issues
       };
     }
     return config;
