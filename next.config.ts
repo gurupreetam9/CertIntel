@@ -26,6 +26,21 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      // Prevent client-side bundling of Node.js core modules by providing fallbacks
+      config.resolve.fallback = {
+        ...config.resolve.fallback, // Spread existing fallbacks
+        fs: false, // Filesystem module
+        child_process: false, // Child process module
+        net: false, // Net module
+        tls: false, // TLS module
+        // os: false, // OS module - uncomment if 'os' causes issues
+        // path: false, // Path module - uncomment if 'path' causes issues
+      };
+    }
+    return config;
+  },
 };
 
 export default nextConfig;
