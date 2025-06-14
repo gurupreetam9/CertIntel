@@ -4,56 +4,34 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Users Collection:
-    // - Authenticated users can create their own user document upon registration.
-    // - Users can read their own document.
-    // - Users can update their own document (e.g., displayName, rollNo, link status).
-    // - Admins who are associated with a student can read that student's profile.
+    // Users collection:
+    // - Allow any authenticated user to read, create, and update their own profile.
     match /users/{userId} {
-      allow create: if request.auth != null && request.auth.uid == userId;
-      allow read: if request.auth != null &&
-                     (request.auth.uid == userId ||
-                      (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' &&
-                       resource.data.associatedAdminFirebaseId == request.auth.uid &&
-                       resource.data.linkRequestStatus == 'accepted')); // Admin can only read if student is accepted
-      allow update: if request.auth != null && request.auth.uid == userId;
-      // Deny delete for now to prevent accidental data loss.
-      allow delete: if false;
+      allow read, create, update: if request.auth != null && request.auth.uid == userId;
+      // Future: Consider if admins need direct read access to specific student profiles
+      // if they are linked. Currently, student certificates are fetched via an API
+      // route that performs its own authorization.
     }
 
-    // Admins Collection:
-    // - Authenticated users can create an admin profile document (on registration).
-    //   The document ID must match their Firebase UID.
-    // - Allow any authenticated user to read admin profiles (e.g., for students to look up adminUniqueId).
-    //   This could be tightened later if needed.
+    // Admins collection (stores adminUniqueId):
+    // - Allow any authenticated user to read (e.g., for validating an adminUniqueId during student registration if needed).
+    // - Allow creation only if the document ID (which is the admin's Firebase UID) matches the authenticated user.
     match /admins/{adminId} {
-      allow create: if request.auth != null && request.auth.uid == adminId;
       allow read: if request.auth != null;
-      // allow update: if request.auth != null && request.auth.uid == adminId; // If admins need to update their own specific admin doc
-      allow delete: if false;
+      allow create: if request.auth != null && request.auth.uid == adminId;
+      // No updates or deletes defined for now for simplicity.
     }
 
-    // StudentLinkRequests Collection:
-    // - Students (authenticated users) can create their own link requests.
-    // - The student who created the request OR the targeted admin can read the request.
-    // - Only the targeted admin can update the request (e.g., to accept/reject).
+    // StudentLinkRequests collection:
+    // - Students can create requests (document studentUserId must match their own UID).
+    // - Admins can read and update requests where the request's adminFirebaseId matches their own UID.
     match /studentLinkRequests/{requestId} {
-      allow create: if request.auth != null &&
-                     request.resource.data.studentUserId == request.auth.uid;
-      allow read: if request.auth != null &&
-                     (get(/databases/$(database)/documents/studentLinkRequests/$(requestId)).data.studentUserId == request.auth.uid ||
-                      get(/databases/$(database)/documents/studentLinkRequests/$(requestId)).data.adminFirebaseId == request.auth.uid);
-      allow update: if request.auth != null &&
-                     get(/databases/$(database)/documents/studentLinkRequests/$(requestId)).data.adminFirebaseId == request.auth.uid;
-      // Deny delete for now.
-      allow delete: if false;
+      allow create: if request.auth != null && request.resource.data.studentUserId == request.auth.uid;
+      // For reading requests (e.g., by an admin)
+      // For updating requests (e.g., an admin accepting/rejecting)
+      allow read, update: if request.auth != null &&
+                            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' &&
+                            resource.data.adminFirebaseId == request.auth.uid;
     }
-
-    // Default deny all other access to collections not explicitly defined.
-    // This is implicit if no other rules match.
-
-    // Note: Rules for images.files and images.chunks (MongoDB GridFS) are typically
-    // managed by your backend API security and not directly by Firestore rules.
-    // Your Next.js API routes (/api/images/*, /api/user-images) handle auth for those.
   }
 }
