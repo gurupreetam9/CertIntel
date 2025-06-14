@@ -125,15 +125,15 @@ function AdminDashboardPageContent() {
       </div>
       
       {userProfile.adminUniqueId && (
-        <Card className="mb-8 bg-yellow-50 border-yellow-200 shadow-md">
+        <Card className="mb-8 bg-primary/5 border-primary/20 shadow-md">
           <CardHeader>
-            <CardTitle className="text-yellow-700 text-xl">Your Unique Admin ID</CardTitle>
-            <CardDescription className="text-yellow-600">Share this ID with your students so they can link to you upon registration.</CardDescription>
+            <CardTitle className="text-primary text-xl">Your Unique Admin ID</CardTitle>
+            <CardDescription className="text-muted-foreground">Share this ID with your students so they can link to you upon registration.</CardDescription>
           </CardHeader>
           <CardContent className="flex items-center gap-x-3">
-            <p className="text-lg font-mono bg-yellow-100 text-yellow-800 px-4 py-2 rounded-md inline-block shadow-sm">{userProfile.adminUniqueId}</p>
+            <p className="text-lg font-mono bg-primary/10 text-primary-foreground px-4 py-2 rounded-md inline-block shadow-sm">{userProfile.adminUniqueId}</p>
             <Button variant="outline" size="icon" onClick={copyAdminId} title="Copy Admin ID">
-              <Copy className="h-4 w-4 text-yellow-700"/>
+              <Copy className="h-4 w-4"/>
             </Button>
           </CardContent>
         </Card>
