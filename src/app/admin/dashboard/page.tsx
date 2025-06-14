@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Loader2, CheckCircle, XCircle, Users, ShieldAlert, Inbox, FileText } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import type { StudentLinkRequest, UserProfile as StudentUserProfile } from '@/lib/models/user'; // Renamed to avoid conflict
+import type { StudentLinkRequest, UserProfile as StudentUserProfile } from '@/lib/models/user';
 import { 
   getStudentLinkRequestsForAdmin, 
   updateStudentLinkRequestStatusAndLinkStudent,
@@ -26,7 +26,9 @@ function AdminDashboardPageContent() {
   const [acceptedStudents, setAcceptedStudents] = useState<StudentUserProfile[]>([]);
   const [isLoadingRequests, setIsLoadingRequests] = useState(false);
   const [isLoadingStudents, setIsLoadingStudents] = useState(false);
-  const [isProcessingRequest, setIsProcessingRequest] = useState<string | null>(null); // Stores ID of request being processed
+  const [isProcessingRequest, setIsProcessingRequest] = useState<string | null>(null);
+  const [currentProcessingStatus, setCurrentProcessingStatus] = useState<'accepted' | 'rejected' | null>(null);
+
 
   const fetchPendingRequests = useCallback(async () => {
     if (!user || userProfile?.role !== 'admin') return;
@@ -59,7 +61,7 @@ function AdminDashboardPageContent() {
     if (!authLoading && user && userProfile) {
       if (userProfile.role !== 'admin') {
         toast({ title: 'Access Denied', description: 'You are not authorized to view this page.', variant: 'destructive' });
-        router.replace('/'); // Redirect non-admins
+        router.replace('/'); 
       } else {
         fetchPendingRequests();
         fetchAcceptedStudents();
@@ -70,15 +72,17 @@ function AdminDashboardPageContent() {
   const handleResolveRequest = async (requestId: string, newStatus: 'accepted' | 'rejected') => {
     if (!user) return;
     setIsProcessingRequest(requestId);
+    setCurrentProcessingStatus(newStatus);
     try {
       await updateStudentLinkRequestStatusAndLinkStudent(requestId, user.uid, newStatus);
       toast({ title: 'Request Resolved', description: `Student request has been ${newStatus}.` });
-      fetchPendingRequests(); // Refresh lists
+      fetchPendingRequests(); 
       fetchAcceptedStudents();
     } catch (error: any) {
       toast({ title: 'Error Resolving Request', description: error.message, variant: 'destructive' });
     } finally {
       setIsProcessingRequest(null);
+      setCurrentProcessingStatus(null);
     }
   };
 
@@ -91,7 +95,7 @@ function AdminDashboardPageContent() {
   }
   
   if (userProfile.role !== 'admin') {
-     return ( // Content for non-admins (though redirect should handle this)
+     return ( 
       <div className="container mx-auto px-4 py-8 text-center">
         <ShieldAlert className="mx-auto h-16 w-16 text-destructive mb-4" />
         <h1 className="text-2xl font-bold">Access Denied</h1>
@@ -106,19 +110,18 @@ function AdminDashboardPageContent() {
       <h1 className="text-3xl font-bold font-headline mb-6">Admin Dashboard</h1>
       
       {userProfile.adminUniqueId && (
-        <Card className="mb-6 bg-blue-50 border-blue-200">
+        <Card className="mb-6 bg-blue-50 border-blue-200 dark:bg-blue-900/30 dark:border-blue-700">
           <CardHeader>
-            <CardTitle className="text-blue-700">Your Unique Admin ID</CardTitle>
-            <CardDescription className="text-blue-600">Share this ID with your students so they can link to you upon registration.</CardDescription>
+            <CardTitle className="text-blue-700 dark:text-blue-300">Your Unique Admin ID</CardTitle>
+            <CardDescription className="text-blue-600 dark:text-blue-400">Share this ID with your students so they can link to you upon registration.</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-mono bg-blue-100 text-blue-800 px-4 py-2 rounded inline-block">{userProfile.adminUniqueId}</p>
+            <p className="text-2xl font-mono bg-blue-100 text-blue-800 dark:bg-blue-800 dark:text-blue-200 px-4 py-2 rounded inline-block">{userProfile.adminUniqueId}</p>
           </CardContent>
         </Card>
       )}
 
       <div className="grid md:grid-cols-2 gap-6">
-        {/* Pending Requests Card */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Inbox className="text-primary"/> Pending Student Link Requests</CardTitle>
@@ -132,7 +135,7 @@ function AdminDashboardPageContent() {
             ) : (
               <ul className="space-y-3">
                 {pendingRequests.map(req => (
-                  <li key={req.id} className="p-3 border rounded-md bg-background/50 shadow-sm">
+                  <li key={req.id} className="p-3 border rounded-md bg-background/50 dark:bg-neutral-800/30 shadow-sm">
                     <p className="font-semibold">{req.studentName}</p>
                     <p className="text-sm text-muted-foreground">Email: {req.studentEmail}</p>
                     {req.studentRollNo && <p className="text-sm text-muted-foreground">Roll No: {req.studentRollNo}</p>}
@@ -144,7 +147,7 @@ function AdminDashboardPageContent() {
                         onClick={() => req.id && handleResolveRequest(req.id, 'accepted')}
                         disabled={isProcessingRequest === req.id}
                       >
-                        {isProcessingRequest === req.id && newStatusBeingProcessed === 'accepted' ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <CheckCircle className="mr-2 h-4 w-4"/>}
+                        {isProcessingRequest === req.id && currentProcessingStatus === 'accepted' ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <CheckCircle className="mr-2 h-4 w-4"/>}
                         Accept
                       </Button>
                       <Button 
@@ -153,7 +156,7 @@ function AdminDashboardPageContent() {
                         onClick={() => req.id && handleResolveRequest(req.id, 'rejected')}
                         disabled={isProcessingRequest === req.id}
                       >
-                         {isProcessingRequest === req.id && newStatusBeingProcessed === 'rejected' ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <XCircle className="mr-2 h-4 w-4"/>}
+                         {isProcessingRequest === req.id && currentProcessingStatus === 'rejected' ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <XCircle className="mr-2 h-4 w-4"/>}
                         Reject
                       </Button>
                     </div>
@@ -164,10 +167,9 @@ function AdminDashboardPageContent() {
           </CardContent>
         </Card>
 
-        {/* Accepted Students Card */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Users className="text-green-600"/> Your Accepted Students</CardTitle>
+            <CardTitle className="flex items-center gap-2"><Users className="text-green-600 dark:text-green-400"/> Your Accepted Students</CardTitle>
             <CardDescription>View students who are currently linked to your admin account.</CardDescription>
           </CardHeader>
           <CardContent>
@@ -178,12 +180,11 @@ function AdminDashboardPageContent() {
             ) : (
               <ul className="space-y-3">
                 {acceptedStudents.map(student => (
-                  <li key={student.uid} className="p-3 border rounded-md bg-background/50 shadow-sm">
+                  <li key={student.uid} className="p-3 border rounded-md bg-background/50 dark:bg-neutral-800/30 shadow-sm">
                     <p className="font-semibold">{student.displayName}</p>
                     <p className="text-sm text-muted-foreground">Email: {student.email}</p>
                     {student.rollNo && <p className="text-sm text-muted-foreground">Roll No: {student.rollNo}</p>}
                     <Button size="sm" variant="outline" className="mt-2" asChild>
-                       {/* Link to view student's certificates - Placeholder, actual page needs to be created */}
                       <Link href={`/admin/student-certificates/${student.uid}`}> 
                         <FileText className="mr-2 h-4 w-4"/> View Certificates
                       </Link>
@@ -199,9 +200,6 @@ function AdminDashboardPageContent() {
   );
 }
 
-// Temporary variable to help with button loading state. This should ideally be part of component state if more complex.
-let newStatusBeingProcessed: 'accepted' | 'rejected' | null = null; 
-
 export default function AdminDashboardPage() {
   return (
     <ProtectedPage>
@@ -209,3 +207,5 @@ export default function AdminDashboardPage() {
     </ProtectedPage>
   );
 }
+
+    
