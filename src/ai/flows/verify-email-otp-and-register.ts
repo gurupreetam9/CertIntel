@@ -16,7 +16,7 @@ import {
   getAdminByUniqueId
 } from '@/lib/services/userService';
 import type { User, AuthError } from 'firebase/auth';
-import type { UserRole } from '@/lib/models/user';
+import type { UserRole, UserProfile } from '@/lib/models/user';
 
 // HACK: In-memory store for OTPs. NOT SUITABLE FOR PRODUCTION.
 if (!(globalThis as any).otpStore) {
@@ -102,35 +102,70 @@ const verifyEmailOtpAndRegisterFlow = ai.defineFlow(
 
     try {
       if (role === 'admin') {
-        const adminProfile = await createAdminProfile(firebaseUser.uid, email);
+        // For admin, createAdminProfile internally calls createUserProfileDocument with role 'admin'
+        const adminProfileDetails = await createAdminProfile(firebaseUser.uid, email);
         return { 
           success: true, 
           message: 'Admin registration successful! Your Admin ID will be shown.', 
           userId: firebaseUser.uid, 
           role: 'admin',
-          adminUniqueIdGenerated: adminProfile.adminUniqueId 
+          adminUniqueIdGenerated: adminProfileDetails.adminUniqueId 
         };
       } else if (role === 'student') {
         if (!name) { // Should be caught by Zod refine, but good to double check
             return { success: false, message: "Student name is required." };
         }
-        // Create base student profile
-        await createUserProfileDocument(firebaseUser.uid, email, 'student', {
+        
+        // Prepare data for the student profile document creation
+        const studentProfileCreationData: Partial<UserProfile> = {
             displayName: name,
-            rollNo: rollNo || undefined, // Pass undefined if empty string or null
-        });
+            rollNo: (rollNo && rollNo.trim() !== '') ? rollNo.trim() : null, // Ensure string or null
+            // adminUniqueId from input is the ID of the teacher student wants to link to.
+            // It will be stored as associatedAdminUniqueId in the student's profile.
+            associatedAdminUniqueId: (adminUniqueId && adminUniqueId.trim() !== '') ? adminUniqueId.trim() : null, // Ensure string or null
+        };
+
+        // Set linkRequestStatus based on whether an admin ID was provided
+        if (studentProfileCreationData.associatedAdminUniqueId) {
+            studentProfileCreationData.linkRequestStatus = 'pending';
+        } else {
+            studentProfileCreationData.linkRequestStatus = 'none';
+        }
+        
+        // Create base student profile in 'users' collection
+        await createUserProfileDocument(firebaseUser.uid, email, 'student', studentProfileCreationData);
 
         let message = 'Student registration successful! Welcome to CertIntel!';
         
-        if (adminUniqueId && adminUniqueId.trim() !== '') {
-          const targetAdmin = await getAdminByUniqueId(adminUniqueId.trim());
+        // If an admin ID was provided, attempt to create the link request
+        if (studentProfileCreationData.associatedAdminUniqueId) {
+          const targetAdmin = await getAdminByUniqueId(studentProfileCreationData.associatedAdminUniqueId);
           if (targetAdmin) {
-            await createStudentLinkRequest(firebaseUser.uid, email, name, rollNo, targetAdmin.adminUniqueId, targetAdmin.userId);
+            // Pass the student's actual rollNo (which could be null)
+            await createStudentLinkRequest(
+              firebaseUser.uid, 
+              email, 
+              name, 
+              studentProfileCreationData.rollNo, 
+              targetAdmin.adminUniqueId, 
+              targetAdmin.userId
+            );
             message += ` Your request to link with Teacher ID ${targetAdmin.adminUniqueId} has been submitted.`;
           } else {
-            message += ` Could not find a Teacher with ID ${adminUniqueId}. You can request linkage later.`;
+            message += ` Could not find a Teacher with ID ${studentProfileCreationData.associatedAdminUniqueId}. You can request linkage later.`;
             // Update student profile to clear pending status if admin not found
-            await createUserProfileDocument(firebaseUser.uid, email, 'student', { linkRequestStatus: 'none' });
+            // The createUserProfileDocument call already sets associatedAdminUniqueId to null if adminUniqueId was empty,
+            // and linkRequestStatus to 'none'. If it was pending but admin not found, we might want to reset it.
+            // However, createStudentLinkRequest is only called if targetAdmin is found.
+            // If adminUniqueId was provided but targetAdmin is not found, the student profile's
+            // associatedAdminUniqueId will still hold the non-existent ID, and status 'pending'.
+            // We should update the student profile to reflect that the link could not be initiated.
+            await createUserProfileDocument(firebaseUser.uid, email, 'student', { 
+              ...studentProfileCreationData, // Keep name, rollNo
+              linkRequestStatus: 'none', 
+              associatedAdminUniqueId: null, // Clear the invalid admin ID
+              associatedAdminFirebaseId: null, // Clear this too
+            });
           }
         }
         return { success: true, message, userId: firebaseUser.uid, role: 'student' };
@@ -139,16 +174,13 @@ const verifyEmailOtpAndRegisterFlow = ai.defineFlow(
         return { success: false, message: 'Invalid role specified.' };
       }
     } catch (profileError: any) {
-      // This catch block is for errors during Firestore profile creation/linking
       console.error(`Error during profile/link creation for ${email} (role: ${role}):`, profileError);
-      // Ideally, you might want to delete the Firebase Auth user here if Firestore operations fail,
-      // to avoid orphaned auth accounts. This is complex and often handled by cleanup scripts or manual intervention.
-      // For now, return an error message indicating partial success/failure.
       return { 
         success: false, 
         message: `Firebase user created, but failed to set up profile/link: ${profileError.message}. Please contact support.`,
-        userId: firebaseUser.uid // Still return userId so they know auth account exists
+        userId: firebaseUser.uid 
       };
     }
   }
 );
+
