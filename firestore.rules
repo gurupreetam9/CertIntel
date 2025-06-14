@@ -4,66 +4,61 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper function to check if a user is an Admin
-    function isAdmin(userId) {
-      return get(/databases/$(database)/documents/users/$(userId)).data.role == 'admin';
+    // Helper function to check if the requesting user is an admin
+    function isAdmin() {
+      return request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
-    // Helper function to check if a user is a Student
-    function isStudent(userId) {
-      return get(/databases/$(database)/documents/users/$(userId)).data.role == 'student';
+    // Helper function to check if the requesting user is the owner of the document
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
     }
 
-    // Users Collection
     match /users/{userId} {
-      // User can read, update (their own displayName, rollNo, updatedAt), and delete their own profile
-      allow read, delete: if request.auth != null && request.auth.uid == userId;
-      allow update: if request.auth != null && request.auth.uid == userId &&
-                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'rollNo', 'updatedAt']);
+      // User can read their own profile OR an admin can read any user's profile.
+      // The API layer will enforce if an admin is *linked* to a student for specific data like certificates.
+      allow read: if isOwner(userId) || isAdmin(); 
       
-      // Allow authenticated users to create their own profile (e.g., during registration)
-      allow create: if request.auth != null && request.auth.uid == userId;
-
-      // Admin can read any user profile (student or admin)
-      allow read: if request.auth != null && isAdmin(request.auth.uid);
-
-      // Admin can update specific linkage-related fields of a student's profile
-      allow update: if request.auth != null &&
-                       isAdmin(request.auth.uid) && // Requester is admin
-                       isStudent(userId) && // Target user is a student
-                       request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-                         'linkRequestStatus',
-                         'associatedAdminFirebaseId',
-                         'associatedAdminUniqueId', // Student might clear this if admin not found/request rejected
-                         'updatedAt'
-                       ]);
+      // User can create their own profile document.
+      allow create: if isOwner(userId); 
+      
+      // User can update their own profile.
+      // An admin can update specific fields of a student's profile.
+      allow update: if isOwner(userId) || 
+                       (isAdmin() &&
+                        // Ensure the document being updated is actually a student's profile
+                        get(/databases/$(database)/documents/users/$(userId)).data.role == 'student' &&
+                        request.resource.data.keys().hasOnly([
+                          'linkRequestStatus', 'associatedAdminFirebaseId', 'associatedAdminUniqueId', 
+                          'updatedAt', 'displayName', 'rollNo' // Fields admin can modify on student
+                        ]));
+      // No delete rule for user profiles by default for data integrity.
     }
 
-    // Admins Collection (stores unique admin ID mapping)
-    match /admins/{adminFirebaseUid} { // Document ID is admin's Firebase UID
-      // Admin can read their own admin-specific profile (unique ID)
-      allow read: if request.auth != null && request.auth.uid == adminFirebaseUid;
-      // Allow creation by the authenticated user if they are creating their own admin record
-      allow create: if request.auth != null && request.auth.uid == adminFirebaseUid;
+    match /admins/{adminId} {
+      // Admin can read their own special admin record. Other admins can too (e.g., for system checks if needed, though less common).
+      allow read: if isOwner(adminId) || isAdmin(); 
+      
+      // Admin can create their own admin-specific record; must include adminUniqueId.
+      allow create: if isOwner(adminId) && request.resource.data.adminUniqueId != null; 
+      
+      // No update/delete for admin-specific records by default for simplicity.
     }
 
-    // Student Link Requests Collection
     match /studentLinkRequests/{requestId} {
-      // Allow student to create their own link request
-      allow create: if request.auth != null &&
-                       request.resource.data.studentUserId == request.auth.uid &&
-                       isStudent(request.auth.uid);
-      
-      // Allow an admin to read requests targeted to them
+      // Student can read their own request OR the targeted admin (whose adminFirebaseId matches) can read it.
       allow read: if request.auth != null &&
-                     isAdmin(request.auth.uid) &&
-                     resource.data.adminFirebaseId == request.auth.uid; // Request is for this admin
-                     
-      // Allow an admin to update (accept/reject) a request targeted to them
-      allow update: if request.auth != null &&
-                       isAdmin(request.auth.uid) && // Requester is admin
-                       resource.data.adminFirebaseId == request.auth.uid && // Request is for this admin
-                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resolvedAt', 'resolvedBy']); // Only allow specific fields to be changed
+                     (get(/databases/$(database)/documents/studentLinkRequests/$(requestId)).data.studentUserId == request.auth.uid ||
+                      (isAdmin() && get(/databases/$(database)/documents/studentLinkRequests/$(requestId)).data.adminFirebaseId == request.auth.uid));
+      
+      // Student can create their own link request.
+      allow create: if request.auth != null && request.resource.data.studentUserId == request.auth.uid;
+      
+      // Only the targeted admin can update status, resolvedAt, resolvedBy.
+      allow update: if isAdmin() &&
+                       get(/databases/$(database)/documents/studentLinkRequests/$(requestId)).data.adminFirebaseId == request.auth.uid &&
+                       request.resource.data.keys().hasOnly(['status', 'resolvedAt', 'resolvedBy']);
+      // No delete rule for requests by default.
     }
   }
 }
