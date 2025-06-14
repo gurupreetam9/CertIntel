@@ -16,7 +16,7 @@ function HomePageContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const { user, userId } = useAuth(); // Added user to get ID token
+  const { user, userId } = useAuth(); 
   const { toast } = useToast();
 
   const triggerRefresh = useCallback(() => {
@@ -25,7 +25,7 @@ function HomePageContent() {
   }, []);
 
   const fetchImages = useCallback(async () => {
-    if (!userId || !user) { // Check for user object as well for getIdToken
+    if (!userId || !user) { 
       setIsLoading(false);
       setImages([]);
       console.log("HomePageContent: fetchImages skipped, no userId or user object.");
@@ -38,42 +38,44 @@ function HomePageContent() {
     try {
       const idToken = await user.getIdToken();
       if (!idToken) {
-        throw new Error("Authentication token not available.");
+        console.error("HomePageContent: Failed to get ID token. User might not be fully authenticated or token refresh failed.");
+        throw new Error("Authentication token not available. Please ensure you are logged in or try logging in again.");
       }
 
       const fetchUrl = `/api/user-images?userId=${userId}`;
+      console.log(`HomePageContent: Fetching from URL: ${fetchUrl} with Authorization header.`);
       const response = await fetch(fetchUrl, {
         headers: {
-          'Authorization': `Bearer ${idToken}` // Send the ID token
+          'Authorization': `Bearer ${idToken}` 
         }
       });
 
       if (!response.ok) {
         let errorData = { message: `Error ${response.status}: Failed to load certificates from API.`, detail: `Status code ${response.status}`, errorKey: 'UNKNOWN_CLIENT_ERROR' };
         let errorPayloadForConsole: any = {};
+        let rawResponseText = '';
         try {
-          const parsedJson = await response.json();
-          errorPayloadForConsole = parsedJson;
-          if (parsedJson && typeof parsedJson === 'object') {
-            errorData.message = parsedJson.message || errorData.message;
-            errorData.detail = parsedJson.detail || errorData.detail;
-            errorData.errorKey = parsedJson.errorKey || errorData.errorKey;
+          rawResponseText = await response.text(); // Get raw text first
+          console.log(`HomePageContent: API error response (status ${response.status}) raw text (first 500 chars):`, rawResponseText.substring(0, 500));
+          errorPayloadForConsole = JSON.parse(rawResponseText); // Try to parse
+          if (typeof errorPayloadForConsole === 'object' && errorPayloadForConsole !== null) {
+            errorData.message = errorPayloadForConsole.message || errorData.message;
+            errorData.detail = errorPayloadForConsole.detail || errorData.detail;
+            errorData.errorKey = errorPayloadForConsole.errorKey || errorData.errorKey;
           }
         } catch (jsonError) {
-          console.error("HomePageContent: Could not parse error JSON from API. Raw response text might follow if parsable.", jsonError);
-           try {
-            const rawText = await response.text(); 
-            console.error("HomePageContent: Raw error response text from API:", rawText.substring(0, 500));
-            errorPayloadForConsole = { rawResponse: rawText.substring(0,500) };
-          } catch (textReadError) {
-            console.error("HomePageContent: Could not read raw error response text from API.", textReadError);
-            errorPayloadForConsole = { message: "Could not read or parse error response."};
+          console.error("HomePageContent: Could not parse error JSON from API. Raw response text used for error message. JSON parsing error:", jsonError);
+          errorPayloadForConsole = { rawResponse: rawResponseText.substring(0,500) };
+          errorData.message = rawResponseText.substring(0,200).trim() || errorData.message; // Use trimmed raw text if JSON parsing failed
+          if (!rawResponseText.trim() && response.status === 401) { // If raw text is empty and it's 401
+             errorData.message = "Unauthorized: Access denied. Please check your login status.";
           }
         }
         const displayErrorMessage = errorData.message || `Failed to load certificates. Server responded with status ${response.status}.`;
-        console.error(`HomePageContent: API error while fetching certificates. Status: ${response.status}. Full errorData from API:`, errorPayloadForConsole);
+        console.error(`HomePageContent: API error while fetching certificates. Status: ${response.status}. Parsed/Raw error payload for console:`, errorPayloadForConsole);
         throw new Error(`API Error: ${displayErrorMessage}`);
       }
+      
       const data: UserImage[] = await response.json();
       console.log("HomePageContent: Successfully fetched certificate data. Count:", data.length);
       setImages(data);
@@ -91,17 +93,17 @@ function HomePageContent() {
       console.log("HomePageContent: fetchImages finished. Setting isLoading to false.");
       setIsLoading(false);
     }
-  }, [userId, user, toast, refreshKey]); // Added user to dependency array
+  }, [userId, user, toast, refreshKey]);
 
   useEffect(() => {
     console.log("HomePageContent: useEffect triggered for fetchImages. Current userId:", userId, "Current refreshKey:", refreshKey);
-    if (userId && user) { // Ensure user object is also available
+    if (userId && user) { 
         fetchImages();
     } else {
         setIsLoading(false);
         setImages([]);
     }
-  }, [userId, user, fetchImages, refreshKey]); // Added user to dependency array
+  }, [userId, user, fetchImages, refreshKey]);
 
   return (
     <div className="container mx-auto px-4 py-8 md:px-6 lg:px-8">
@@ -131,3 +133,4 @@ export default function HomePage() {
     </ProtectedPage>
   );
 }
+

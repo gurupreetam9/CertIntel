@@ -42,23 +42,25 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ message: 'Unauthorized: Missing or invalid ID token.', errorKey: 'MISSING_ID_TOKEN' }, { status: 401 });
   }
   const idToken = authorizationHeader.split('Bearer ')[1];
+  console.log(`API Route /api/user-images (Req ID: ${reqId}): Received token (first 15 chars): Bearer ${idToken.substring(0,15)}...`);
+
 
   let decodedToken;
   try {
     if (!adminAuth || typeof adminAuth.verifyIdToken !== 'function') {
       console.error(`API Route /api/user-images (Req ID: ${reqId}): Firebase Admin Auth SDK not initialized.`);
-      throw new Error("Firebase Admin Auth service not available.");
+      return NextResponse.json({ message: 'Server error: Authentication service not available.', errorKey: 'ADMIN_AUTH_NOT_INIT' }, { status: 503 });
     }
     decodedToken = await adminAuth.verifyIdToken(idToken);
     console.log(`API Route /api/user-images (Req ID: ${reqId}): ID Token verified successfully for UID: ${decodedToken.uid}`);
   } catch (error: any) {
-    console.error(`API Route /api/user-images (Req ID: ${reqId}): AUTH FAIL - ID Token verification failed:`, error.message);
-    return NextResponse.json({ message: `Unauthorized: Invalid ID token. ${error.code || ''}`, errorKey: 'INVALID_ID_TOKEN', detail: error.message }, { status: 401 });
+    console.error(`API Route /api/user-images (Req ID: ${reqId}): AUTH FAIL - ID Token verification failed:`, { message: error.message, code: error.code });
+    return NextResponse.json({ message: `Unauthorized: Invalid ID token. Details: ${error.message}`, errorKey: 'INVALID_ID_TOKEN', detail: error.message, code: error.code }, { status: 401 });
   }
 
-  const requesterUid = decodedToken.uid; // UID of the user making the request
-  const targetUserId = request.nextUrl.searchParams.get('userId'); // UID of the user whose images are being requested
-  const adminIdFromQuery = request.nextUrl.searchParams.get('adminRequesterId'); // UID of admin, if an admin is making request
+  const requesterUid = decodedToken.uid; 
+  const targetUserId = request.nextUrl.searchParams.get('userId'); 
+  const adminIdFromQuery = request.nextUrl.searchParams.get('adminRequesterId'); 
 
   console.log(`API Route /api/user-images (Req ID: ${reqId}): RequesterUID (from token): ${requesterUid}, TargetUserUID (query): ${targetUserId}, AdminID (query): ${adminIdFromQuery}`);
 
@@ -70,14 +72,13 @@ export async function GET(request: NextRequest) {
   let dbConnection;
   try {
     let authorizedToFetch = false;
-    let finalTargetUserId = targetUserId; // The UID whose images will actually be fetched
+    let finalTargetUserId = targetUserId; 
 
     if (adminIdFromQuery) {
-      // Case 1: Admin is requesting images for a student
       console.log(`API Route /api/user-images (Req ID: ${reqId}): Admin access scenario detected. AdminID from query: ${adminIdFromQuery}`);
       if (requesterUid !== adminIdFromQuery) {
         console.warn(`API Route /api/user-images (Req ID: ${reqId}): AUTH FAIL (Admin) - Token UID (${requesterUid}) does not match adminRequesterId query param (${adminIdFromQuery}).`);
-        return NextResponse.json({ message: 'Unauthorized: Mismatch in authenticated user and admin requester ID.', errorKey: 'TOKEN_QUERY_PARAM_UID_MISMATCH_ADMIN' }, { status: 403 });
+        return NextResponse.json({ message: 'Forbidden: Mismatch in authenticated user and admin requester ID.', errorKey: 'TOKEN_QUERY_PARAM_UID_MISMATCH_ADMIN' }, { status: 403 });
       }
 
       console.log(`API Route /api/user-images (Req ID: ${reqId}): AUTH (Admin) - Fetching admin profile for UID: ${requesterUid} using Admin SDK...`);
@@ -85,50 +86,47 @@ export async function GET(request: NextRequest) {
       
       if (!adminProfile) {
         console.warn(`API Route /api/user-images (Req ID: ${reqId}): AUTH FAIL (Admin) - Admin profile for ${requesterUid} NOT FOUND.`);
-        return NextResponse.json({ message: 'Unauthorized: Admin identity could not be verified (profile not found).', errorKey: 'ADMIN_PROFILE_NOT_FOUND' }, { status: 403 });
+        return NextResponse.json({ message: 'Forbidden: Admin identity could not be verified (profile not found).', errorKey: 'ADMIN_PROFILE_NOT_FOUND' }, { status: 403 });
       }
       if (adminProfile.role !== 'admin') {
         console.warn(`API Route /api/user-images (Req ID: ${reqId}): AUTH FAIL (Admin) - Requester ${requesterUid} is NOT an admin. Actual role: '${adminProfile.role}'.`);
-        return NextResponse.json({ message: 'Unauthorized: Requester does not have admin privileges.', errorKey: 'NOT_AN_ADMIN' }, { status: 403 });
+        return NextResponse.json({ message: 'Forbidden: Requester does not have admin privileges.', errorKey: 'NOT_AN_ADMIN' }, { status: 403 });
       }
       console.log(`API Route /api/user-images (Req ID: ${reqId}): AUTH (Admin) - Admin role VERIFIED for ${requesterUid}. Fetching target student profile ${targetUserId}...`);
 
       const studentProfile = await getAnyUserProfileWithAdminLocally(targetUserId);
       if (!studentProfile) {
         console.warn(`API Route /api/user-images (Req ID: ${reqId}): AUTH FAIL (Admin) - Target student profile ${targetUserId} NOT FOUND.`);
-        return NextResponse.json({ message: 'Unauthorized: Student profile not found.', errorKey: 'STUDENT_PROFILE_NOT_FOUND' }, { status: 403 });
+        return NextResponse.json({ message: 'Forbidden: Student profile not found.', errorKey: 'STUDENT_PROFILE_NOT_FOUND' }, { status: 403 });
       }
       if (studentProfile.role !== 'student') {
         console.warn(`API Route /api/user-images (Req ID: ${reqId}): AUTH FAIL (Admin) - Target user ${targetUserId} is not a student. Actual role: '${studentProfile.role}'.`);
-        return NextResponse.json({ message: 'Unauthorized: Target user is not registered as a student.', errorKey: 'TARGET_NOT_STUDENT'}, { status: 403 });
+        return NextResponse.json({ message: 'Forbidden: Target user is not registered as a student.', errorKey: 'TARGET_NOT_STUDENT'}, { status: 403 });
       }
       if (studentProfile.associatedAdminFirebaseId !== requesterUid || studentProfile.linkRequestStatus !== 'accepted') {
         console.warn(`API Route /api/user-images (Req ID: ${reqId}): AUTH FAIL (Admin) - Student ${targetUserId} is not linked or link not accepted by admin ${requesterUid}. LinkedAdmin: '${studentProfile.associatedAdminFirebaseId}', Status: '${studentProfile.linkRequestStatus}'.`);
-        return NextResponse.json({ message: 'Unauthorized: Admin is not linked to this student or link not accepted.', errorKey: 'ADMIN_STUDENT_LINK_INVALID' }, { status: 403 });
+        return NextResponse.json({ message: 'Forbidden: Admin is not linked to this student or link not accepted.', errorKey: 'ADMIN_STUDENT_LINK_INVALID' }, { status: 403 });
       }
       authorizedToFetch = true;
-      finalTargetUserId = targetUserId; // Admin is fetching student's images
+      finalTargetUserId = targetUserId; 
       console.log(`API Route /api/user-images (Req ID: ${reqId}): AUTH SUCCESS (Admin) - Admin ${requesterUid} authorized for student ${finalTargetUserId}.`);
 
     } else {
-      // Case 2: User is requesting their own images (adminIdFromQuery is not provided)
       console.log(`API Route /api/user-images (Req ID: ${reqId}): Self-access scenario detected (no adminIdFromQuery).`);
       if (requesterUid !== targetUserId) {
         console.warn(`API Route /api/user-images (Req ID: ${reqId}): AUTH FAIL (Self) - Requester UID (${requesterUid}) does not match targetUserId (${targetUserId}).`);
-        return NextResponse.json({ message: 'Unauthorized: You can only access your own images.', errorKey: 'SELF_ACCESS_UID_MISMATCH' }, { status: 403 });
+        return NextResponse.json({ message: 'Forbidden: You can only access your own images.', errorKey: 'SELF_ACCESS_UID_MISMATCH' }, { status: 403 });
       }
       authorizedToFetch = true;
-      finalTargetUserId = requesterUid; // User is fetching their own images
+      finalTargetUserId = requesterUid; 
       console.log(`API Route /api/user-images (Req ID: ${reqId}): AUTH SUCCESS (Self) - User ${requesterUid} authorized for own images (target ${finalTargetUserId}).`);
     }
 
     if (!authorizedToFetch) {
-      // This should ideally be caught by earlier checks, but as a safeguard:
       console.error(`API Route /api/user-images (Req ID: ${reqId}): CRITICAL AUTH LOGIC FAIL - Reached end of auth checks without explicit authorization. This should not happen.`);
-      return NextResponse.json({ message: 'Unauthorized: Access denied due to an internal authorization error.', errorKey: 'INTERNAL_AUTH_ERROR' }, { status: 403 });
+      return NextResponse.json({ message: 'Forbidden: Access denied due to an internal authorization error.', errorKey: 'INTERNAL_AUTH_ERROR' }, { status: 403 });
     }
     
-    // Connect to MongoDB to get image list for the finalTargetUserId
     console.log(`API Route /api/user-images (Req ID: ${reqId}): Attempting to connect to DB for MongoDB image fetch for user ${finalTargetUserId}...`);
     dbConnection = await connectToDb();
     const { db } = dbConnection;
@@ -180,9 +178,9 @@ export async function GET(request: NextRequest) {
     if (error.message && error.message.toLowerCase().includes('mongodb connection error')) {
       responseMessage = 'Database connection error.';
       errorKey = 'DB_CONNECTION_ERROR';
-    } else if (error.message && (error.message.includes('Unauthorized') || error.message.includes('Access Denied') || error.message.includes('profile not found'))) {
+    } else if (error.message && (error.message.includes('Forbidden') || error.message.includes('Access Denied'))) {
       responseMessage = error.message; 
-      errorKey = (error as any).errorKey || 'UNAUTHORIZED_ACCESS_DETAIL_IN_MESSAGE'; 
+      errorKey = (error as any).errorKey || 'FORBIDDEN_ACCESS_DETAIL_IN_MESSAGE'; 
       statusCode = 403;
     } else if (error.message && error.message.includes('Admin Firestore service not available') || error.message.includes('Firebase Admin Auth service not available')) {
       responseMessage = 'Server configuration error: Firebase Admin services not ready.';
