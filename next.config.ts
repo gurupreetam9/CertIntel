@@ -27,7 +27,7 @@ const nextConfig: NextConfig = {
   },
   webpack: (config, { isServer }) => {
     // Enable WebAssembly and Top-Level Await
-    config.experiments = { ...config.experiments, asyncWebAssembly: true, topLevelAwait: true };
+    config.experiments = { ...(config.experiments || {}), asyncWebAssembly: true, topLevelAwait: true };
 
     if (!isServer) {
       // Prevent client-side bundling of Node.js core modules by providing fallbacks
@@ -40,18 +40,25 @@ const nextConfig: NextConfig = {
         os: false,
         path: false,
         http2: false,
-        events: false, // Added for 'node:events'
-        crypto: false, // Common Node.js module
-        stream: false, // Common Node.js module
-        util: false,   // Common Node.js module
-        zlib: false,   // Common Node.js module
-        assert: false, // Common Node.js module
-        constants: false, // Common Node.js module
-        vm: false, // Common Node.js module
-        // More aggressive stubs for libraries known to cause issues on client
+        events: false, // For 'events'
+        'node:events': false, // For 'node:events'
+        crypto: false, 
+        'node:crypto': false,
+        stream: false, 
+        'node:stream': false,
+        util: false,   
+        'node:util': false,
+        zlib: false,   
+        'node:zlib': false,
+        assert: false, 
+        'node:assert': false,
+        constants: false, 
+        'node:constants': false,
+        vm: false, 
+        'node:vm': false,
         'google-auth-library': false,
         'gcp-metadata': false,
-        'firebase-admin': false, // Attempt to fully stub out firebase-admin itself for client
+        'firebase-admin': false, 
       };
     }
     return config;
