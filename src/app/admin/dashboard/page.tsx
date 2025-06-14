@@ -6,7 +6,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loader2, CheckCircle, XCircle, Users, ShieldAlert, Inbox, FileText, ArrowLeft, Home } from 'lucide-react';
+import { Loader2, CheckCircle, XCircle, Users, ShieldAlert, Inbox, FileText, ArrowLeft, Copy } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { StudentLinkRequest, UserProfile as StudentUserProfile } from '@/lib/models/user';
 import { 
@@ -86,6 +86,14 @@ function AdminDashboardPageContent() {
     }
   };
 
+  const copyAdminId = () => {
+    if (userProfile?.adminUniqueId) {
+      navigator.clipboard.writeText(userProfile.adminUniqueId)
+        .then(() => toast({ title: 'Admin ID Copied!', description: 'Your unique Admin ID has been copied to the clipboard.'}))
+        .catch(() => toast({ title: 'Copy Failed', description: 'Could not copy Admin ID.', variant: 'destructive'}));
+    }
+  };
+
   if (authLoading || !userProfile) {
     return (
       <div className="flex h-[calc(100vh-var(--header-height,4rem))] items-center justify-center">
@@ -117,13 +125,16 @@ function AdminDashboardPageContent() {
       </div>
       
       {userProfile.adminUniqueId && (
-        <Card className="mb-8 bg-primary/10 border-primary/30">
+        <Card className="mb-8 bg-yellow-50 border-yellow-200 shadow-md">
           <CardHeader>
-            <CardTitle className="text-primary">Your Unique Admin ID</CardTitle>
-            <CardDescription className="text-primary/80">Share this ID with your students so they can link to you upon registration.</CardDescription>
+            <CardTitle className="text-yellow-700 text-xl">Your Unique Admin ID</CardTitle>
+            <CardDescription className="text-yellow-600">Share this ID with your students so they can link to you upon registration.</CardDescription>
           </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-mono bg-primary/20 text-primary-foreground px-4 py-2 rounded inline-block shadow">{userProfile.adminUniqueId}</p>
+          <CardContent className="flex items-center gap-x-3">
+            <p className="text-lg font-mono bg-yellow-100 text-yellow-800 px-4 py-2 rounded-md inline-block shadow-sm">{userProfile.adminUniqueId}</p>
+            <Button variant="outline" size="icon" onClick={copyAdminId} title="Copy Admin ID">
+              <Copy className="h-4 w-4 text-yellow-700"/>
+            </Button>
           </CardContent>
         </Card>
       )}
@@ -214,5 +225,3 @@ export default function AdminDashboardPage() {
     </ProtectedPage>
   );
 }
-
-    
