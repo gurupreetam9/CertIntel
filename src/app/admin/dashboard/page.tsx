@@ -6,7 +6,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loader2, CheckCircle, XCircle, Users, ShieldAlert, Inbox, FileText } from 'lucide-react';
+import { Loader2, CheckCircle, XCircle, Users, ShieldAlert, Inbox, FileText, ArrowLeft, Home } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { StudentLinkRequest, UserProfile as StudentUserProfile } from '@/lib/models/user';
 import { 
@@ -107,16 +107,23 @@ function AdminDashboardPageContent() {
 
   return (
     <div className="container mx-auto px-4 py-8 md:px-6 lg:px-8">
-      <h1 className="text-3xl font-bold font-headline mb-6">Admin Dashboard</h1>
+      <div className="mb-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+            <Button asChild variant="outline" size="icon" aria-label="Back to Home">
+                <Link href="/"><ArrowLeft className="h-5 w-5" /></Link>
+            </Button>
+            <h1 className="text-3xl font-bold font-headline">Admin Dashboard</h1>
+        </div>
+      </div>
       
       {userProfile.adminUniqueId && (
-        <Card className="mb-6 bg-blue-50 border-blue-200 dark:bg-blue-900/30 dark:border-blue-700">
+        <Card className="mb-8 bg-primary/10 border-primary/30">
           <CardHeader>
-            <CardTitle className="text-blue-700 dark:text-blue-300">Your Unique Admin ID</CardTitle>
-            <CardDescription className="text-blue-600 dark:text-blue-400">Share this ID with your students so they can link to you upon registration.</CardDescription>
+            <CardTitle className="text-primary">Your Unique Admin ID</CardTitle>
+            <CardDescription className="text-primary/80">Share this ID with your students so they can link to you upon registration.</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-mono bg-blue-100 text-blue-800 dark:bg-blue-800 dark:text-blue-200 px-4 py-2 rounded inline-block">{userProfile.adminUniqueId}</p>
+            <p className="text-2xl font-mono bg-primary/20 text-primary-foreground px-4 py-2 rounded inline-block shadow">{userProfile.adminUniqueId}</p>
           </CardContent>
         </Card>
       )}
@@ -135,7 +142,7 @@ function AdminDashboardPageContent() {
             ) : (
               <ul className="space-y-3">
                 {pendingRequests.map(req => (
-                  <li key={req.id} className="p-3 border rounded-md bg-background/50 dark:bg-neutral-800/30 shadow-sm">
+                  <li key={req.id} className="p-3 border rounded-md bg-background/50 shadow-sm">
                     <p className="font-semibold">{req.studentName}</p>
                     <p className="text-sm text-muted-foreground">Email: {req.studentEmail}</p>
                     {req.studentRollNo && <p className="text-sm text-muted-foreground">Roll No: {req.studentRollNo}</p>}
@@ -180,7 +187,7 @@ function AdminDashboardPageContent() {
             ) : (
               <ul className="space-y-3">
                 {acceptedStudents.map(student => (
-                  <li key={student.uid} className="p-3 border rounded-md bg-background/50 dark:bg-neutral-800/30 shadow-sm">
+                  <li key={student.uid} className="p-3 border rounded-md bg-background/50 shadow-sm">
                     <p className="font-semibold">{student.displayName}</p>
                     <p className="text-sm text-muted-foreground">Email: {student.email}</p>
                     {student.rollNo && <p className="text-sm text-muted-foreground">Roll No: {student.rollNo}</p>}
