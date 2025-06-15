@@ -117,55 +117,38 @@ const verifyEmailOtpAndRegisterFlow = ai.defineFlow(
         }
         
         // Prepare data for the student profile document creation
+        // Only include fields directly managed at initial creation.
+        // Linking fields (associatedAdminUniqueId, linkRequestStatus) will be handled by createStudentLinkRequest if needed.
         const studentProfileCreationData: Partial<UserProfile> = {
             displayName: name,
-            rollNo: (rollNo && rollNo.trim() !== '') ? rollNo.trim() : null, // Ensure string or null
-            // adminUniqueId from input is the ID of the teacher student wants to link to.
-            // It will be stored as associatedAdminUniqueId in the student's profile.
-            associatedAdminUniqueId: (adminUniqueId && adminUniqueId.trim() !== '') ? adminUniqueId.trim() : null, // Ensure string or null
+            rollNo: (rollNo && rollNo.trim() !== '') ? rollNo.trim() : undefined, // Pass as undefined if empty to let service default to null
         };
-
-        // Set linkRequestStatus based on whether an admin ID was provided
-        if (studentProfileCreationData.associatedAdminUniqueId) {
-            studentProfileCreationData.linkRequestStatus = 'pending';
-        } else {
-            studentProfileCreationData.linkRequestStatus = 'none';
-        }
         
         // Create base student profile in 'users' collection
+        // createUserProfileDocument will set linkRequestStatus to 'none' and associatedAdmin fields to null by default.
         await createUserProfileDocument(firebaseUser.uid, email, 'student', studentProfileCreationData);
 
         let message = 'Student registration successful! Welcome to CertIntel!';
         
-        // If an admin ID was provided, attempt to create the link request
-        if (studentProfileCreationData.associatedAdminUniqueId) {
-          const targetAdmin = await getAdminByUniqueId(studentProfileCreationData.associatedAdminUniqueId);
+        // If an admin ID was provided by the student, attempt to create the link request
+        // This will also update the student's profile with 'pending' status and admin IDs.
+        const targetAdminUniqueId = (adminUniqueId && adminUniqueId.trim() !== '') ? adminUniqueId.trim() : null;
+        if (targetAdminUniqueId) {
+          const targetAdmin = await getAdminByUniqueId(targetAdminUniqueId);
           if (targetAdmin) {
-            // Pass the student's actual rollNo (which could be null)
             await createStudentLinkRequest(
               firebaseUser.uid, 
               email, 
               name, 
-              studentProfileCreationData.rollNo, 
+              studentProfileCreationData.rollNo || null, // Pass the actual rollNo or null
               targetAdmin.adminUniqueId, 
               targetAdmin.userId
             );
             message += ` Your request to link with Teacher ID ${targetAdmin.adminUniqueId} has been submitted.`;
           } else {
-            message += ` Could not find a Teacher with ID ${studentProfileCreationData.associatedAdminUniqueId}. You can request linkage later.`;
-            // Update student profile to clear pending status if admin not found
-            // The createUserProfileDocument call already sets associatedAdminUniqueId to null if adminUniqueId was empty,
-            // and linkRequestStatus to 'none'. If it was pending but admin not found, we might want to reset it.
-            // However, createStudentLinkRequest is only called if targetAdmin is found.
-            // If adminUniqueId was provided but targetAdmin is not found, the student profile's
-            // associatedAdminUniqueId will still hold the non-existent ID, and status 'pending'.
-            // We should update the student profile to reflect that the link could not be initiated.
-            await createUserProfileDocument(firebaseUser.uid, email, 'student', { 
-              ...studentProfileCreationData, // Keep name, rollNo
-              linkRequestStatus: 'none', 
-              associatedAdminUniqueId: null, // Clear the invalid admin ID
-              associatedAdminFirebaseId: null, // Clear this too
-            });
+            message += ` Could not find a Teacher with ID ${targetAdminUniqueId}. You can request linkage later from your profile settings.`;
+            // No need to update student profile here, as createUserProfileDocument already set linkRequestStatus to 'none'
+            // and associatedAdmin fields to null.
           }
         }
         return { success: true, message, userId: firebaseUser.uid, role: 'student' };
@@ -175,9 +158,18 @@ const verifyEmailOtpAndRegisterFlow = ai.defineFlow(
       }
     } catch (profileError: any) {
       console.error(`Error during profile/link creation for ${email} (role: ${role}):`, profileError);
+      // Construct a more detailed error message if possible
+      let detailedMessage = `Firebase user created, but failed to set up profile/link. Error: ${profileError.message || 'Unknown Firestore error'}`;
+      if (profileError.code) { // Firestore errors often have a code
+        detailedMessage += ` (Code: ${profileError.code})`;
+      }
+       if (profileError.details) {
+        detailedMessage += ` Details: ${profileError.details}`;
+      }
+      console.error("Full profileError object:", profileError);
       return { 
         success: false, 
-        message: `Firebase user created, but failed to set up profile/link: ${profileError.message}. Please contact support.`,
+        message: detailedMessage + ". Please contact support.",
         userId: firebaseUser.uid 
       };
     }

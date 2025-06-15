@@ -13,7 +13,7 @@ import {
   serverTimestamp,
   getDocs,
   limit,
-  updateDoc, // Added updateDoc
+  updateDoc, 
 } from 'firebase/firestore'; // Client-side SDK imports
 import { v4 as uuidv4 } from 'uuid';
 
@@ -31,31 +31,28 @@ export const createUserProfileDocument = async (
   const userDocRef = doc(firestore, USERS_COLLECTION, userId); 
   const now = Timestamp.now();
   
-  const profileData: Partial<UserProfile> = {
+  const profileData: UserProfile = {
     uid: userId,
     email,
     role,
-    displayName: additionalData.displayName || email.split('@')[0],
+    displayName: additionalData.displayName || email.split('@')[0] || userId,
     createdAt: now,
     updatedAt: now,
+    // Student-specific fields initialized
+    rollNo: (role === 'student' && additionalData.rollNo !== undefined) ? additionalData.rollNo : null,
+    linkRequestStatus: (role === 'student') ? 'none' : undefined, // Default to 'none' for students, undefined for admins
+    associatedAdminFirebaseId: (role === 'student') ? null : undefined,
+    associatedAdminUniqueId: (role === 'student') ? null : undefined,
+    // Admin-specific field
+    adminUniqueId: (role === 'admin' && additionalData.adminUniqueId) ? additionalData.adminUniqueId : undefined,
   };
 
-  if (role === 'student') {
-    profileData.rollNo = additionalData.rollNo !== undefined ? additionalData.rollNo : null;
-    profileData.linkRequestStatus = additionalData.linkRequestStatus || 'none';
-    profileData.associatedAdminFirebaseId = additionalData.associatedAdminFirebaseId !== undefined ? additionalData.associatedAdminFirebaseId : null;
-    profileData.associatedAdminUniqueId = additionalData.associatedAdminUniqueId !== undefined ? additionalData.associatedAdminUniqueId : null;
-  } else if (role === 'admin') {
-    if (additionalData.adminUniqueId) {
-      profileData.adminUniqueId = additionalData.adminUniqueId;
-    }
-  }
-
+  // Clean up undefined fields before setting
   const finalProfileData = Object.fromEntries(
     Object.entries(profileData).filter(([_, v]) => v !== undefined)
-  ) as UserProfile;
+  ) as UserProfile; // Cast as UserProfile, assuming required fields are met by defaults
 
-  await setDoc(userDocRef, finalProfileData, { merge: true });
+  await setDoc(userDocRef, finalProfileData); // Use setDoc without merge for initial creation
   return finalProfileData; 
 };
 
@@ -90,6 +87,7 @@ export const createAdminProfile = async (userId: string, email: string): Promise
     createdAt: now,
   };
   await setDoc(adminDocRef, adminProfile);
+  // Also create their user profile document with admin role and adminUniqueId
   await createUserProfileDocument(userId, email, 'admin', { adminUniqueId });
   return adminProfile;
 };
