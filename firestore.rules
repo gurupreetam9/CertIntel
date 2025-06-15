@@ -4,180 +4,200 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper Functions
+    // Helper functions
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    function isOwner(userId) {
-      return request.auth.uid == userId;
+    function isUser(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // User is creating their own 'admin' role profile
-    function isAdminCreatingOwnAdminProfile(request, resource) {
-      let data = request.resource.data;
-      return data.userId == request.auth.uid &&
-             data.email == request.auth.token.email &&
-             data.keys().hasAll(['userId', 'adminUniqueId', 'email', 'createdAt']) &&
-             data.keys().hasOnly(['userId', 'adminUniqueId', 'email', 'createdAt']);
+    function incomingData() {
+      return request.resource.data;
     }
 
-    // User is updating their own 'admin' role profile
-    function isAdminUpdatingOwnAdminProfile(request, resource) {
-      let data = request.resource.data;
-      let existingData = resource.data;
-      return data.userId == existingData.userId && // Cannot change userId
-             data.email == existingData.email && // Cannot change email
-             data.adminUniqueId == existingData.adminUniqueId && // Cannot change adminUniqueId
-             data.createdAt.toMillis() == existingData.createdAt.toMillis() && // Cannot change createdAt
-             data.keys().hasOnly(['userId', 'adminUniqueId', 'email', 'createdAt']); // No other fields allowed
+    function existingData() {
+      return resource.data;
     }
 
-    // User is creating their own 'student' role profile
-    function studentIsCreatingOwnProfile(request, resource) {
-      let data = request.resource.data;
-      // Fields that MUST be present and correct
-      let baseChecks = data.uid == request.auth.uid &&
-                       data.email == request.auth.token.email && // Ensure email matches token if available and verified
-                       data.role == 'student' &&
-                       data.keys().hasAll(['uid', 'email', 'role', 'createdAt', 'updatedAt', 'displayName']);
-
-      // Fields that a student MUST NOT set on their own profile creation.
-      // 'adminUniqueId' is for admin users. 'associatedAdminFirebaseId' is set later if linking.
-      let forbiddenFieldsAreAbsentOrNull =
-          (data.adminUniqueId == null || !data.keys().hasAny(['adminUniqueId'])) &&
-          (data.associatedAdminFirebaseId == null || !data.keys().hasAny(['associatedAdminFirebaseId']));
-
-
-      // All keys present must be from the allowed set for initial student creation
-      let allowedKeysForStudentCreate = [
-        'uid', 'email', 'role', 'createdAt', 'updatedAt', 'displayName',
-        'rollNo', 'linkRequestStatus', 'associatedAdminUniqueId'
-      ];
-      let onlyAllowedKeysPresent = data.keys().hasOnly(allowedKeysForStudentCreate);
-
-      return baseChecks && forbiddenFieldsAreAbsentOrNull && onlyAllowedKeysPresent;
+    function isRole(role) {
+      return incomingData().role == role;
     }
 
-    // Student is updating their own profile (e.g. display name, roll no, or linking info)
-    function studentIsUpdatingOwnAllowedFields(request, resource) {
-      // 1. User must be the owner of the document
-      if (request.auth.uid != resource.data.uid) { return false; }
-
-      // 2. The role must be 'student' and must not change
-      if (resource.data.role != 'student' || request.resource.data.role != 'student') { return false; }
-
-      // 3. Define immutable fields for a student (cannot be changed by student after creation)
-      //    and fields a student IS allowed to change.
-      let immutableByStudent = ['uid', 'email', 'role', 'createdAt', 'adminUniqueId']; // adminUniqueId should always be null/unchanged by student
-      let changeableByStudent = ['displayName', 'rollNo', 'updatedAt',
-                                 'linkRequestStatus', 'associatedAdminFirebaseId', 'associatedAdminUniqueId'];
-
-      let allAllowedKeysInRequest = immutableByStudent.concat(changeableByStudent);
-
-      // 4. Check if any immutable field is being attempted to change
-      for (let i = 0; i < immutableByStudent.length; i = i + 1) {
-        let field = immutableByStudent[i];
-        if (request.resource.data[field] != resource.data[field]) {
-          // Allow createdAt to be "unchanged" if timestamps are equivalent
-          if (field == 'createdAt' && request.resource.data[field].toMillis() == resource.data[field].toMillis()) {
-            continue;
-          }
-          return false; // Attempt to change an immutable field
-        }
-      }
-      
-      // 5. Ensure all keys in the request are either immutable (and checked above) or in the changeable list.
-      //    This prevents adding arbitrary fields.
-      let requestKeys = request.resource.data.keys();
-      for (let i = 0; i < requestKeys.length; i = i + 1) {
-          let key = requestKeys[i];
-          if (!allAllowedKeysInRequest.hasAny([key])) {
-              return false; // An unexpected field is present in the request
-          }
-      }
-      
-      // 6. Check that only allowed fields are ACTUALLY changing value
-      let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
-      if (!changedKeys.hasOnly(changeableByStudent)) {
-          return false; // A field changed that wasn't in the 'changeableByStudent' list
-      }
-
-      return true; // All checks passed
-    }
-
-    // Admin role check from their own user profile
-    function isAdmin(userId) {
-      return get(/databases/$(database)/documents/users/$(userId)).data.role == 'admin';
+    function wasRole(role) {
+      return existingData().role == role;
     }
     
-    // Admin is updating a student's link status (e.g. accepting/rejecting)
-    function isAdminUpdatingStudentLinkStatus(request, resource) {
-      // Ensure target is a student and remains a student
-      if (resource.data.role != 'student' || request.resource.data.role != 'student') { return false; }
+    function isStudentCreatingOwnProfile(userId) {
+      let data = incomingData();
+      let requiredFields = ['uid', 'email', 'role', 'createdAt', 'updatedAt', 'displayName'];
+      let allPresentRequired = requiredFields.every(field => field in data);
+      let allowedFields = ['uid', 'email', 'role', 'createdAt', 'updatedAt', 'displayName', 'rollNo', 'linkRequestStatus', 'associatedAdminUniqueId', 'associatedAdminFirebaseId'];
+      let onlyAllowedFields = data.keys().hasOnly(allowedFields);
 
-      // Define fields admin can change on student profile for link resolution
-      let adminAllowedChanges = ['linkRequestStatus', 'associatedAdminFirebaseId', 'updatedAt'];
-      let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
+      return isUser(userId) &&
+             data.uid == userId &&
+             data.email == request.auth.token.email &&
+             data.role == 'student' &&
+             allPresentRequired &&
+             onlyAllowedFields &&
+             !('adminUniqueId' in data) && // Students cannot set adminUniqueId
+             (data.linkRequestStatus == 'none' || !('linkRequestStatus' in data)) &&
+             (data.associatedAdminFirebaseId == null || !('associatedAdminFirebaseId' in data)) &&
+             (data.associatedAdminUniqueId == null || !('associatedAdminUniqueId' in data));
+    }
+    
+    function isAdminCreatingOwnProfile(userId) {
+      let data = incomingData();
+      let requiredFields = ['uid', 'email', 'role', 'createdAt', 'updatedAt', 'adminUniqueId'];
+      let allPresentRequired = requiredFields.every(field => field in data);
+      let allowedFields = ['uid', 'email', 'role', 'createdAt', 'updatedAt', 'adminUniqueId', 'displayName']; // displayName optional for admin
+      let onlyAllowedFields = data.keys().hasOnly(allowedFields);
 
-      // Check that only these fields are changing
-      if (!changedKeys.hasOnly(adminAllowedChanges)) { return false; }
-
-      // Ensure other student-owned data is not modified by admin in this operation
-      let studentOwnedFields = ['uid', 'email', 'role', 'createdAt', 'displayName', 'rollNo', 'associatedAdminUniqueId', 'adminUniqueId'];
-      for (let i = 0; i < studentOwnedFields.length; i = i + 1) {
-        let field = studentOwnedFields[i];
-        // If the field is not part of what admin is allowed to change here, it must remain the same
-        if (!adminAllowedChanges.hasAny([field]) && request.resource.data[field] != resource.data[field]) {
-           if (field == 'createdAt' && request.resource.data[field].toMillis() == resource.data[field].toMillis()) {
-            continue;
-          }
-          return false;
-        }
-      }
-      return true;
+      return isUser(userId) &&
+             data.uid == userId &&
+             data.email == request.auth.token.email &&
+             data.role == 'admin' &&
+             allPresentRequired &&
+             onlyAllowedFields &&
+             data.adminUniqueId is string;
     }
 
-    // User Profiles
+    function studentIsUpdatingOwnAllowedFields(userId) {
+      let data = incomingData();
+      let oldData = existingData();
+      let changedKeys = data.diff(oldData).affectedKeys();
+      let allowedToChange = ['displayName', 'rollNo', 'updatedAt', 'linkRequestStatus', 'associatedAdminFirebaseId', 'associatedAdminUniqueId'];
+      
+      // Core fields that must not change
+      let coreFieldsUnchanged = data.uid == oldData.uid &&
+                                data.email == oldData.email &&
+                                data.role == oldData.role && // Role must remain student
+                                data.createdAt == oldData.createdAt;
+
+      // Student cannot set adminUniqueId if it wasn't already there or if changing it
+      let adminIdConstraint = !('adminUniqueId' in data) || data.adminUniqueId == null || data.adminUniqueId == oldData.adminUniqueId;
+                                
+      return isUser(userId) &&
+             data.role == 'student' && // Must be and remain a student
+             coreFieldsUnchanged &&
+             adminIdConstraint &&
+             changedKeys.hasOnly(allowedToChange);
+    }
+
+    function adminIsUpdatingOwnProfile(userId) {
+      let data = incomingData();
+      let oldData = existingData();
+      let changedKeys = data.diff(oldData).affectedKeys();
+      // Admins might update their displayName or just updatedAt for example.
+      let allowedToChange = ['displayName', 'updatedAt']; 
+      
+      let coreFieldsUnchanged = data.uid == oldData.uid &&
+                                data.email == oldData.email &&
+                                data.role == oldData.role && // Role must remain admin
+                                data.adminUniqueId == oldData.adminUniqueId && // adminUniqueId should not change
+                                data.createdAt == oldData.createdAt;
+
+      return isUser(userId) &&
+             data.role == 'admin' &&
+             coreFieldsUnchanged &&
+             changedKeys.hasOnly(allowedToChange);
+    }
+
+    function isAdminUpdatingStudentLinkStatus(adminUserId) {
+      // This function assumes the request is an update to a STUDENT's profile
+      // by an ADMIN who is linked to that student (or resolving a link request).
+      let studentData = incomingData(); // This is the student's document
+      let oldStudentData = existingData();
+      let changedKeys = studentData.diff(oldStudentData).affectedKeys();
+      
+      // Admin can change these specific fields on a student's profile during link management
+      let allowedLinkFieldsToChange = ['linkRequestStatus', 'associatedAdminFirebaseId', 'associatedAdminUniqueId', 'updatedAt'];
+      
+      return isAuthenticated() && // Admin must be authenticated
+             request.auth.uid == adminUserId && // The request is from the admin
+             studentData.role == 'student' && // Target is a student
+             oldStudentData.role == 'student' && // Was a student
+             studentData.uid == oldStudentData.uid && // UID unchanged
+             studentData.email == oldStudentData.email && // Email unchanged
+             studentData.createdAt == oldStudentData.createdAt && // createdAt unchanged
+             (studentData.associatedAdminFirebaseId == adminUserId || studentData.associatedAdminFirebaseId == null) && // Link must be to this admin or being removed
+             changedKeys.hasOnly(allowedLinkFieldsToChange);
+    }
+
+    // Rules for 'users' collection
     match /users/{userId} {
-      allow read: if isAuthenticated() && (isOwner(userId) || isAdmin(request.auth.uid));
-      allow create: if isOwner(userId) && studentIsCreatingOwnProfile(request, resource);
-      allow update: if (
-        isOwner(userId) && studentIsUpdatingOwnAllowedFields(request, resource)
-      ) || (
-        isAuthenticated() && isAdmin(request.auth.uid) && isAdminUpdatingStudentLinkStatus(request, resource)
-      );
-      allow delete: if false; // Generally, don't allow direct deletion
+      allow read: if isAuthenticated();
+      
+      allow create: if (isRole('student') && isStudentCreatingOwnProfile(userId)) ||
+                       (isRole('admin') && isAdminCreatingOwnProfile(userId));
+                       
+      allow update: if (wasRole('student') && studentIsUpdatingOwnAllowedFields(userId)) ||
+                       (wasRole('admin') && adminIsUpdatingOwnProfile(userId)) ||
+                       (wasRole('student') && isAdminUpdatingStudentLinkStatus(request.auth.uid)); // Admin updates student's link status
+                       
+      allow delete: if false; // Generally, don't allow client-side deletion of user profiles
     }
 
-    // Admin Profiles (separate collection, simplified for unique ID storage)
-    match /admins/{adminId} {
-      allow read: if isAuthenticated(); // Allow any authenticated user to read admin profiles (e.g., to verify unique ID)
-      allow create: if isOwner(adminId) && isAdminCreatingOwnAdminProfile(request, resource);
-      allow update: if isOwner(adminId) && isAdminUpdatingOwnAdminProfile(request, resource);
+    // Rules for 'admins' collection (stores admin specific details like unique ID)
+    match /admins/{adminId} { // adminId here is the Firebase UID
+      allow read: if isAuthenticated(); // Any authenticated user can read admin details (e.g. to verify unique ID)
+      allow create: if isUser(adminId) && 
+                       incomingData().userId == adminId &&
+                       incomingData().adminUniqueId is string &&
+                       incomingData().email == request.auth.token.email &&
+                       incomingData().keys().hasAll(['userId', 'adminUniqueId', 'email', 'createdAt']);
+      allow update: if false; // Admin unique ID and creation details should be immutable
       allow delete: if false;
     }
 
-    // Student Link Requests
+    // Rules for 'studentLinkRequests' collection
     match /studentLinkRequests/{requestId} {
       allow read: if isAuthenticated() && 
-                      (isOwner(resource.data.studentUserId) || 
-                       (resource.data.adminFirebaseId != null && isOwner(resource.data.adminFirebaseId)));
-      allow create: if isAuthenticated() && isOwner(request.resource.data.studentUserId);
+                     (resource.data.studentUserId == request.auth.uid || resource.data.adminFirebaseId == request.auth.uid);
+      
+      allow create: if isAuthenticated() &&
+                       incomingData().studentUserId == request.auth.uid && // Student creates their own request
+                       incomingData().status == 'pending' &&
+                       incomingData().keys().hasAll(['id', 'studentUserId', 'studentEmail', 'studentName', 'adminUniqueIdTargeted', 'adminFirebaseId', 'status', 'requestedAt']) &&
+                       (!('studentRollNo' in incomingData()) || incomingData().studentRollNo is string || incomingData().studentRollNo == null); // rollNo is optional
+
       allow update: if isAuthenticated() && 
-                       resource.data.adminFirebaseId != null && 
-                       isOwner(resource.data.adminFirebaseId) &&
-                       request.resource.data.status != resource.data.status && // Status must change
-                       request.resource.data.keys().hasOnly(['status', 'resolvedAt', 'resolvedBy']); // Only these fields can be changed by admin
-      allow delete: if false;
+                       existingData().adminFirebaseId == request.auth.uid && // Only the targeted admin can update
+                       existingData().status == 'pending' && // Can only update pending requests
+                       (incomingData().status == 'accepted' || incomingData().status == 'rejected') &&
+                       incomingData().resolvedBy == request.auth.uid &&
+                       incomingData().keys().hasAll(['status', 'resolvedAt', 'resolvedBy']) && // Only these fields can change
+                       incomingData().diff(existingData()).affectedKeys().hasOnly(['status', 'resolvedAt', 'resolvedBy']);
+      
+      allow delete: if false; // Requests should be resolved, not deleted by clients
     }
-    
-    // Image metadata (images.files and images.chunks are GridFS internal)
-    // Rules for these are typically managed by MongoDB itself if using database users,
-    // or via application logic if using a general app user for DB access.
-    // For Firestore-like rules, you'd define paths like /images.files/{fileId}
-    // However, this is for GridFS stored in MongoDB, not Firestore.
-    // So, security for GridFS files is handled by your Next.js API routes that interact with MongoDB.
-    // The API routes should implement their own authentication and authorization.
+
+    // Rules for GridFS files (images.files and images.chunks)
+    // These rules are often simpler as access is typically controlled via signed URLs or server-side logic
+    // rather than direct client access with Firestore rules.
+    // However, if you do intend direct client interaction validated by Firestore metadata:
+    match /images.files/{fileId} {
+      // Allow read if the user is authenticated and the file metadata.userId matches their UID,
+      // OR if an admin is linked to the student who owns the file.
+      // This is a conceptual example; actual admin-student link verification might need a function.
+      allow read: if isAuthenticated() && (
+                    resource.data.metadata.userId == request.auth.uid
+                    // || isLinkedAdmin(request.auth.uid, resource.data.metadata.userId) // Example function call
+                  );
+      allow create: if isAuthenticated(); // Allow authenticated users to create file metadata (upload handled by server)
+      allow update: if isAuthenticated() && resource.data.metadata.userId == request.auth.uid; // Owner can update metadata
+      allow delete: if isAuthenticated() && resource.data.metadata.userId == request.auth.uid; // Owner can delete
+    }
+
+    match /images.chunks/{chunkId} {
+      // Typically, chunks are managed entirely by GridFS and direct client access is not needed or secured differently.
+      // If direct access is needed, rules would mirror images.files or be based on a linked fileId.
+      allow read: if isAuthenticated(); // Broad for example, refine based on security model
+      allow write: if isAuthenticated(); // Broad for example
+    }
   }
 }
+
+    
