@@ -36,51 +36,62 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setProfileRefreshKey(key => key + 1);
   }, []);
 
-  useEffect(() => {
-    const fetchProfile = async (currentFirebaseUser: User) => {
-      try {
-        console.log("AuthContext: User authenticated (or refresh triggered), attempting to fetch profile for UID:", currentFirebaseUser.uid);
-        const profile = await getUserProfile(currentFirebaseUser.uid);
-        setUserProfile(profile);
-        if (!profile) {
-          console.warn("AuthContext: User profile NOT FOUND in Firestore for UID:", currentFirebaseUser.uid);
-        } else {
-          console.log("AuthContext: User profile fetched successfully:", profile);
-        }
-      } catch (error: any) {
-        console.error("AuthContext: CRITICAL ERROR fetching user profile. Error message:", error.message, error);
-        setUserProfile(null); 
-      } finally {
-        if (loading) { // Only set loading to false on initial load or auth state change, not every refresh
-          console.log("AuthContext: Profile fetch attempt complete (initial/auth change). Setting loading to false.");
-          setLoading(false);
-        } else {
-          console.log("AuthContext: Profile fetch attempt complete (manual refresh). Loading state remains as is.");
-        }
+  // Hoisted fetchProfile function
+  const fetchProfile = useCallback(async (currentFirebaseUser: User) => {
+    try {
+      console.log("AuthContext: User authenticated (or refresh triggered), attempting to fetch profile for UID:", currentFirebaseUser.uid);
+      const profile = await getUserProfile(currentFirebaseUser.uid);
+      setUserProfile(profile);
+      if (!profile) {
+        console.warn("AuthContext: User profile NOT FOUND in Firestore for UID:", currentFirebaseUser.uid);
+      } else {
+        console.log("AuthContext: User profile fetched successfully:", profile);
       }
-    };
-    
-    if (user && userId) { // If user is already set (e.g., by onAuthStateChanged or previous refresh)
-      console.log(`AuthContext: useEffect for profileRefreshKey (${profileRefreshKey}) triggered. User ID: ${userId}. Fetching profile.`);
-      setLoading(true); // Show loader during manual refresh
-      fetchProfile(user).finally(() => setLoading(false));
+    } catch (error: any) {
+      console.error("AuthContext: CRITICAL ERROR fetching user profile. Error message:", error.message, error);
+      setUserProfile(null); 
+    } finally {
+      // Only set loading to false on initial load or auth state change (when `loading` is true), 
+      // not necessarily every manual refresh if loading was already false.
+      if (loading) { 
+        console.log("AuthContext: Profile fetch attempt complete (initial/auth change). Setting loading to false.");
+        setLoading(false);
+      } else {
+        console.log("AuthContext: Profile fetch attempt complete (manual refresh). Loading state remains as is if it was already false.");
+      }
     }
-  }, [profileRefreshKey, user, userId]); // Depend on user and userId as well to cover initial load
+  }, [loading, setLoading, setUserProfile]); // Added dependencies for useCallback
+
+
+  useEffect(() => {
+    // This effect handles manual profile refreshes triggered by refreshUserProfile()
+    if (user && userId) { 
+      console.log(`AuthContext: useEffect for profileRefreshKey (${profileRefreshKey}) triggered. User ID: ${userId}. Fetching profile.`);
+      // For manual refresh, we might want to show a loader briefly.
+      // If loading is already false, and we want to show a loader, set it true here.
+      if (!loading) setLoading(true); 
+      fetchProfile(user).finally(() => {
+        // Ensure loading is set to false after a manual refresh completes,
+        // especially if it was set to true at the start of this effect.
+        if (loading) setLoading(false); 
+      });
+    }
+  }, [profileRefreshKey, user, userId, fetchProfile, loading, setLoading]); // Added loading and setLoading to dependencies
 
   useEffect(() => {
     // This effect handles the initial auth state and subsequent auth changes.
     const unsubscribe = onAuthStateChanged(async (firebaseUser) => {
-      setLoading(true); // Always set loading true when auth state might change
+      if (!loading) setLoading(true); // Always set loading true when auth state might change
       console.log("AuthContext: onAuthStateChanged triggered. Firebase user:", firebaseUser ? firebaseUser.uid : 'null');
       setUser(firebaseUser);
       setUserId(firebaseUser ? firebaseUser.uid : null);
 
       if (firebaseUser) {
-        await fetchProfile(firebaseUser); // This will also set loading to false in its finally block
+        await fetchProfile(firebaseUser); // This will also handle setting loading to false in its finally block
       } else {
         setUserProfile(null);
         console.log("AuthContext: No Firebase user. Setting loading to false.");
-        setLoading(false);
+        if (loading) setLoading(false); // Ensure loading is false if no user
       }
     });
 
@@ -88,9 +99,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.log("AuthContext: Unsubscribing from onAuthStateChanged.");
       unsubscribe();
     };
-  }, []); // This effect runs once on mount for onAuthStateChanged
+  }, [fetchProfile, loading, setLoading]); // Corrected dependencies, removed []
 
-  if (loading) {
+  if (loading && !userProfile && !user) { // More specific condition for initial global loader
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-16 w-16 animate-spin text-primary" />
