@@ -6,7 +6,7 @@ import { useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, Save, KeyRound, UserCircle, Copy } from 'lucide-react';
+import { ArrowLeft, Loader2, Save, KeyRound, UserCircle, Copy, Link2, Link2Off, AlertTriangle } from 'lucide-react';
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { Button } from '@/components/ui/button';
@@ -17,7 +17,12 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { sendPasswordReset, updateUserProfileName } from '@/lib/firebase/auth';
-import { updateUserProfileDocument } from '@/lib/services/userService'; // Assuming you'll add this
+import { 
+  updateUserProfileDocument, 
+  studentRequestLinkWithAdmin,
+  studentRemoveAdminLink,
+  getAdminByUniqueId, 
+} from '@/lib/services/userService';
 import type { UserProfile } from '@/lib/models/user';
 
 const profileFormSchema = z.object({
@@ -26,13 +31,22 @@ const profileFormSchema = z.object({
 });
 type ProfileFormValues = z.infer<typeof profileFormSchema>;
 
+const adminLinkSchema = z.object({
+  newAdminId: z.string().min(1, "Admin ID cannot be empty.").max(50, "Admin ID is too long."),
+});
+type AdminLinkFormValues = z.infer<typeof adminLinkSchema>;
+
 function ProfileSettingsPageContent() {
-  const { user, userProfile, loading: authLoading } = useAuth(); // Get userProfile
+  const { user, userProfile, loading: authLoading, refreshUserProfile } = useAuth();
   const { toast } = useToast();
 
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSendingReset, setIsSendingReset] = useState(false);
-  const [phoneNumber, setPhoneNumber] = useState(''); // Still local state, not saved to DB via this form
+  const [phoneNumber, setPhoneNumber] = useState(''); 
+  
+  const [isSubmittingLinkRequest, setIsSubmittingLinkRequest] = useState(false);
+  const [isRemovingLink, setIsRemovingLink] = useState(false);
+  const [linkedAdminName, setLinkedAdminName] = useState<string | null>(null);
 
   const profileForm = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
@@ -41,6 +55,11 @@ function ProfileSettingsPageContent() {
       rollNo: '',
     },
   });
+
+  const adminLinkForm = useForm<AdminLinkFormValues>({
+    resolver: zodResolver(adminLinkSchema),
+    defaultValues: { newAdminId: '' },
+  });
   
   useEffect(() => {
     if (userProfile) {
@@ -48,7 +67,32 @@ function ProfileSettingsPageContent() {
         displayName: userProfile.displayName || user?.email?.split('@')[0] || '',
         rollNo: userProfile.rollNo || '',
       });
-    } else if (user && !userProfile && !authLoading) { // User exists, but profile might still be loading or null
+      if (userProfile.role === 'student' && userProfile.associatedAdminUniqueId && userProfile.linkRequestStatus === 'accepted') {
+        // Fetch linked admin's name for display
+        getAdminByUniqueId(userProfile.associatedAdminUniqueId).then(admin => {
+          if (admin) {
+            // Assuming admin profile in 'admins' collection has an 'email' or you fetch their user profile from 'users'
+            // For simplicity, using admin unique ID itself or a placeholder if name isn't directly on AdminProfile.
+            // To get display name, you'd need another query on users collection with admin.userId.
+            // For now, just using their email or unique ID as a placeholder for name.
+            // Let's assume the 'admins' collection has email, or we fallback to the unique ID for display.
+            // A proper AdminProfile model would have a displayName or we'd fetch it from the 'users' collection using admin.userId.
+            // For this example, we'll just display the unique ID if we don't have an email.
+             const adminDocRef = doc(firestore, 'users', admin.userId);
+             getDoc(adminDocRef).then(adminUserDoc => {
+                if(adminUserDoc.exists()) {
+                    const adminUserData = adminUserDoc.data() as UserProfile;
+                    setLinkedAdminName(adminUserData.displayName || admin.email || admin.adminUniqueId);
+                } else {
+                     setLinkedAdminName(admin.email || admin.adminUniqueId);
+                }
+             }).catch(() => setLinkedAdminName(admin.email || admin.adminUniqueId));
+          }
+        });
+      } else {
+        setLinkedAdminName(null);
+      }
+    } else if (user && !userProfile && !authLoading) {
         profileForm.reset({ displayName: user.email?.split('@')[0] || '' });
     }
   }, [user, userProfile, profileForm, authLoading]);
@@ -57,28 +101,20 @@ function ProfileSettingsPageContent() {
     if (!user) return;
     setIsSavingProfile(true);
 
-    // Update Firebase Auth display name (optional, if you use it directly)
     await updateUserProfileName(data.displayName); 
 
-    // Update Firestore profile document
     const updatedProfileData: Partial<UserProfile> = { 
         displayName: data.displayName,
-        updatedAt: new Date() as any, // Temp cast, userService should handle Timestamps
     };
     if (userProfile?.role === 'student') {
         updatedProfileData.rollNo = data.rollNo;
     }
-
-    // You'll need an updateUserProfileDocument function in userService.ts
-    // For now, this is a conceptual call
-    // const firestoreResult = await updateUserProfileDocument(user.uid, updatedProfileData);
-    // For this example, we'll mock success as that function isn't defined yet.
-    const firestoreResult = { success: true, message: "Profile updated in Firestore (mocked)." };
-
+    
+    const firestoreResult = await updateUserProfileDocument(user.uid, updatedProfileData);
 
     if (firestoreResult.success) {
       toast({ title: 'Profile Updated', description: 'Your profile details have been updated.' });
-      // Optionally re-fetch userProfile in AuthContext or merge changes locally
+      refreshUserProfile();
     } else {
       toast({ title: 'Update Failed', description: firestoreResult.message || "Could not update profile in Firestore.", variant: 'destructive' });
     }
@@ -109,7 +145,54 @@ function ProfileSettingsPageContent() {
     }
   };
 
-  if (authLoading || (!user && !authLoading)) { // Show loader if loading or if not logged in (ProtectedPage will redirect)
+  const handleRequestLink: SubmitHandler<AdminLinkFormValues> = async (data) => {
+    if (!user || !userProfile || userProfile.role !== 'student' || !user.email) {
+      toast({ title: "Error", description: "User profile not available or invalid role.", variant: "destructive" });
+      return;
+    }
+    setIsSubmittingLinkRequest(true);
+    try {
+      const result = await studentRequestLinkWithAdmin(
+        user.uid,
+        user.email,
+        userProfile.displayName || user.email.split('@')[0] || 'Student',
+        userProfile.rollNo || null,
+        data.newAdminId
+      );
+      if (result.success) {
+        toast({ title: "Link Request Sent", description: `Request to link with Admin ID ${data.newAdminId} has been sent.` });
+        adminLinkForm.reset();
+        refreshUserProfile(); // Refresh profile to update link status display
+      } else {
+        toast({ title: "Link Request Failed", description: result.message, variant: "destructive" });
+      }
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message || "An unexpected error occurred.", variant: "destructive" });
+    } finally {
+      setIsSubmittingLinkRequest(false);
+    }
+  };
+
+  const handleRemoveLink = async () => {
+    if (!user || !userProfile || userProfile.role !== 'student') return;
+    setIsRemovingLink(true);
+    try {
+      const result = await studentRemoveAdminLink(user.uid);
+      if (result.success) {
+        toast({ title: "Link Removed", description: "You are no longer linked with the admin." });
+        refreshUserProfile(); // Refresh profile
+      } else {
+        toast({ title: "Failed to Remove Link", description: result.message, variant: "destructive" });
+      }
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message || "An unexpected error occurred.", variant: "destructive" });
+    } finally {
+      setIsRemovingLink(false);
+    }
+  };
+
+
+  if (authLoading || (!user && !authLoading)) {
     return (
       <div className="flex h-[calc(100vh-var(--header-height,4rem))] items-center justify-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -117,7 +200,6 @@ function ProfileSettingsPageContent() {
     );
   }
   
-  // If user is loaded, but profile is still loading or hasn't been set (brief moment)
   if (user && !userProfile && authLoading) {
      return (
       <div className="flex h-[calc(100vh-var(--header-height,4rem))] items-center justify-center">
@@ -126,6 +208,14 @@ function ProfileSettingsPageContent() {
       </div>
     );
   }
+
+  const canRequestNewLink = userProfile?.role === 'student' && 
+                            (!userProfile.associatedAdminUniqueId || 
+                             userProfile.linkRequestStatus === 'none' || 
+                             userProfile.linkRequestStatus === 'rejected');
+  
+  const isLinkPending = userProfile?.role === 'student' && userProfile.linkRequestStatus === 'pending';
+  const isLinkAccepted = userProfile?.role === 'student' && userProfile.linkRequestStatus === 'accepted' && userProfile.associatedAdminUniqueId;
 
 
   return (
@@ -165,7 +255,7 @@ function ProfileSettingsPageContent() {
                     name="rollNo"
                     render={({ field }) => (
                         <FormItem>
-                        <FormLabel>Roll Number</FormLabel>
+                        <FormLabel>Roll Number (Optional)</FormLabel>
                         <FormControl>
                             <Input placeholder="Your Roll Number" {...field} />
                         </FormControl>
@@ -176,7 +266,7 @@ function ProfileSettingsPageContent() {
                 )}
                  <div className="space-y-2">
                   <Label htmlFor="email">Email Address</Label>
-                  <Input id="email" type="email" value={user?.email || ''} readOnly disabled className="cursor-not-allowed" />
+                  <Input id="email" type="email" value={user?.email || ''} readOnly disabled className="cursor-not-allowed bg-muted/50" />
                   <p className="text-xs text-muted-foreground">Email address cannot be changed.</p>
                 </div>
                  <div className="space-y-2">
@@ -213,6 +303,78 @@ function ProfileSettingsPageContent() {
           </CardContent>
         </Card>
 
+        {userProfile?.role === 'student' && (
+          <Card id="teacher-link-management">
+            <CardHeader>
+              <CardTitle className="text-xl font-headline flex items-center">
+                <Link2 className="mr-2" /> Teacher/Admin Link
+              </CardTitle>
+              <CardDescription>Manage your connection with a teacher or administrator.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {isLinkAccepted && userProfile.associatedAdminUniqueId && (
+                <div className="space-y-3 p-4 border rounded-md bg-green-50 border-green-200">
+                  <p className="text-sm text-green-700">
+                    You are currently linked with Teacher/Admin: <strong className="font-semibold">{linkedAdminName || userProfile.associatedAdminUniqueId}</strong>.
+                  </p>
+                  <Button variant="destructive" onClick={handleRemoveLink} disabled={isRemovingLink}>
+                    {isRemovingLink ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link2Off className="mr-2 h-4 w-4" />}
+                    Remove Link
+                  </Button>
+                </div>
+              )}
+
+              {isLinkPending && userProfile.associatedAdminUniqueId && (
+                <div className="space-y-2 p-4 border rounded-md bg-yellow-50 border-yellow-200">
+                  <p className="text-sm text-yellow-700 flex items-center">
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Your request to link with Teacher/Admin ID <strong className="font-semibold">{userProfile.associatedAdminUniqueId}</strong> is pending approval.
+                  </p>
+                   <Button variant="outline" onClick={handleRemoveLink} disabled={isRemovingLink || isSubmittingLinkRequest} size="sm">
+                    {isRemovingLink ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link2Off className="mr-2 h-4 w-4" />}
+                    Cancel Request
+                  </Button>
+                </div>
+              )}
+              
+              {userProfile.linkRequestStatus === 'rejected' && userProfile.associatedAdminUniqueId && (
+                <div className="space-y-2 p-4 border rounded-md bg-red-50 border-red-200">
+                  <p className="text-sm text-red-700 flex items-center">
+                    <AlertTriangle className="mr-2 h-4 w-4" />
+                    Your previous link request with Teacher/Admin ID <strong className="font-semibold">{userProfile.associatedAdminUniqueId}</strong> was not approved. You can try requesting again or with a different ID.
+                  </p>
+                </div>
+              )}
+
+
+              {canRequestNewLink && (
+                <Form {...adminLinkForm}>
+                  <form onSubmit={adminLinkForm.handleSubmit(handleRequestLink)} className="space-y-4">
+                    <FormField
+                      control={adminLinkForm.control}
+                      name="newAdminId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Enter Teacher/Admin Unique ID to Link</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Teacher's Unique ID" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <Button type="submit" disabled={isSubmittingLinkRequest}>
+                      {isSubmittingLinkRequest ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link2 className="mr-2 h-4 w-4" />}
+                      Request Link with Teacher
+                    </Button>
+                  </form>
+                </Form>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+
         <Card id="account-settings">
           <CardHeader>
             <CardTitle className="text-xl font-headline flex items-center"><KeyRound className="mr-2" /> Account Settings</CardTitle>
@@ -237,9 +399,15 @@ function ProfileSettingsPageContent() {
 }
 
 export default function ProfileSettingsPage() {
+  // Need to import firestore for getDoc call within the component.
+  // This is okay for client components if rules allow read.
   return (
     <ProtectedPage>
       <ProfileSettingsPageContent />
     </ProtectedPage>
   );
 }
+// Add doc and getDoc to imports if not already there for the admin name fetch
+import { doc, getDoc } from 'firebase/firestore';
+import { firestore } from '@/lib/firebase/config';
+

@@ -13,166 +13,186 @@ service cloud.firestore {
       return request.auth.uid == userId;
     }
 
-    function getUserRole(userId) {
-      return get(/databases/$(database)/documents/users/$(userId)).data.role;
+    function incomingData() {
+      return request.resource.data;
     }
 
-    function isRole(userId, roleName) {
-      return isAuthenticated() && getUserRole(userId) == roleName;
-    }
-
-    function isAdmin(userId) {
-      return isRole(userId, 'admin');
+    function existingData() {
+      return resource.data;
     }
     
-    function requestingUserIsAdmin() {
-      return isAdmin(request.auth.uid);
+    function affectedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
     }
 
-    function isStudent(userId) {
-      return isRole(userId, 'student');
-    }
-
-    function requestingUserIsStudent() {
-      return isStudent(request.auth.uid);
-    }
-
-    // Check if all incoming data keys are within an allowed set.
-    function incomingKeysAreSubsetOf(allowedKeys) {
-      return request.resource.data.keys().toSet().difference(allowedKeys.toSet()).size() == 0;
-    }
-    
-    // Check if specific immutable fields are unchanged (compares resource.data with request.resource.data for these keys)
-    function coreImmutableFieldsUnchanged(fieldsToCheck) {
-      return fieldsToCheck.hasAll(request.resource.data.keys().filter(key, key in fieldsToCheck)) &&
-             fieldsToCheck.hasAll(resource.data.keys().filter(key, key in fieldsToCheck)) &&
-             fieldsToCheck.filter(key, request.resource.data[key] != resource.data[key]).size() == 0;
-    }
-
-    // Student creating their own profile
-    function studentIsCreatingOwnProfile(userId) {
-      let requiredFieldsOnCreate = ['uid', 'email', 'role', 'createdAt', 'updatedAt', 'displayName'];
-      // Optional fields a student might set (or be set as null/default) on creation, but cannot be admin-specific fields
-      let optionalFieldsOnCreate = ['rollNo', 'linkRequestStatus', 'associatedAdminFirebaseId', 'associatedAdminUniqueId'];
-      let allAllowedFieldsOnCreate = requiredFieldsOnCreate.concat(optionalFieldsOnCreate);
-
-      return isAuthenticated() &&
-             isOwner(userId) &&
-             request.resource.data.uid == userId &&
-             request.resource.data.email == request.auth.token.email &&
-             request.resource.data.role == 'student' &&
-             request.resource.data.keys().hasAll(requiredFieldsOnCreate) &&
-             incomingKeysAreSubsetOf(allAllowedFieldsOnCreate.toSet()) &&
-             request.resource.data.adminUniqueId == null; // Student cannot set their own adminUniqueId
-    }
-    
-    // Student updating their own allowed fields (including link-related fields)
-    function studentIsUpdatingOwnAllowedFields(userId) {
-      let studentMutableFields = ['displayName', 'rollNo', 'updatedAt', 
-                                  'linkRequestStatus', 'associatedAdminFirebaseId', 'associatedAdminUniqueId'];
-      let studentImmutableFields = ['uid', 'email', 'role', 'createdAt', 'adminUniqueId']; // adminUniqueId must remain null for students
-
-      let allKeysBeingWritten = request.resource.data.keys();
-      let allAllowedKeysForStudent = studentMutableFields.concat(studentImmutableFields);
-      
-      // Check 1: Authenticated and is owner
-      let authAndOwnerCheck = isAuthenticated() && isOwner(userId);
-
-      // Check 2: Role is 'student' and is not changing
-      let roleIntegrityCheck = resource.data.role == 'student' && 
-                               request.resource.data.role == 'student';
-
-      // Check 3: Core immutable fields are not being changed
-      let immutableFieldsCheck = studentImmutableFields.filter(key, key in request.resource.data && request.resource.data[key] != resource.data[key]).size() == 0;
-      
-      // Check 4: Student not attempting to set adminUniqueId to a non-null value
-      let adminUniqueIdCheck = request.resource.data.adminUniqueId == null;
-
-      // Check 5: All fields being written are known and permissible for a student context
-      let keysAreValidCheck = incomingKeysAreSubsetOf(allAllowedKeysForStudent.toSet());
-
-      // Check 6: Only mutable fields are actually changing value
-      let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
-      let changedKeysAreMutableCheck = changedKeys.toSet().subsetOf(studentMutableFields.toSet());
-      
-      return authAndOwnerCheck &&
-             roleIntegrityCheck &&
-             immutableFieldsCheck &&
-             adminUniqueIdCheck &&
-             keysAreValidCheck &&
-             changedKeysAreMutableCheck;
-    }
-
-    // Admin updating a student's link status
-    function isAdminUpdatingStudentLinkStatus(studentUserId) {
-      let studentCurrentData = resource.data; // student's existing profile
-      let studentNewData = request.resource.data; // student's profile after admin's update
-      
-      let adminAllowedUpdateFieldsForStudent = ['linkRequestStatus', 'associatedAdminFirebaseId', 'updatedAt'];
-      let studentImmutableByAdmin = ['uid', 'email', 'role', 'createdAt', 'displayName', 'rollNo', 'adminUniqueId', 'associatedAdminUniqueId'];
-
-      // Check 1: Requesting user is an admin
-      let adminCheck = requestingUserIsAdmin();
-
-      // Check 2: Target user is a student and role is not changing
-      let targetRoleCheck = studentCurrentData.role == 'student' && 
-                            studentNewData.role == 'student';
-
-      // Check 3: Fields admin cannot change on student profile are indeed unchanged
-      let studentFieldsImmutableByAdminCheck = studentImmutableByAdmin.filter(key, key in studentNewData && studentNewData[key] != studentCurrentData[key]).size() == 0;
-      
-      // Check 4: The fields being changed by admin are only the allowed ones
-      let changedKeys = studentNewData.diff(studentCurrentData).affectedKeys();
-      let adminUpdateFieldsCheck = changedKeys.toSet().subsetOf(adminAllowedUpdateFieldsForStudent.toSet());
-
-      return adminCheck &&
-             targetRoleCheck &&
-             studentFieldsImmutableByAdminCheck &&
-             adminUpdateFieldsCheck;
-    }
-
-    // Match user profiles
+    // USERS Collection
+    // Stores basic user profiles (student or admin role)
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow create: if studentIsCreatingOwnProfile(userId);
-      allow update: if studentIsUpdatingOwnAllowedFields(userId) || 
-                       isAdminUpdatingStudentLinkStatus(userId); 
-      allow delete: if requestingUserIsAdmin(); // Or owner if you want users to delete their own accounts
-    }
 
-    // Match admin profiles
-    match /admins/{adminId} {
-      allow read: if isAuthenticated(); 
-      allow create: if requestingUserIsAdmin() && isOwner(adminId); 
-      allow update: if requestingUserIsAdmin() && isOwner(adminId) &&
-                       coreImmutableFieldsUnchanged(['userId', 'adminUniqueId', 'createdAt']) && // email can be part of mutable set if needed
-                       incomingKeysAreSubsetOf(['userId', 'adminUniqueId', 'email', 'createdAt', 'updatedAt'].toSet()); // Specify all fields admin can have
+      function studentIsCreatingOwnProfile() {
+        let data = incomingData();
+        return isAuthenticated() &&
+               isOwner(userId) &&
+               data.uid == userId &&
+               data.email == request.auth.token.email &&
+               data.role == 'student' &&
+               data.createdAt == request.time &&
+               data.updatedAt == request.time &&
+               data.containsKey('displayName') &&
+               data.linkRequestStatus == 'none' && // Ensure initial status
+               !data.containsKey('adminUniqueId') && // Student cannot set admin ID for themselves
+               !data.containsKey('associatedAdminFirebaseId') && // Not set at initial creation
+               !data.containsKey('associatedAdminUniqueId') && // Not set at initial creation
+               data.keys().hasOnly(['uid', 'email', 'role', 'displayName', 'rollNo', 'linkRequestStatus', 'createdAt', 'updatedAt']);
+      }
+
+      function adminIsCreatingOwnProfile() {
+        let data = incomingData();
+        return isAuthenticated() &&
+               isOwner(userId) &&
+               data.uid == userId &&
+               data.email == request.auth.token.email &&
+               data.role == 'admin' &&
+               data.createdAt == request.time &&
+               data.updatedAt == request.time &&
+               data.containsKey('displayName') &&
+               data.containsKey('adminUniqueId') && // Admin must have their unique ID
+               data.keys().hasOnly(['uid', 'email', 'role', 'displayName', 'adminUniqueId', 'createdAt', 'updatedAt']);
+      }
+      
+      // Student can update their own display name, roll number, and linking information.
+      // Core fields like uid, email, role, createdAt cannot be changed by student.
+      // adminUniqueId cannot be set/changed by a student.
+      function studentIsUpdatingOwnAllowedFields() {
+        let immutableFields = ['uid', 'email', 'role', 'createdAt', 'adminUniqueId'];
+        let studentModifiableFields = ['displayName', 'rollNo', 'updatedAt', 'linkRequestStatus', 'associatedAdminFirebaseId', 'associatedAdminUniqueId'];
+        
+        return isAuthenticated() &&
+               isOwner(userId) &&
+               incomingData().role == 'student' && // Role must be student
+               existingData().role == 'student' && // Role must have been student
+               // Ensure immutable fields are not changed
+               debug(immutableFields.filter(key => incomingData()[key] != existingData()[key]).size() == 0, "Immutable fields changed check") &&
+               // Ensure adminUniqueId is not being set to a non-null value by a student
+               (incomingData().adminUniqueId == null || incomingData().adminUniqueId == existingData().adminUniqueId) &&
+               // Ensure all keys in the incoming data are either immutable or student-modifiable
+               debug(incomingData().keys().hasOnly(immutableFields.concat(studentModifiableFields)), "All keys valid check") &&
+               // Ensure only student-modifiable fields are actually being affected (changed)
+               debug(affectedKeys().hasOnly(studentModifiableFields), "Affected keys valid check") &&
+               incomingData().updatedAt == request.time;
+      }
+
+      // Admins can update limited fields on student profiles (specifically link status related by admin actions)
+      // This is used when an admin accepts/rejects a student's link request.
+      function isAdminUpdatingStudentLinkStatus() {
+          return isAuthenticated() &&
+                 request.auth.token.role == 'admin' && // Authenticated user must be an admin
+                 existingData().role == 'student' && // Target document must be a student
+                 incomingData().role == 'student' && // Role must remain student
+                 affectedKeys().hasOnly(['linkRequestStatus', 'associatedAdminFirebaseId', 'associatedAdminUniqueId', 'updatedAt']) &&
+                 // Immutable fields check
+                 incomingData().uid == existingData().uid &&
+                 incomingData().email == existingData().email &&
+                 incomingData().createdAt == existingData().createdAt &&
+                 incomingData().updatedAt == request.time;
+      }
+      
+      // Admin can update their own display name and updatedAt.
+      function adminIsUpdatingOwnProfile() {
+        return isAuthenticated() &&
+               isOwner(userId) &&
+               incomingData().role == 'admin' &&
+               existingData().role == 'admin' &&
+               affectedKeys().hasOnly(['displayName', 'updatedAt']) &&
+               incomingData().uid == existingData().uid &&
+               incomingData().email == existingData().email &&
+               incomingData().createdAt == existingData().createdAt &&
+               incomingData().adminUniqueId == existingData().adminUniqueId && // Admin ID cannot change
+               incomingData().updatedAt == request.time;
+      }
+
+      allow read: if isAuthenticated();
+      allow create: if studentIsCreatingOwnProfile() || adminIsCreatingOwnProfile();
+      allow update: if studentIsUpdatingOwnAllowedFields() || adminIsUpdatingOwnProfile() || isAdminUpdatingStudentLinkStatus();
+      // No general delete for user profiles by users themselves for now.
       allow delete: if false; 
     }
 
-    // Match student link requests
+    // ADMINS Collection (secondary collection to quickly find admin by unique ID)
+    // Document ID is the admin's Firebase UID.
+    match /admins/{adminUserId} {
+      function isAdminCreatingOwnAdminEntry() {
+        return isAuthenticated() && 
+               isOwner(adminUserId) && // Only admin can create their own entry here
+               incomingData().userId == adminUserId &&
+               incomingData().email == request.auth.token.email &&
+               incomingData().containsKey('adminUniqueId') &&
+               incomingData().createdAt == request.time;
+      }
+      
+      allow read: if isAuthenticated(); // Admins might need to read other admin details, or students might read for verification
+      allow create: if isAdminCreatingOwnAdminEntry();
+      allow update: if false; // Admin unique ID should be immutable after creation
+      allow delete: if false; // No direct deletion by users
+    }
+
+    // STUDENT LINK REQUESTS Collection
+    // Stores requests from students to link with admins
     match /studentLinkRequests/{requestId} {
+      function studentIsCreatingOwnLinkRequest() {
+        let data = incomingData();
+        return isAuthenticated() &&
+               data.studentUserId == request.auth.uid && // Student creating the request must be the authenticated user
+               data.studentEmail == request.auth.token.email &&
+               data.containsKey('studentName') &&
+               data.containsKey('adminUniqueIdTargeted') && // Admin they want to link to
+               data.containsKey('adminFirebaseId') && // Firebase UID of that admin (validated client-side)
+               data.status == 'pending' &&
+               data.requestedAt == request.time &&
+               // Ensure adminFirebaseId corresponds to an actual admin document
+               exists(/databases/$(database)/documents/admins/$(data.adminFirebaseId)); 
+      }
+      
+      function adminIsResolvingRequest() {
+        let data = incomingData();
+        return isAuthenticated() &&
+               request.auth.token.role == 'admin' && // Resolver must be an admin
+               data.adminFirebaseId == request.auth.uid && // Admin resolving must be the one targeted
+               data.studentUserId == existingData().studentUserId && // Student ID cannot change
+               (data.status == 'accepted' || data.status == 'rejected') &&
+               affectedKeys().hasOnly(['status', 'resolvedAt', 'resolvedBy']) &&
+               data.resolvedAt == request.time &&
+               data.resolvedBy == request.auth.uid;
+      }
+      
+      // Student can "cancel" (mark as rejected) their own PENDING request
+      function studentIsCancellingOwnPendingRequest() {
+        return isAuthenticated() &&
+               isOwner(existingData().studentUserId) && // Must be owner of the request
+               existingData().status == 'pending' && // Only pending requests can be cancelled by student
+               incomingData().status == 'rejected' && // Setting status to rejected
+               affectedKeys().hasOnly(['status', 'resolvedAt', 'resolvedBy']) && // Allow these fields for cancellation
+               incomingData().resolvedAt == request.time &&
+               incomingData().resolvedBy == request.auth.uid; // Student resolves their own cancellation
+      }
+
       allow read: if isAuthenticated() && 
-                     (isOwner(resource.data.studentUserId) || 
-                      (requestingUserIsAdmin() && request.auth.uid == resource.data.adminFirebaseId));
-      allow create: if isAuthenticated() && 
-                       requestingUserIsStudent() && 
-                       isOwner(request.resource.data.studentUserId) &&
-                       request.resource.data.status == 'pending' &&
-                       // Ensure only specific fields are set on creation
-                       request.resource.data.keys().hasAll(['studentUserId', 'studentEmail', 'studentName', 'adminUniqueIdTargeted', 'adminFirebaseId', 'status', 'requestedAt']) &&
-                       incomingKeysAreSubsetOf(['id', 'studentUserId', 'studentEmail', 'studentName', 'studentRollNo', 'adminUniqueIdTargeted', 'adminFirebaseId', 'status', 'requestedAt', 'resolvedAt', 'resolvedBy'].toSet());
-                       
-      allow update: if requestingUserIsAdmin() && 
-                       request.auth.uid == resource.data.adminFirebaseId && 
-                       request.resource.data.status != resource.data.status && 
-                       (request.resource.data.status == 'accepted' || request.resource.data.status == 'rejected') &&
-                       // Admin should only update status, resolvedAt, resolvedBy
-                       coreImmutableFieldsUnchanged(['id', 'studentUserId', 'studentEmail', 'studentName', 'studentRollNo', 'adminUniqueIdTargeted', 'adminFirebaseId', 'requestedAt']) &&
-                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resolvedAt', 'resolvedBy']);
+                     (isOwner(existingData().studentUserId) || request.auth.uid == existingData().adminFirebaseId);
+      allow create: if studentIsCreatingOwnLinkRequest();
+      allow update: if adminIsResolvingRequest() || studentIsCancellingOwnPendingRequest();
+      // No direct delete for requests by users. Resolution changes status.
       allow delete: if false;
+    }
+    
+    // MONGODB METADATA Collection (placeholder, adjust if used directly with Firestore)
+    // Example: /images_metadata/{docId}
+    match /images_metadata/{docId} {
+      // Only allow authenticated users to create metadata linked to their UID.
+      allow create: if isAuthenticated() && incomingData().userId == request.auth.uid;
+      // Only allow owners to read or delete their metadata.
+      allow read, delete: if isAuthenticated() && isOwner(existingData().userId);
+      // Updates could be restricted similarly.
+      allow update: if isAuthenticated() && isOwner(existingData().userId);
     }
   }
 }
-
-    

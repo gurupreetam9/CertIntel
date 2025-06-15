@@ -1,6 +1,5 @@
 
 import { firestore } from '@/lib/firebase/config'; // For client-side SDK Firestore
-// Removed: import { adminFirestore } from '@/lib/firebase/adminConfig'; 
 import type { UserProfile, AdminProfile, StudentLinkRequest, UserRole, LinkRequestStatus } from '@/lib/models/user';
 import {
   doc,
@@ -14,6 +13,7 @@ import {
   serverTimestamp,
   getDocs,
   limit,
+  updateDoc, // Added updateDoc
 } from 'firebase/firestore'; // Client-side SDK imports
 import { v4 as uuidv4 } from 'uuid';
 
@@ -28,7 +28,7 @@ export const createUserProfileDocument = async (
   role: UserRole,
   additionalData: Partial<UserProfile> = {}
 ): Promise<UserProfile> => {
-  const userDocRef = doc(firestore, USERS_COLLECTION, userId); // Uses client-side `firestore`
+  const userDocRef = doc(firestore, USERS_COLLECTION, userId); 
   const now = Timestamp.now();
   
   const profileData: Partial<UserProfile> = {
@@ -59,13 +59,12 @@ export const createUserProfileDocument = async (
   return finalProfileData; 
 };
 
-// Used by client-side AuthContext and potentially other client components
 export const getUserProfile = async (userId: string): Promise<UserProfile | null> => {
   if (!userId) {
     console.warn("userService (getUserProfile - client): Called with no userId.");
     return null;
   }
-  const userDocRef = doc(firestore, USERS_COLLECTION, userId); // Uses client-side `firestore`
+  const userDocRef = doc(firestore, USERS_COLLECTION, userId); 
   try {
     const userDocSnap = await getDoc(userDocRef);
     if (userDocSnap.exists()) {
@@ -75,17 +74,10 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
     return null;
   } catch (error: any) {
      console.error(`userService (getUserProfile - client): Error fetching profile for userId ${userId}: ${error.message}`, error);
-     // Consider how to handle this - rethrow, return null with error state, etc.
-     // For client-side, often returning null and letting UI handle "profile not found" is okay.
      return null;
   }
 };
 
-// --- REMOVED getAnyUserProfileWithAdmin as it used adminFirestore ---
-// This function's logic will be inlined into the API route that needs it.
-
-
-// --- Admin Specific (Client SDK for admin actions triggered from client, e.g. profile creation) ---
 export const createAdminProfile = async (userId: string, email: string): Promise<AdminProfile> => {
   const adminDocRef = doc(firestore, ADMINS_COLLECTION, userId); 
   const adminUniqueId = uuidv4().substring(0, 8).toUpperCase();
@@ -111,7 +103,6 @@ export const getAdminByUniqueId = async (adminUniqueId: string): Promise<AdminPr
   return null;
 };
 
-// --- Student Specific & Linkage (Client SDK) ---
 export const createStudentLinkRequest = async (
   studentUserId: string,
   studentEmail: string,
@@ -134,17 +125,110 @@ export const createStudentLinkRequest = async (
     status: 'pending',
     requestedAt: now,
   };
-  await setDoc(requestDocRef, linkRequest);
+  
+  const batch = writeBatch(firestore);
+  batch.set(requestDocRef, linkRequest);
   
   const studentUserDocRef = doc(firestore, USERS_COLLECTION, studentUserId);
-  await setDoc(studentUserDocRef, { 
+  batch.update(studentUserDocRef, { 
     linkRequestStatus: 'pending', 
     associatedAdminUniqueId: targetAdminUniqueId, 
     associatedAdminFirebaseId: targetAdminFirebaseId,
     updatedAt: serverTimestamp() 
-  }, { merge: true });
+  });
 
+  await batch.commit();
   return linkRequest;
+};
+
+// New function for students to initiate link request from their profile
+export const studentRequestLinkWithAdmin = async (
+  studentUserId: string,
+  studentEmail: string,
+  studentName: string,
+  studentRollNo: string | null,
+  targetAdminUniqueId: string
+): Promise<{ success: boolean; message: string; requestId?: string }> => {
+  try {
+    const adminProfile = await getAdminByUniqueId(targetAdminUniqueId);
+    if (!adminProfile) {
+      return { success: false, message: `No Teacher/Admin found with ID: ${targetAdminUniqueId}. Please check the ID and try again.` };
+    }
+
+    // Check if student already has a pending or accepted request with this admin
+    const existingRequestQuery = query(
+      collection(firestore, STUDENT_LINK_REQUESTS_COLLECTION),
+      where('studentUserId', '==', studentUserId),
+      where('adminFirebaseId', '==', adminProfile.userId),
+      where('status', 'in', ['pending', 'accepted'])
+    );
+    const existingRequestSnap = await getDocs(existingRequestQuery);
+    if (!existingRequestSnap.empty) {
+        const existingStatus = existingRequestSnap.docs[0].data().status;
+        if (existingStatus === 'pending') {
+            return { success: false, message: `You already have a pending request with Admin ID ${targetAdminUniqueId}.` };
+        } else if (existingStatus === 'accepted') {
+            return { success: false, message: `You are already linked with Admin ID ${targetAdminUniqueId}.` };
+        }
+    }
+
+    const linkRequest = await createStudentLinkRequest(
+      studentUserId,
+      studentEmail,
+      studentName,
+      studentRollNo,
+      targetAdminUniqueId,
+      adminProfile.userId 
+    );
+    return { success: true, message: 'Link request sent successfully.', requestId: linkRequest.id };
+  } catch (error: any) {
+    console.error("Error in studentRequestLinkWithAdmin:", error);
+    return { success: false, message: error.message || "Failed to send link request." };
+  }
+};
+
+// New function for students to remove their link with an admin
+export const studentRemoveAdminLink = async (
+  studentUserId: string
+): Promise<{ success: boolean; message: string }> => {
+  try {
+    const studentUserDocRef = doc(firestore, USERS_COLLECTION, studentUserId);
+    const studentSnap = await getDoc(studentUserDocRef);
+    if (!studentSnap.exists()) {
+        return { success: false, message: "Student profile not found."};
+    }
+    const studentData = studentSnap.data() as UserProfile;
+
+    const batch = writeBatch(firestore);
+    batch.update(studentUserDocRef, {
+      associatedAdminFirebaseId: null,
+      associatedAdminUniqueId: null,
+      linkRequestStatus: 'none',
+      updatedAt: serverTimestamp(),
+    });
+
+    // Optionally, find and mark the corresponding link request as 'rejected' or 'revoked'
+    // This makes the admin's view cleaner if they look at old requests.
+    if (studentData.associatedAdminFirebaseId) {
+        const requestQuery = query(
+            collection(firestore, STUDENT_LINK_REQUESTS_COLLECTION),
+            where('studentUserId', '==', studentUserId),
+            where('adminFirebaseId', '==', studentData.associatedAdminFirebaseId),
+            where('status', 'in', ['pending', 'accepted']) // Look for current or previously accepted link
+        );
+        const requestSnapshots = await getDocs(requestQuery);
+        requestSnapshots.forEach(docSnap => {
+            // Could use a new status like 'revoked_by_student' or just 'rejected'
+            batch.update(docSnap.ref, { status: 'rejected', resolvedAt: serverTimestamp(), resolvedBy: studentUserId }); 
+        });
+    }
+    
+    await batch.commit();
+    return { success: true, message: 'Link with admin has been removed.' };
+  } catch (error: any) {
+    console.error("Error in studentRemoveAdminLink:", error);
+    return { success: false, message: error.message || "Failed to remove link." };
+  }
 };
 
 
@@ -190,8 +274,11 @@ export const updateStudentLinkRequestStatusAndLinkStudent = async (
 
   if (newStatus === 'accepted') {
     studentUpdateData.associatedAdminFirebaseId = adminFirebaseIdResolving;
+    // associatedAdminUniqueId should already be on the requestData and thus on student from initial request.
+    studentUpdateData.associatedAdminUniqueId = requestData.adminUniqueIdTargeted; 
   } else { 
     studentUpdateData.associatedAdminFirebaseId = null; 
+    studentUpdateData.associatedAdminUniqueId = null;
   }
   batch.update(studentUserDocRef, studentUpdateData);
 
@@ -209,12 +296,13 @@ export const getStudentsForAdmin = async (adminFirebaseId: string): Promise<User
   return querySnapshot.docs.map(docSnap => docSnap.data() as UserProfile);
 };
 
-// Make sure updateUserProfileDocument is defined and exported if used in ProfileSettings
 export const updateUserProfileDocument = async (userId: string, data: Partial<UserProfile>): Promise<{ success: boolean, message?: string }> => {
   if (!userId) return { success: false, message: 'User ID is required.'};
   const userDocRef = doc(firestore, USERS_COLLECTION, userId);
   try {
-    await setDoc(userDocRef, { ...data, updatedAt: serverTimestamp() }, { merge: true });
+    // Ensure updatedAt is always set with serverTimestamp for consistency
+    const updateData = { ...data, updatedAt: serverTimestamp() };
+    await setDoc(userDocRef, updateData, { merge: true });
     return { success: true };
   } catch (error: any) {
     console.error("Error updating user profile document:", error);
