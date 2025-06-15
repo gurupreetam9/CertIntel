@@ -4,84 +4,77 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions
-    function isAuth() {
-      return request.auth != null;
+    // Helper function to check if a map contains only allowed keys
+    function mapHasOnlyAllowedKeys(map, allowedKeys) {
+      return map.keys().size() == 0 || map.keys().hasOnly(allowedKeys);
     }
 
-    function getRequestingUserRole(authObj) {
-      return get(/databases/$(database)/documents/users/$(authObj.uid)).data.role;
-    }
-
-    function isAdmin(authObj) {
-      return getRequestingUserRole(authObj) == 'admin';
-    }
-
-    function isStudent(authObj) {
-      return getRequestingUserRole(authObj) == 'student';
-    }
-    
-    function isOwner(userId) {
-      return request.auth.uid == userId;
-    }
-
-    function isStudentDoc(docData) {
-      return docData.role == 'student';
-    }
-
-    // Student self-updating their profile
-    // They can update their display name, roll number, and any linking information.
-    function isStudentSelfUpdate(request, resource) {
-      let allAllowedSelfUpdateFields = [
-        'displayName', 'rollNo', // Standard profile fields
-        'linkRequestStatus', 'associatedAdminFirebaseId', 'associatedAdminUniqueId', // Linking fields
-        'updatedAt' // Timestamp
-      ];
+    // Helper function to check if a student is updating their own allowed profile fields
+    function studentIsUpdatingOwnAllowedFields() {
+      // Fields a student is allowed to change on their own profile
+      let modifiableByStudent = ['displayName', 'rollNo', 'updatedAt', 'linkRequestStatus', 'associatedAdminFirebaseId', 'associatedAdminUniqueId'];
+      
+      // Check that only allowed fields are being modified
       let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
-      // Ensure that *only* allowed fields are being changed, and at least one field is actually changing.
-      return changedKeys.subsetOf(allAllowedSelfUpdateFields) && changedKeys.size() > 0;
+      let allChangesAllowed = changedKeys.size() == 0 || changedKeys.subsetOf(modifiableByStudent);
+      
+      // Ensure core immutable fields are not changed
+      let coreFieldsUnchanged = request.resource.data.uid == resource.data.uid &&
+                                request.resource.data.email == resource.data.email &&
+                                request.resource.data.role == resource.data.role && // Role must not change
+                                request.resource.data.createdAt.toMillis() == resource.data.createdAt.toMillis();
+      
+      // Ensure student is not trying to set/change adminUniqueId on themselves to a non-null value
+      // If adminUniqueId is present in the incoming data, it must be null.
+      // If adminUniqueId was present in the existing data, it must also have been null.
+      let studentNotModifyingAdminIdToValue = 
+        (!('adminUniqueId' in request.resource.data) || request.resource.data.adminUniqueId == null) &&
+        (!('adminUniqueId' in resource.data) || resource.data.adminUniqueId == null);
+                                
+      return request.resource.data.role == 'student' && // Make sure they are (and remain) a student
+             allChangesAllowed && 
+             coreFieldsUnchanged && 
+             studentNotModifyingAdminIdToValue;
     }
 
-    // Admin updating a student's profile (specifically for link resolution)
-    function isAdminUpdatingStudentLinkStatus(request, resource) {
-      let allowedFieldsByAdminForLinking = ['linkRequestStatus', 'associatedAdminFirebaseId', 'updatedAt'];
-      let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
-      return changedKeys.subsetOf(allowedFieldsByAdminForLinking) && changedKeys.size() > 0;
+    // Helper function for admin updating student's link status
+    function isAdminUpdatingStudentLinkStatus() {
+      return resource.data.role == 'student' && // Target doc is a student
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' && // Requester is admin
+             request.auth.uid == request.resource.data.associatedAdminFirebaseId && // Admin is the one being linked to
+             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['linkRequestStatus', 'associatedAdminFirebaseId', 'updatedAt']) &&
+             request.resource.data.linkRequestStatus != resource.data.linkRequestStatus; // Status must actually change
     }
 
     // Users Collection
     match /users/{userId} {
-      allow read: if isAuth() && (isOwner(userId) || isAdmin(request.auth));
-      allow create: if isAuth() && isOwner(userId); // Allows user to create their own profile
-      allow update: if isAuth() && (
-                      (isOwner(userId) && isStudentDoc(request.resource.data) && isStudentSelfUpdate(request, resource)) || // Student updating their own profile
-                      (isOwner(userId) && request.resource.data.role == 'admin' && request.resource.data.diff(resource.data).affectedKeys().subsetOf(['displayName', 'updatedAt'])) || // Admin updating their own displayName
-                      (isAdmin(request.auth) && isStudentDoc(resource.data) && isAdminUpdatingStudentLinkStatus(request, resource)) // Admin updating a student's linking status
-                    );
+      allow read: if request.auth.uid == userId 
+                    || (request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
+      allow create: if request.auth.uid == userId;
+      allow update: if (request.auth.uid == userId && studentIsUpdatingOwnAllowedFields()) || 
+                       isAdminUpdatingStudentLinkStatus();
       // No delete rule for user profiles by default
     }
 
-    // Admins Collection (stores adminUniqueId mapping to Firebase UID)
+    // Admins Collection
     match /admins/{adminId} {
-      allow read: if true; // Anyone can read (e.g., to validate an adminUniqueId)
-      allow create: if isAuth() && isOwner(adminId); // Admin creates their own entry during registration
-      // No general update/delete for now
+      allow read: if true; 
+      allow create: if request.auth.uid == adminId; 
     }
 
     // StudentLinkRequests Collection
     match /studentLinkRequests/{requestId} {
-      allow create: if isAuth() && isOwner(request.resource.data.studentUserId);
-      allow read: if isAuth() && 
-                     (isOwner(resource.data.studentUserId) || 
-                      (isAdmin(request.auth) && request.auth.uid == resource.data.adminFirebaseId)
+      allow create: if request.auth.uid == request.resource.data.studentUserId;
+      allow read: if request.auth != null && 
+                     (request.auth.uid == resource.data.studentUserId || 
+                      (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' && 
+                       request.auth.uid == resource.data.adminFirebaseId)
                      );
-      allow update: if isAuth() &&
-                       isAdmin(request.auth) &&
+      allow update: if request.auth != null &&
+                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' &&
                        request.auth.uid == resource.data.adminFirebaseId &&
-                       // Ensure only specific fields related to resolution are changed
-                       request.resource.data.diff(resource.data).affectedKeys().hasAll(['status', 'resolvedAt', 'resolvedBy']) &&
-                       request.resource.data.status != resource.data.status; // Ensure status is actually changing
-      // No delete rule for requests by default
+                       mapHasOnlyAllowedKeys(request.resource.data.diff(resource.data).affectedKeys(), ['status', 'resolvedAt', 'resolvedBy']) &&
+                       request.resource.data.status != resource.data.status; 
     }
   }
 }
