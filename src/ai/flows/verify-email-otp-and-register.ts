@@ -12,11 +12,11 @@ import { signUp as firebaseSignUp } from '@/lib/firebase/auth';
 import { 
   createAdminProfile, 
   createUserProfileDocument,
-  createStudentLinkRequest,
-  getAdminByUniqueId
+  // createStudentLinkRequest, // Temporarily removed for debugging
+  // getAdminByUniqueId // Temporarily removed for debugging
 } from '@/lib/services/userService';
 import type { User, AuthError } from 'firebase/auth';
-import type { UserRole, UserProfile } from '@/lib/models/user';
+import type { UserProfile } from '@/lib/models/user';
 
 // HACK: In-memory store for OTPs. NOT SUITABLE FOR PRODUCTION.
 if (!(globalThis as any).otpStore) {
@@ -102,7 +102,6 @@ const verifyEmailOtpAndRegisterFlow = ai.defineFlow(
 
     try {
       if (role === 'admin') {
-        // For admin, createAdminProfile internally calls createUserProfileDocument with role 'admin'
         const adminProfileDetails = await createAdminProfile(firebaseUser.uid, email);
         return { 
           success: true, 
@@ -112,67 +111,59 @@ const verifyEmailOtpAndRegisterFlow = ai.defineFlow(
           adminUniqueIdGenerated: adminProfileDetails.adminUniqueId 
         };
       } else if (role === 'student') {
-        if (!name) { // Should be caught by Zod refine, but good to double check
+        if (!name) { 
             return { success: false, message: "Student name is required." };
         }
         
-        // Prepare data for the student profile document creation
-        // Only include fields directly managed at initial creation.
-        // Linking fields (associatedAdminUniqueId, linkRequestStatus) will be handled by createStudentLinkRequest if needed.
         const studentProfileCreationData: Partial<UserProfile> = {
             displayName: name,
-            rollNo: (rollNo && rollNo.trim() !== '') ? rollNo.trim() : undefined, // Pass as undefined if empty to let service default to null
+            rollNo: (rollNo && rollNo.trim() !== '') ? rollNo.trim() : undefined, 
         };
         
         // Create base student profile in 'users' collection
-        // createUserProfileDocument will set linkRequestStatus to 'none' and associatedAdmin fields to null by default.
         await createUserProfileDocument(firebaseUser.uid, email, 'student', studentProfileCreationData);
 
-        let message = 'Student registration successful! Welcome to CertIntel!';
+        let message = 'Student registration successful! Welcome to CertIntel! You can link to your Teacher/Admin from your Profile Settings page if needed.';
         
-        // If an admin ID was provided by the student, attempt to create the link request
-        // This will also update the student's profile with 'pending' status and admin IDs.
-        const targetAdminUniqueId = (adminUniqueId && adminUniqueId.trim() !== '') ? adminUniqueId.trim() : null;
-        if (targetAdminUniqueId) {
-          const targetAdmin = await getAdminByUniqueId(targetAdminUniqueId);
-          if (targetAdmin) {
-            await createStudentLinkRequest(
-              firebaseUser.uid, 
-              email, 
-              name, 
-              studentProfileCreationData.rollNo || null, // Pass the actual rollNo or null
-              targetAdmin.adminUniqueId, 
-              targetAdmin.userId
-            );
-            message += ` Your request to link with Teacher ID ${targetAdmin.adminUniqueId} has been submitted.`;
-          } else {
-            message += ` Could not find a Teacher with ID ${targetAdminUniqueId}. You can request linkage later from your profile settings.`;
-            // No need to update student profile here, as createUserProfileDocument already set linkRequestStatus to 'none'
-            // and associatedAdmin fields to null.
-          }
-        }
+        // --- TEMPORARILY REMOVED FOR DEBUGGING ---
+        // const targetAdminUniqueId = (adminUniqueId && adminUniqueId.trim() !== '') ? adminUniqueId.trim() : null;
+        // if (targetAdminUniqueId) {
+        //   const targetAdmin = await getAdminByUniqueId(targetAdminUniqueId);
+        //   if (targetAdmin) {
+        //     await createStudentLinkRequest(
+        //       firebaseUser.uid, 
+        //       email, 
+        //       name, 
+        //       studentProfileCreationData.rollNo || null,
+        //       targetAdmin.adminUniqueId, 
+        //       targetAdmin.userId
+        //     );
+        //     message = `Student registration successful! Your request to link with Teacher ID ${targetAdmin.adminUniqueId} has been submitted.`;
+        //   } else {
+        //     message = `Student registration successful! Could not find a Teacher with ID ${targetAdminUniqueId}. You can request linkage later from your profile settings.`;
+        //   }
+        // }
+        // --- END OF TEMPORARILY REMOVED SECTION ---
+
         return { success: true, message, userId: firebaseUser.uid, role: 'student' };
       } else {
-        // Should not happen due to Zod enum validation
         return { success: false, message: 'Invalid role specified.' };
       }
     } catch (profileError: any) {
-      console.error(`Error during profile/link creation for ${email} (role: ${role}):`, profileError);
-      // Construct a more detailed error message if possible
+      console.error(`Error during profile creation for ${email} (role: ${role}):`, profileError);
       let detailedMessage = `Firebase user created, but failed to set up profile/link. Error: ${profileError.message || 'Unknown Firestore error'}`;
-      if (profileError.code) { // Firestore errors often have a code
-        detailedMessage += ` (Code: ${profileError.code})`;
+      if (profileError.code) { 
+        detailedMessage += ` (Code: ${profileError.code})`; // Firebase errors often have a code
       }
-       if (profileError.details) {
+      if (profileError.details) { // Some errors might have more details
         detailedMessage += ` Details: ${profileError.details}`;
       }
-      console.error("Full profileError object:", profileError);
+      console.error("Full profileError object:", profileError); // Log the full error object
       return { 
         success: false, 
         message: detailedMessage + ". Please contact support.",
-        userId: firebaseUser.uid 
+        userId: firebaseUser.uid // Still return userId so it's known which account had an issue
       };
     }
   }
 );
-
