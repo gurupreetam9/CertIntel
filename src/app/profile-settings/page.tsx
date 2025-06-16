@@ -25,7 +25,7 @@ import {
 } from '@/lib/services/userService';
 import type { UserProfile } from '@/lib/models/user';
 import { doc, getDoc } from 'firebase/firestore';
-import { firestore } from '@/lib/firebase/config';
+import { firestore, auth as firebaseAuth } from '@/lib/firebase/config'; // Import firebaseAuth for direct SDK access
 
 const profileFormSchema = z.object({
   displayName: z.string().min(1, 'Display name cannot be empty.').max(50, 'Display name is too long.'),
@@ -71,18 +71,18 @@ function ProfileSettingsPageContent() {
       });
       if (userProfile.role === 'student' && userProfile.associatedAdminUniqueId && userProfile.linkRequestStatus === 'accepted') {
         getAdminByUniqueId(userProfile.associatedAdminUniqueId).then(admin => {
-          if (admin && admin.userId) { // Ensure admin.userId exists
+          if (admin && admin.userId) { 
              const adminDocRef = doc(firestore, 'users', admin.userId);
              getDoc(adminDocRef).then(adminUserDoc => {
                 if(adminUserDoc.exists()) {
                     const adminUserData = adminUserDoc.data() as UserProfile;
                     setLinkedAdminName(adminUserData.displayName || admin.email || admin.adminUniqueId);
                 } else {
-                     setLinkedAdminName(admin.email || admin.adminUniqueId); // Fallback if user profile for admin not found
+                     setLinkedAdminName(admin.email || admin.adminUniqueId); 
                 }
-             }).catch(() => setLinkedAdminName(admin.email || admin.adminUniqueId)); // Fallback on error
+             }).catch(() => setLinkedAdminName(admin.email || admin.adminUniqueId)); 
           } else if (admin) {
-            setLinkedAdminName(admin.email || admin.adminUniqueId); // Fallback if admin.userId is missing
+            setLinkedAdminName(admin.email || admin.adminUniqueId); 
           }
         });
       } else {
@@ -142,43 +142,55 @@ function ProfileSettingsPageContent() {
   };
 
   const handleRequestLink: SubmitHandler<AdminLinkFormValues> = async (data) => {
-    console.log("%c[ProfileSettingsPage/handleRequestLink] TRIGGERED", "color: blue; font-weight: bold; font-size: 1.2em;");
-    console.log(`[ProfileSettingsPage/handleRequestLink] Form data submitted: ${JSON.stringify(data)}`);
+    // ===== VERY IMPORTANT LOGGING - CHECK BROWSER CONSOLE =====
+    console.log("%c[CLIENT] ProfileSettingsPage: handleRequestLink - Function ENTRY. Button Clicked.", "color: blue; font-weight: bold; font-size: 1.2em;");
+    console.log("[CLIENT] ProfileSettingsPage: handleRequestLink - Form data submitted:", JSON.parse(JSON.stringify(data)));
 
-    if (!user || !user.email || !userProfile) {
-      const errorMsg = `Cannot request link: User=${user ? 'OK' : 'NULL/UNDEFINED'}, Email=${user?.email ? 'OK' : 'NULL/UNDEFINED'}, Profile=${userProfile ? 'OK' : 'NULL/UNDEFINED'}. Please re-login.`;
+    const sdkCurrentUser = firebaseAuth.currentUser; // Direct check of Firebase SDK's current user
+    const sdkCurrentUID = sdkCurrentUser?.uid;
+    const sdkCurrentUserEmail = sdkCurrentUser?.email;
+
+    // Log state from useAuth() hook (which comes from AuthContext)
+    console.log(`[CLIENT] ProfileSettingsPage: handleRequestLink - Context User (useAuth): UID=${user?.uid}, Email=${user?.email}`);
+    console.log("[CLIENT] ProfileSettingsPage: handleRequestLink - Context UserProfile (useAuth):", userProfile ? JSON.parse(JSON.stringify(userProfile)) : "null/undefined");
+    
+    // Log state directly from Firebase SDK
+    console.log(`[CLIENT] ProfileSettingsPage: handleRequestLink - Firebase SDK State: UID=${sdkCurrentUID}, Email=${sdkCurrentUserEmail}`);
+    
+    if (!user || !user.uid || !user.email || !userProfile) {
+      const errorMsg = `Pre-flight check failed. Context State: user.uid=${user?.uid}, user.email=${user?.email}, userProfile_exists=${!!userProfile}. SDK State: sdkCurrentUID=${sdkCurrentUID}. Please re-login.`;
       toast({ 
-        title: "Authentication Error", 
+        title: "Authentication Error (Pre-flight)", 
         description: errorMsg, 
         variant: "destructive",
         duration: 10000 
       });
-      console.error(`[ProfileSettingsPage/handleRequestLink] PRE-FLIGHT CHECK FAILED. User object:`, user, `User Profile object:`, userProfile);
-      setIsSubmittingLinkRequest(false); // Ensure button is re-enabled
+      console.error(`[CLIENT] ProfileSettingsPage: handleRequestLink - PRE-FLIGHT CHECK FAILED. ${errorMsg}`);
+      setIsSubmittingLinkRequest(false);
       return;
     }
     
-    console.log(`[ProfileSettingsPage/handleRequestLink] PRE-FLIGHT CHECK PASSED. User UID: ${user.uid}, Email: ${user.email}, Role: ${userProfile.role}, Current Profile State:`, JSON.parse(JSON.stringify(userProfile)));
+    console.log(`[CLIENT] ProfileSettingsPage: handleRequestLink - PRE-FLIGHT CHECK PASSED. Proceeding with link request. Student UID (from context): ${user.uid}, Role: ${userProfile.role}`);
 
     if (userProfile.role !== 'student') {
       toast({ title: "Invalid Action", description: "Only students can link with an admin.", variant: "destructive" });
-      console.warn(`[ProfileSettingsPage/handleRequestLink] Invalid action: User role is '${userProfile.role}', not 'student'.`);
-      setIsSubmittingLinkRequest(false); // Ensure button is re-enabled
+      console.warn(`[CLIENT] ProfileSettingsPage: handleRequestLink - Invalid action: User role is '${userProfile.role}', not 'student'.`);
+      setIsSubmittingLinkRequest(false);
       return;
     }
 
     setIsSubmittingLinkRequest(true);
     try {
-      // Ensure studentUserId passed to the service is from the authenticated user context
+      // Ensure studentUserId passed to the service is from the authenticated user context (user.uid)
       const result = await studentRequestLinkWithAdmin(
-        user.uid, // CRITICAL: Use authenticated user's UID
+        user.uid, 
         user.email,
-        userProfile.displayName || user.email.split('@')[0] || 'Student', // Fallback for display name
+        userProfile.displayName || user.email.split('@')[0] || 'Student', 
         userProfile.rollNo || null,
         data.newAdminId
       );
 
-      console.log(`[ProfileSettingsPage/handleRequestLink] studentRequestLinkWithAdmin service call result:`, result);
+      console.log(`[CLIENT] ProfileSettingsPage: handleRequestLink - studentRequestLinkWithAdmin service call result:`, result);
 
       if (result.success) {
         toast({ title: "Link Request Sent", description: `Request to link with Admin ID ${data.newAdminId} has been sent.` });
@@ -188,7 +200,7 @@ function ProfileSettingsPageContent() {
         toast({ title: "Link Request Failed", description: result.message, variant: "destructive", duration: 7000 });
       }
     } catch (error: any) {
-      console.error("[ProfileSettingsPage/handleRequestLink] CATCH BLOCK - Error during link request process:", error);
+      console.error("[CLIENT] ProfileSettingsPage: handleRequestLink - CATCH BLOCK - Error during link request process:", error);
       toast({ title: "Error", description: error.message || "An unexpected error occurred while requesting link.", variant: "destructive" });
     } finally {
       setIsSubmittingLinkRequest(false);
@@ -196,17 +208,22 @@ function ProfileSettingsPageContent() {
   };
 
   const handleRemoveLink = async () => {
-    console.log("%c[ProfileSettingsPage/handleRemoveLink] TRIGGERED", "color: red; font-weight: bold; font-size: 1.2em;");
-    if (!user || !userProfile || userProfile.role !== 'student') {
-        toast({ title: "Error", description: "User profile not available or invalid role for removing link.", variant: "destructive" });
-        console.error(`[ProfileSettingsPage/handleRemoveLink] Pre-condition FAILED: User: ${JSON.stringify(user)}, UserProfile: ${JSON.stringify(userProfile)}`);
+    console.log("%c[CLIENT] ProfileSettingsPage: handleRemoveLink - Function ENTRY.", "color: red; font-weight: bold; font-size: 1.2em;");
+    const sdkCurrentUser = firebaseAuth.currentUser;
+    console.log(`[CLIENT] ProfileSettingsPage: handleRemoveLink - Context User UID: ${user?.uid}, SDK User UID: ${sdkCurrentUser?.uid}`);
+    console.log("[CLIENT] ProfileSettingsPage: handleRemoveLink - Context UserProfile:", userProfile ? JSON.parse(JSON.stringify(userProfile)) : "null/undefined");
+    
+    if (!user || !user.uid || !userProfile || userProfile.role !== 'student') {
+        const errorMsg = `Pre-condition FAILED for remove link. Context: user.uid=${user?.uid}, userProfile_exists=${!!userProfile}, role=${userProfile?.role}. SDK UID=${sdkCurrentUser?.uid}.`;
+        toast({ title: "Error (Pre-condition)", description: errorMsg, variant: "destructive" });
+        console.error(`[CLIENT] ProfileSettingsPage: handleRemoveLink - ${errorMsg}`);
         return;
     }
-    console.log(`[ProfileSettingsPage/handleRemoveLink] User UID: ${user.uid}`);
+
     setIsRemovingLink(true);
     try {
-      const result = await studentRemoveAdminLink(user.uid);
-      console.log(`[ProfileSettingsPage/handleRemoveLink] studentRemoveAdminLink service call result:`, result);
+      const result = await studentRemoveAdminLink(user.uid); // Pass authenticated user's UID
+      console.log(`[CLIENT] ProfileSettingsPage: handleRemoveLink - studentRemoveAdminLink service call result:`, result);
       if (result.success) {
         toast({ title: "Link Removed", description: "You are no longer linked with the admin." });
         refreshUserProfile();
@@ -214,7 +231,7 @@ function ProfileSettingsPageContent() {
         toast({ title: "Failed to Remove Link", description: result.message, variant: "destructive" });
       }
     } catch (error: any) {
-      console.error("[ProfileSettingsPage/handleRemoveLink] CATCH BLOCK - Error removing link:", error);
+      console.error("[CLIENT] ProfileSettingsPage: handleRemoveLink - CATCH BLOCK - Error removing link:", error);
       toast({ title: "Error", description: error.message || "An unexpected error occurred.", variant: "destructive" });
     } finally {
       setIsRemovingLink(false);
@@ -436,3 +453,4 @@ export default function ProfileSettingsPage() {
   );
 }
 
+    
