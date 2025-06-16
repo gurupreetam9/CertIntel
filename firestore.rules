@@ -16,10 +16,15 @@ service cloud.firestore {
     }
 
     // Admins Collection (for admin-specific, non-profile data like their unique ID)
+    // This collection is currently not directly used for auth checks by students.
+    // Admin identity is primarily managed through their 'admin' role in the 'users' collection.
     match /admins/{adminId} {
-      allow read: if request.auth != null && request.auth.uid == adminId; // Admin can read their own admin-specific document
-      allow write: if request.auth != null && request.auth.uid == adminId; // Admin can write their own admin-specific document
-                                  // And (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin') ?
+      allow read: if request.auth != null && 
+                     get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' &&
+                     request.auth.uid == adminId; // Admin can read their own admin-specific document (if their user profile also states they are an admin)
+      allow write: if request.auth != null && 
+                      get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' &&
+                      request.auth.uid == adminId; // Admin can write their own admin-specific document
     }
 
     // Student Link Requests Collection
@@ -28,13 +33,24 @@ service cloud.firestore {
                      (request.auth.uid == resource.data.studentUserId || 
                       (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' && request.auth.uid == resource.data.adminFirebaseId));
       allow create: if request.auth != null && request.auth.uid == request.resource.data.studentUserId; // Student can create their own request
-      allow update: if request.auth != null &&
-                      get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' &&
-                      request.auth.uid == resource.data.adminFirebaseId &&
-                      (request.resource.data.status == 'accepted' || request.resource.data.status == 'rejected') &&
-                      !resource.data.status.matches('accepted|rejected'); // Admin can accept/reject if request is for them and not already resolved
-                      // Only allow updating status, resolvedAt, resolvedBy
-                      // allow update: if request.auth != null && request.auth.uid == resource.data.adminFirebaseId && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resolvedAt', 'resolvedBy']);
+      
+      allow update: if request.auth != null && (
+        // Admin can accept/reject a pending request if it's for them
+        (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' &&
+          request.auth.uid == resource.data.adminFirebaseId && // Admin is the target admin of the request
+          (request.resource.data.status == 'accepted' || request.resource.data.status == 'rejected') && // New status is accepted or rejected
+          resource.data.status == 'pending' && // Old status must have been pending
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resolvedAt', 'resolvedBy', 'updatedAt']) // Admin can only update these fields
+        ) ||
+        // Student can cancel their own 'pending' or 'accepted' request
+        (
+          request.auth.uid == resource.data.studentUserId && // Student is the owner of the request
+          request.resource.data.status == 'cancelled' &&    // The NEW status must be 'cancelled'
+          (resource.data.status == 'pending' || resource.data.status == 'accepted') && // The OLD status was 'pending' or 'accepted'
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resolvedAt', 'resolvedBy', 'updatedAt']) // Student can only update these fields when cancelling
+        )
+      );
       allow delete: if false;
     }
 
