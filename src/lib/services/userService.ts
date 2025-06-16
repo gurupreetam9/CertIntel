@@ -113,24 +113,33 @@ export const createStudentLinkRequest = async (
   studentUserId: string,
   studentEmail: string,
   studentName: string,
-  studentRollNo: string | null,
+  studentRollNo: string | null, // Can be string or null
   targetAdminUniqueId: string,
   targetAdminFirebaseId: string
 ): Promise<StudentLinkRequest> => {
   const requestDocRef = doc(collection(firestore, STUDENT_LINK_REQUESTS_COLLECTION));
   const now = Timestamp.now();
 
+  // Ensure studentRollNo is either a non-empty string or null.
+  const studentRollNoCleaned = (studentRollNo && studentRollNo.trim() !== '') ? studentRollNo.trim() : null;
+
   const linkRequest: StudentLinkRequest = {
     id: requestDocRef.id,
     studentUserId,
     studentEmail,
     studentName,
-    studentRollNo: studentRollNo !== undefined ? studentRollNo : null,
+    studentRollNo: studentRollNoCleaned,
     adminUniqueIdTargeted: targetAdminUniqueId,
     adminFirebaseId: targetAdminFirebaseId,
     status: 'pending',
     requestedAt: now,
   };
+
+  // DIAGNOSTIC LOG
+  console.log(`[UserService/createStudentLinkRequest] PRE-BATCH: Student attempting request. studentUserId: ${studentUserId}, Client auth.currentUser?.uid: ${auth.currentUser?.uid}`);
+  if (auth.currentUser?.uid !== studentUserId) {
+    console.warn(`[UserService/createStudentLinkRequest] PRE-BATCH MISMATCH or NULL: auth.currentUser?.uid ('${auth.currentUser?.uid}') vs studentUserId ('${studentUserId}'). THIS WILL LIKELY CAUSE A FIRESTORE PERMISSION ERROR.`);
+  }
 
   const batch = writeBatch(firestore);
   batch.set(requestDocRef, linkRequest);
@@ -144,6 +153,7 @@ export const createStudentLinkRequest = async (
   });
 
   await batch.commit();
+  console.log(`[UserService/createStudentLinkRequest] POST-BATCH: Batch committed for studentUserId: ${studentUserId}. Request ID: ${linkRequest.id}`);
   return linkRequest;
 };
 
@@ -201,8 +211,6 @@ export const studentRemoveAdminLink = async (
     const studentUserDocRef = doc(firestore, USERS_COLLECTION, studentUserId);
     
     // The student is only allowed to update their own profile to remove the link.
-    // The corresponding request in studentLinkRequests will remain, but
-    // the admin's query for linked students will no longer pick up this student.
     const batch = writeBatch(firestore);
     batch.update(studentUserDocRef, {
       associatedAdminFirebaseId: null,
