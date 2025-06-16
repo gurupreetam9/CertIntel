@@ -19,7 +19,7 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 
 const USERS_COLLECTION = 'users';
-const ADMINS_COLLECTION = 'admins'; // Still used for createAdminProfile context, but not for lookup by uniqueId
+const ADMINS_COLLECTION = 'admins'; 
 const STUDENT_LINK_REQUESTS_COLLECTION = 'studentLinkRequests';
 
 
@@ -34,7 +34,7 @@ export const createUserProfileDocument = async (
   const clientAuthUid = firebaseAuthClient.currentUser?.uid;
   console.log(`[SERVICE/createUserProfileDocument] - START. Target UID: ${userId}. ClientAuthUID (SDK): ${clientAuthUid}. Role: ${role}. AdditionalData:`, JSON.stringify(additionalData));
   
-  if (clientAuthUid !== userId && role !== 'admin') { // Admin profiles might be created by system/another admin, student profiles should match auth context more closely during self-signup.
+  if (clientAuthUid !== userId && role !== 'admin') { 
     console.warn(`[SERVICE/createUserProfileDocument] - MISMATCH/NULL ClientAuthUID: '${clientAuthUid}' vs target UID: '${userId}' for non-admin role. This is a concern if purely client-driven for own profile.`);
   }
 
@@ -47,12 +47,11 @@ export const createUserProfileDocument = async (
     updatedAt: now,
     rollNo: (role === 'student' && additionalData.rollNo) ? additionalData.rollNo : undefined,
     linkRequestStatus: (role === 'student') ? 'none' : undefined,
-    associatedAdminFirebaseId: (role === 'student') ? null : undefined, // Explicitly null for students
-    associatedAdminUniqueId: (role === 'student') ? null : undefined, // Explicitly null for students
+    associatedAdminFirebaseId: (role === 'student') ? null : undefined, 
+    associatedAdminUniqueId: (role === 'student') ? null : undefined, 
     adminUniqueId: (role === 'admin' && additionalData.adminUniqueId) ? additionalData.adminUniqueId : undefined,
   };
 
-  // Remove undefined properties before setting to Firestore
   const finalProfileData = Object.fromEntries(
     Object.entries(profileData).filter(([_, v]) => v !== undefined)
   ) as UserProfile;
@@ -82,11 +81,11 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
 };
 
 export const createAdminProfile = async (userId: string, email: string): Promise<AdminProfile> => {
-  const adminDocRef = doc(firestore, ADMINS_COLLECTION, userId); // This writes to 'admins' collection
+  const adminDocRef = doc(firestore, ADMINS_COLLECTION, userId); 
   const adminUniqueId = uuidv4().substring(0, 8).toUpperCase();
   const now = Timestamp.now();
 
-  const adminDataForAdminsCollection: AdminProfile = { // This is the structure for the 'admins' collection
+  const adminDataForAdminsCollection: AdminProfile = { 
     userId,
     adminUniqueId,
     email,
@@ -94,10 +93,9 @@ export const createAdminProfile = async (userId: string, email: string): Promise
   };
   await setDoc(adminDocRef, adminDataForAdminsCollection);
   
-  // Also create/update their profile in the 'users' collection
   await createUserProfileDocument(userId, email, 'admin', { adminUniqueId });
   
-  return adminDataForAdminsCollection; // Return the structure relevant to AdminProfile type
+  return adminDataForAdminsCollection; 
 };
 
 export const getAdminByUniqueId = async (adminUniqueId: string): Promise<AdminProfile | null> => {
@@ -114,19 +112,18 @@ export const getAdminByUniqueId = async (adminUniqueId: string): Promise<AdminPr
     if (!querySnapshot.empty) {
       const adminUserProfile = querySnapshot.docs[0].data() as UserProfile;
       console.log(`[SERVICE/getAdminByUniqueId] - Found admin user profile:`, adminUserProfile);
-      // Map UserProfile to AdminProfile structure
       return {
         userId: adminUserProfile.uid,
-        adminUniqueId: adminUserProfile.adminUniqueId!, // Should be present for admins
-        email: adminUserProfile.email!, // Should be present
-        createdAt: adminUserProfile.createdAt, // UserProfile has createdAt
+        adminUniqueId: adminUserProfile.adminUniqueId!, 
+        email: adminUserProfile.email!, 
+        createdAt: adminUserProfile.createdAt, 
       };
     }
     console.log(`[SERVICE/getAdminByUniqueId] - No admin found in USERS_COLLECTION with adminUniqueId: ${adminUniqueId}`);
     return null;
   } catch (error: any) {
     console.error(`[SERVICE/getAdminByUniqueId] - Error querying USERS_COLLECTION for adminUniqueId ${adminUniqueId}:`, error);
-    throw error; // Re-throw to be caught by the caller
+    throw error; 
   }
 };
 
@@ -261,27 +258,69 @@ export const studentRemoveAdminLink = async (
   studentUserId: string
 ): Promise<{ success: boolean; message: string }> => {
   const clientAuthUid = firebaseAuthClient.currentUser?.uid;
-  console.log(`%c[SERVICE/studentRemoveAdminLink] - Function ENTRY. StudentUID_Param: ${studentUserId}, ClientAuthUID (SDK): ${clientAuthUid}`, "color: red; font-weight: bold;");
+  console.log(`%c[SERVICE/studentRemoveAdminLink] - Function ENTRY. StudentUID_Param: ${studentUserId}, ClientAuthUID (SDK): ${clientAuthUid}`, "color: #FF8C00; font-weight: bold;"); // Orange color for remove link
+
   if (!studentUserId || clientAuthUid !== studentUserId) {
     console.error(`[SERVICE/studentRemoveAdminLink] - Auth MISMATCH or missing studentUserId. Param: '${studentUserId}', SDK UID: '${clientAuthUid}'`);
     return { success: false, message: "Authentication error or mismatch. Cannot remove link." };
   }
 
+  const batch = writeBatch(firestore);
+  const studentUserDocRef = doc(firestore, USERS_COLLECTION, studentUserId);
+
   try {
-    const studentUserDocRef = doc(firestore, USERS_COLLECTION, studentUserId);
-    const batch = writeBatch(firestore);
+    console.log(`[SERVICE/studentRemoveAdminLink] - Fetching student profile for ${studentUserId} to identify linked admin.`);
+    const studentProfileSnap = await getDoc(studentUserDocRef);
+    if (!studentProfileSnap.exists()) {
+      console.error(`[SERVICE/studentRemoveAdminLink] - Student profile not found for UID: ${studentUserId}. Cannot proceed with link removal.`);
+      return { success: false, message: "Student profile not found. Cannot remove link." };
+    }
+    const studentProfileData = studentProfileSnap.data() as UserProfile;
+    const linkedAdminFirebaseId = studentProfileData.associatedAdminFirebaseId;
+
+    console.log(`[SERVICE/studentRemoveAdminLink] - Student profile fetched. Linked Admin Firebase ID: ${linkedAdminFirebaseId || 'None'}`);
+
+    // Update student's profile
     batch.update(studentUserDocRef, {
       associatedAdminFirebaseId: null,
       associatedAdminUniqueId: null,
-      linkRequestStatus: 'none', 
+      linkRequestStatus: 'none',
       updatedAt: serverTimestamp(),
     });
+    console.log(`[SERVICE/studentRemoveAdminLink] - Added update to student's profile in batch for UID: ${studentUserId}.`);
 
+    if (linkedAdminFirebaseId) {
+      console.log(`[SERVICE/studentRemoveAdminLink] - Student was linked to admin ${linkedAdminFirebaseId}. Querying studentLinkRequests to cancel.`);
+      const requestsQuery = query(
+        collection(firestore, STUDENT_LINK_REQUESTS_COLLECTION),
+        where('studentUserId', '==', studentUserId),
+        where('adminFirebaseId', '==', linkedAdminFirebaseId),
+        where('status', 'in', ['pending', 'accepted'])
+      );
+
+      const requestsSnapshot = await getDocs(requestsQuery);
+      if (!requestsSnapshot.empty) {
+        requestsSnapshot.forEach(requestDoc => {
+          console.log(`[SERVICE/studentRemoveAdminLink] - Found request ${requestDoc.id} (status: ${requestDoc.data().status}). Adding update to 'cancelled' in batch.`);
+          batch.update(requestDoc.ref, {
+            status: 'cancelled', // Or 'revoked_by_student'
+            updatedAt: serverTimestamp(),
+          });
+        });
+      } else {
+        console.log(`[SERVICE/studentRemoveAdminLink] - No 'pending' or 'accepted' requests found in studentLinkRequests for student ${studentUserId} and admin ${linkedAdminFirebaseId}.`);
+      }
+    } else {
+      console.log(`[SERVICE/studentRemoveAdminLink] - Student was not linked to any admin (associatedAdminFirebaseId was null). Skipping query for studentLinkRequests.`);
+    }
+
+    console.log(`[SERVICE/studentRemoveAdminLink] - About to commit batch for student UID: ${studentUserId}.`);
     await batch.commit();
-    console.log(`%c[SERVICE/studentRemoveAdminLink] - SUCCESS. Link removed for StudentUID: ${studentUserId}`, "color: green; font-weight: bold;");
-    return { success: true, message: 'Link with admin has been removed.' };
+    console.log(`%c[SERVICE/studentRemoveAdminLink] - SUCCESS. Link removed and relevant requests cancelled for StudentUID: ${studentUserId}`, "color: green; font-weight: bold;");
+    return { success: true, message: 'Link with admin has been removed and associated requests updated.' };
+
   } catch (error: any) {
-    console.error(`%c[SERVICE/studentRemoveAdminLink] - !!! BATCH COMMIT FAILED !!! StudentUID: ${studentUserId}. Firestore Error Code: ${error.code}. Message: ${error.message}. Full Error:`, "color: red; font-weight: bold;", error);
+    console.error(`%c[SERVICE/studentRemoveAdminLink] - !!! BATCH COMMIT FAILED or error during process !!! StudentUID: ${studentUserId}. Firestore Error Code: ${error.code}. Message: ${error.message}. Full Error:`, "color: red; font-weight: bold;", error);
     return { success: false, message: error.message || "Failed to remove link." };
   }
 };
@@ -356,7 +395,6 @@ export const updateUserProfileDocument = async (userId: string, data: Partial<Us
   const userDocRef = doc(firestore, USERS_COLLECTION, userId);
   try {
     const updateData = { ...data, updatedAt: serverTimestamp() };
-    // Ensure undefined fields are not merged as explicit nulls or deletions if not intended
     const cleanUpdateData = Object.fromEntries(Object.entries(updateData).filter(([_, v]) => v !== undefined));
     await setDoc(userDocRef, cleanUpdateData, { merge: true });
     return { success: true };
