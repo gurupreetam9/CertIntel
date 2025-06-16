@@ -3,8 +3,9 @@
 
 import type { User } from 'firebase/auth';
 import { createContext, useState, useEffect, type ReactNode, useCallback } from 'react';
-import { onAuthStateChanged } from '@/lib/firebase/auth';
-import { getUserProfile } from '@/lib/services/userService';
+import { onAuthStateChanged as firebaseOnAuthStateChanged } from '@/lib/firebase/auth'; // Renamed to avoid conflict
+import { firestore } from '@/lib/firebase/config'; // Direct import for firestore
+import { doc, onSnapshot, type Unsubscribe } from 'firebase/firestore'; // Import onSnapshot and Unsubscribe
 import type { UserProfile } from '@/lib/models/user';
 import { Loader2 } from 'lucide-react';
 
@@ -13,7 +14,7 @@ interface AuthContextType {
   userProfile: UserProfile | null;
   loading: boolean;
   userId: string | null;
-  refreshUserProfile: () => void;
+  refreshUserProfile: () => void; // Kept for potential explicit refreshes
 }
 
 export const AuthContext = createContext<AuthContextType>({
@@ -24,77 +25,83 @@ export const AuthContext = createContext<AuthContextType>({
   refreshUserProfile: () => {},
 });
 
+const USERS_COLLECTION = 'users';
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
-  const [profileRefreshKey, setProfileRefreshKey] = useState(0);
-
+  
+  // profileRefreshKey and its related effect are removed as onSnapshot handles real-time updates.
+  // The refreshUserProfile function is kept but might be a no-op or re-evaluated later if specific manual refresh logic is needed.
   const refreshUserProfile = useCallback(() => {
-    console.log("AuthContext: refreshUserProfile called. Incrementing key.");
-    setProfileRefreshKey(key => key + 1);
+    console.log("AuthContext: refreshUserProfile called. (Currently a no-op due to real-time listener, but can be enhanced if needed).");
+    // If a manual re-fetch bypassing the listener cache is ever needed, logic could go here.
+    // For now, the listener should keep things up-to-date.
   }, []);
 
-  const fetchProfile = useCallback(async (currentFirebaseUser: User) => {
-    console.log("AuthContext: fetchProfile invoked for UID:", currentFirebaseUser.uid);
-    try {
-      const profile = await getUserProfile(currentFirebaseUser.uid);
-      setUserProfile(profile);
-      if (!profile) {
-        console.warn("AuthContext: User profile NOT FOUND in Firestore for UID:", currentFirebaseUser.uid);
-      } else {
-        console.log("AuthContext: User profile fetched successfully:", profile);
-      }
-    } catch (error: any) {
-      console.error("AuthContext: CRITICAL ERROR fetching user profile. Error message:", error.message, error);
-      setUserProfile(null);
-    } finally {
-      console.log("AuthContext: fetchProfile finished for UID:", currentFirebaseUser.uid, ". Setting loading to false.");
-      setLoading(false);
-    }
-  }, [setLoading, setUserProfile]); // Dependencies for fetchProfile
-
   useEffect(() => {
-    // Effect for manual profile refreshes
-    if (user && userId && profileRefreshKey > 0) { // Check profileRefreshKey > 0 to avoid running on initial mount if user is already set
-      console.log(`AuthContext: Manual profile refresh triggered (key: ${profileRefreshKey}) for User ID: ${userId}. Setting loading true.`);
-      setLoading(true);
-      fetchProfile(user);
-    }
-  }, [profileRefreshKey, user, userId, fetchProfile]); // Removed setLoading from here as fetchProfile handles it
+    setLoading(true);
+    let profileListenerUnsubscribe: Unsubscribe | undefined = undefined;
 
-  useEffect(() => {
-    // Effect for initial auth state and subsequent auth changes
     console.log("AuthContext: Setting up onAuthStateChanged listener.");
-    setLoading(true); // Start with loading true when this effect runs
-
-    const unsubscribe = onAuthStateChanged(async (firebaseUser) => {
+    const authUnsubscribe = firebaseOnAuthStateChanged(async (firebaseUser) => {
       console.log("AuthContext: onAuthStateChanged triggered. Firebase user UID:", firebaseUser ? firebaseUser.uid : 'null');
-      setUser(firebaseUser);
-      setUserId(firebaseUser ? firebaseUser.uid : null);
+      
+      // Clean up previous profile listener before setting new user or new listener
+      if (profileListenerUnsubscribe) {
+        console.log("AuthContext: Unsubscribing from previous profile listener for UID:", user?.uid);
+        profileListenerUnsubscribe();
+        profileListenerUnsubscribe = undefined;
+      }
+      
+      setUser(firebaseUser); // Set Firebase user
+      setUserId(firebaseUser ? firebaseUser.uid : null); // Set userId
+      setUserProfile(null); // Reset profile initially on auth change
 
       if (firebaseUser) {
-        // If user is authenticated, set loading to true before fetching profile
-        // fetchProfile will set it to false in its finally block
-        if(!loading) setLoading(true); // Ensure loading is true if it wasn't already
-        await fetchProfile(firebaseUser);
+        setLoading(true); // Set loading true before attaching new listener
+        const userDocRef = doc(firestore, USERS_COLLECTION, firebaseUser.uid);
+        console.log("AuthContext: Subscribing to profile snapshots for UID:", firebaseUser.uid);
+
+        profileListenerUnsubscribe = onSnapshot(userDocRef, 
+          (docSnap) => {
+            if (docSnap.exists()) {
+              const newProfile = docSnap.data() as UserProfile;
+              setUserProfile(newProfile);
+              console.log("AuthContext: User profile updated from snapshot for UID:", firebaseUser.uid, newProfile);
+            } else {
+              setUserProfile(null);
+              console.warn("AuthContext: User profile NOT FOUND in Firestore (onSnapshot for UID:", firebaseUser.uid, ")");
+            }
+            setLoading(false); // Profile data (or lack thereof) received
+          },
+          (error) => {
+            console.error("AuthContext: Error listening to user profile (onSnapshot) for UID:", firebaseUser.uid, error);
+            setUserProfile(null);
+            setLoading(false);
+          }
+        );
       } else {
+        // No user, so not loading, ensure profile is null
         setUserProfile(null);
-        console.log("AuthContext: No Firebase user. Setting loading to false.");
-        setLoading(false); // Explicitly set loading to false if no user
+        setLoading(false);
+        console.log("AuthContext: No Firebase user. Loading false, profile null.");
       }
     });
 
     return () => {
-      console.log("AuthContext: Unsubscribing from onAuthStateChanged.");
-      unsubscribe();
+      console.log("AuthContext: Unsubscribing from onAuthStateChanged and any active profile listener.");
+      authUnsubscribe();
+      if (profileListenerUnsubscribe) {
+        profileListenerUnsubscribe();
+      }
     };
-  }, [fetchProfile]); // Removed loading and setLoading from dependencies as they are managed internally or by fetchProfile
+  }, []); // Empty dependency array: runs once on mount, cleans up on unmount
 
   // This global loader is for the very initial app shell loading.
-  // ProtectedPage and individual pages will handle their own loading states once user/userProfile context is available.
-  if (loading && !user) {
+  if (loading && user === undefined) { // More specific condition: only show global loader if user state is truly unknown initially
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-16 w-16 animate-spin text-primary" />
