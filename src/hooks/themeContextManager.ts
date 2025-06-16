@@ -1,59 +1,69 @@
 
 'use client';
 
-import React, { createContext, useContext, type ReactNode, useEffect } from 'react';
+import React, { createContext, useContext, type ReactNode, useEffect, useCallback, useMemo } from 'react';
 
 type Theme = 'light'; // Theme is always 'light'
 
-interface ThemeContextType {
+// Define the context type
+interface AppThemeContextType {
   theme: Theme;
-  setTheme: (theme: Theme) => void;
-  toggleTheme: () => void;
+  setTheme: (theme: Theme) => void; // Kept for type consistency, even if no-op
+  toggleTheme: () => void; // Kept for type consistency, even if no-op
 }
 
-// Default context value
-const defaultThemeContextValue: ThemeContextType = {
+// Create the context with a concrete default value matching the type.
+const defaultContextValue: AppThemeContextType = {
   theme: 'light',
   setTheme: () => {
-    // console.warn('setTheme called, but theme switching is disabled.');
+    // Default no-op.
   },
   toggleTheme: () => {
-    // console.warn('toggleTheme called, but theme switching is disabled.');
+    // Default no-op.
   },
 };
 
-const ThemeContext = createContext<ThemeContextType>(defaultThemeContextValue);
+const AppThemeContext = createContext<AppThemeContextType>(defaultContextValue);
 
+// Define the provider component
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   const staticTheme: Theme = 'light';
 
+  // Define stable no-op functions for setTheme and toggleTheme
+  const stableSetTheme = useCallback((_newTheme: Theme) => {
+    // console.warn('ThemeProvider: setTheme called, but theme is static ("light").');
+  }, []);
+
+  const stableToggleTheme = useCallback(() => {
+    // console.warn('ThemeProvider: toggleTheme called, but theme is static ("light").');
+  }, []);
+
   useEffect(() => {
+    // Apply the static theme to the document
     const root = window.document.documentElement;
-    root.classList.remove('dark'); // Ensure dark mode is off
-    root.classList.add(staticTheme); // Add 'light' class
+    root.classList.remove('dark'); // Ensure dark is not set
+    root.classList.add(staticTheme);
   }, [staticTheme]); // staticTheme won't change, so this runs once on mount.
 
+  // Memoize the context value to ensure it's stable
+  const providerValue = useMemo<AppThemeContextType>(() => ({
+    theme: staticTheme,
+    setTheme: stableSetTheme,
+    toggleTheme: stableToggleTheme,
+  }), [staticTheme, stableSetTheme, stableToggleTheme]); // Dependencies for useMemo
+
   return (
-    <ThemeContext.Provider value={{
-      theme: staticTheme,
-      setTheme: () => {
-        // console.warn('setTheme called, but theme is static and locked to "light".');
-      },
-      toggleTheme: () => {
-        // console.warn('toggleTheme called, but theme is static and locked to "light".');
-      },
-    }}>
+    <AppThemeContext.Provider value={providerValue}>
       {children}
-    </ThemeContext.Provider>
+    </AppThemeContext.Provider>
   );
 };
 
-export const useTheme = (): ThemeContextType => {
-  const context = useContext(ThemeContext);
+// Custom hook to use the theme context
+export const useTheme = (): AppThemeContextType => {
+  const context = useContext(AppThemeContext);
   if (context === undefined) {
-    // This should ideally not happen if ThemeProvider wraps the app.
-    // console.error('useTheme must be used within a ThemeProvider. Falling back to default.');
-    return defaultThemeContextValue;
+    throw new Error('useTheme must be used within a ThemeProvider');
   }
   return context;
 };
