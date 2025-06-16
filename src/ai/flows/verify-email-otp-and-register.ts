@@ -12,11 +12,10 @@ import { signUp as firebaseSignUp } from '@/lib/firebase/auth';
 import { 
   createAdminProfile, 
   createUserProfileDocument,
-  // createStudentLinkRequest, // Temporarily removed for debugging
-  // getAdminByUniqueId // Temporarily removed for debugging
 } from '@/lib/services/userService';
 import type { User, AuthError } from 'firebase/auth';
 import type { UserProfile } from '@/lib/models/user';
+import { sendEmail } from '@/lib/emailUtils'; // Import the centralized email utility
 
 // HACK: In-memory store for OTPs. NOT SUITABLE FOR PRODUCTION.
 if (!(globalThis as any).otpStore) {
@@ -30,10 +29,9 @@ const VerifyEmailOtpAndRegisterInputSchema = z.object({
   otp: z.string().length(6, { message: 'OTP must be 6 digits.' }),
   password: z.string().min(6, { message: 'Password must be at least 6 characters long.' }),
   role: z.enum(['admin', 'student'], { required_error: 'Role is required.'}),
-  // Student specific fields (optional at schema level, logic handles based on role)
-  name: z.string().min(1, 'Name is required.').max(100, 'Name is too long.').optional(), // Required if role is student
+  name: z.string().min(1, 'Name is required.').max(100, 'Name is too long.').optional(), 
   rollNo: z.string().max(50, 'Roll number is too long.').optional(),
-  adminUniqueId: z.string().max(50, 'Admin ID is too long.').optional(), // Optional for students
+  adminUniqueId: z.string().max(50, 'Admin ID is too long.').optional(), 
 }).refine(data => {
     if (data.role === 'student' && !data.name) {
         return false;
@@ -51,7 +49,7 @@ const VerifyEmailOtpAndRegisterOutputSchema = z.object({
   message: z.string(),
   userId: z.string().optional(),
   role: z.enum(['admin', 'student']).optional(),
-  adminUniqueIdGenerated: z.string().optional(), // For newly registered admin
+  adminUniqueIdGenerated: z.string().optional(), 
 });
 export type VerifyEmailOtpAndRegisterOutput = z.infer<typeof VerifyEmailOtpAndRegisterOutputSchema>;
 
@@ -74,7 +72,7 @@ const verifyEmailOtpAndRegisterFlow = ai.defineFlow(
     }
 
     if (Date.now() > storedEntry.expiresAt) {
-      delete otpStore[email]; // Clean up expired OTP
+      delete otpStore[email]; 
       return { success: false, message: 'OTP has expired. Please request a new OTP.' };
     }
 
@@ -82,10 +80,9 @@ const verifyEmailOtpAndRegisterFlow = ai.defineFlow(
       return { success: false, message: 'Invalid OTP. Please try again.' };
     }
 
-    // OTP is valid, proceed with Firebase user creation
     const firebaseAuthResult: User | AuthError = await firebaseSignUp({ email, password });
 
-    if ('code' in firebaseAuthResult) { // AuthError
+    if ('code' in firebaseAuthResult) { 
       const firebaseError = firebaseAuthResult as AuthError;
       let errorMessage = 'Registration failed. Please try again.';
       if (firebaseError.code === 'auth/email-already-in-use') {
@@ -96,20 +93,26 @@ const verifyEmailOtpAndRegisterFlow = ai.defineFlow(
       return { success: false, message: errorMessage };
     } 
     
-    // Firebase user created successfully
     const firebaseUser = firebaseAuthResult as User;
-    delete otpStore[email]; // Clean up OTP
+    delete otpStore[email]; 
 
     try {
+      let registrationMessage = 'Registration successful!';
+      let adminUniqueIdForResponse: string | undefined = undefined;
+      let userDisplayName = name || email.split('@')[0];
+
       if (role === 'admin') {
         const adminProfileDetails = await createAdminProfile(firebaseUser.uid, email);
-        return { 
-          success: true, 
-          message: 'Admin registration successful! Your Admin ID will be shown.', 
-          userId: firebaseUser.uid, 
-          role: 'admin',
-          adminUniqueIdGenerated: adminProfileDetails.adminUniqueId 
-        };
+        adminUniqueIdForResponse = adminProfileDetails.adminUniqueId;
+        registrationMessage = `Admin registration successful! Your Admin ID is: ${adminUniqueIdForResponse}`;
+        
+        await sendEmail({
+          to: email,
+          subject: 'Welcome to CertIntel, Admin!',
+          text: `Hello Admin,\n\nYour registration with CertIntel is complete. Your unique Admin ID is: ${adminUniqueIdForResponse}. You can share this ID with your students.\n\nRegards,\nThe CertIntel Team`,
+          html: `<p>Hello Admin,</p><p>Your registration with CertIntel is complete. Your unique Admin ID is: <strong>${adminUniqueIdForResponse}</strong>. You can share this ID with your students.</p><p>Regards,<br/>The CertIntel Team</p>`,
+        });
+
       } else if (role === 'student') {
         if (!name) { 
             return { success: false, message: "Student name is required." };
@@ -118,51 +121,60 @@ const verifyEmailOtpAndRegisterFlow = ai.defineFlow(
         const studentProfileCreationData: Partial<UserProfile> = {
             displayName: name,
             rollNo: (rollNo && rollNo.trim() !== '') ? rollNo.trim() : undefined, 
+            associatedAdminUniqueId: (adminUniqueId && adminUniqueId.trim() !== '') ? adminUniqueId.trim() : undefined,
         };
         
-        // Create base student profile in 'users' collection
+        // The createUserProfileDocument will handle setting linkRequestStatus to 'pending' if an adminUniqueId is provided.
+        // This part of the logic (creating the actual studentLinkRequest doc) is handled by studentRequestLinkWithAdmin which is typically called from profile settings.
+        // For now, we just store the intent.
         await createUserProfileDocument(firebaseUser.uid, email, 'student', studentProfileCreationData);
+        userDisplayName = name;
 
-        let message = 'Student registration successful! Welcome to CertIntel! You can link to your Teacher/Admin from your Profile Settings page if needed.';
-        
-        // --- TEMPORARILY REMOVED FOR DEBUGGING ---
-        // const targetAdminUniqueId = (adminUniqueId && adminUniqueId.trim() !== '') ? adminUniqueId.trim() : null;
-        // if (targetAdminUniqueId) {
-        //   const targetAdmin = await getAdminByUniqueId(targetAdminUniqueId);
-        //   if (targetAdmin) {
-        //     await createStudentLinkRequest(
-        //       firebaseUser.uid, 
-        //       email, 
-        //       name, 
-        //       studentProfileCreationData.rollNo || null,
-        //       targetAdmin.adminUniqueId, 
-        //       targetAdmin.userId
-        //     );
-        //     message = `Student registration successful! Your request to link with Teacher ID ${targetAdmin.adminUniqueId} has been submitted.`;
-        //   } else {
-        //     message = `Student registration successful! Could not find a Teacher with ID ${targetAdminUniqueId}. You can request linkage later from your profile settings.`;
-        //   }
-        // }
-        // --- END OF TEMPORARILY REMOVED SECTION ---
+        let studentWelcomeMessage = `Hello ${userDisplayName},\n\nWelcome to CertIntel! Your registration is complete.`;
+        let studentWelcomeHtml = `<p>Hello ${userDisplayName},</p><p>Welcome to CertIntel! Your registration is complete.</p>`;
 
-        return { success: true, message, userId: firebaseUser.uid, role: 'student' };
+        if (studentProfileCreationData.associatedAdminUniqueId) {
+          studentWelcomeMessage += ` You attempted to link with Teacher/Admin ID ${studentProfileCreationData.associatedAdminUniqueId}. This request will be processed separately, or you can finalize it from your profile settings.`;
+          studentWelcomeHtml += `<p>You attempted to link with Teacher/Admin ID <strong>${studentProfileCreationData.associatedAdminUniqueId}</strong>. This request will be processed separately, or you can finalize it from your profile settings if the admin needs to approve it.</p>`;
+          registrationMessage = `Student registration successful! Your request to link with Teacher ID ${studentProfileCreationData.associatedAdminUniqueId} has been noted. You might need to finalize this from your profile settings.`;
+        } else {
+           registrationMessage = 'Student registration successful! Welcome to CertIntel!';
+        }
+        studentWelcomeMessage += `\n\nRegards,\nThe CertIntel Team`;
+        studentWelcomeHtml += `<p>Regards,<br/>The CertIntel Team</p>`;
+
+        await sendEmail({
+          to: email,
+          subject: `Welcome to CertIntel, ${userDisplayName}!`,
+          text: studentWelcomeMessage,
+          html: studentWelcomeHtml,
+        });
       } else {
         return { success: false, message: 'Invalid role specified.' };
       }
+
+      return { 
+        success: true, 
+        message: registrationMessage, 
+        userId: firebaseUser.uid, 
+        role: role,
+        adminUniqueIdGenerated: adminUniqueIdForResponse 
+      };
+
     } catch (profileError: any) {
-      console.error(`Error during profile creation for ${email} (role: ${role}):`, profileError);
-      let detailedMessage = `Firebase user created, but failed to set up profile/link. Error: ${profileError.message || 'Unknown Firestore error'}`;
+      console.error(`Error during profile creation or email sending for ${email} (role: ${role}):`, profileError);
+      let detailedMessage = `Firebase user created, but failed to set up profile/link or send confirmation email. Error: ${profileError.message || 'Unknown Firestore/Email error'}`;
       if (profileError.code) { 
-        detailedMessage += ` (Code: ${profileError.code})`; // Firebase errors often have a code
+        detailedMessage += ` (Code: ${profileError.code})`; 
       }
-      if (profileError.details) { // Some errors might have more details
+      if (profileError.details) { 
         detailedMessage += ` Details: ${profileError.details}`;
       }
-      console.error("Full profileError object:", profileError); // Log the full error object
+      console.error("Full profileError object:", profileError); 
       return { 
         success: false, 
         message: detailedMessage + ". Please contact support.",
-        userId: firebaseUser.uid // Still return userId so it's known which account had an issue
+        userId: firebaseUser.uid 
       };
     }
   }

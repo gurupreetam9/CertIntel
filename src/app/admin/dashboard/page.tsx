@@ -10,12 +10,13 @@ import { Loader2, CheckCircle, XCircle, Users, ShieldAlert, Inbox, FileText, Arr
 import { useToast } from '@/hooks/use-toast';
 import type { StudentLinkRequest, UserProfile as StudentUserProfile } from '@/lib/models/user';
 import { 
-  getStudentLinkRequestsForAdmin, 
+  getStudentLinkRequestsForAdminRealtime, // Changed to new real-time function
   updateStudentLinkRequestStatusAndLinkStudent,
   getStudentsForAdmin
 } from '@/lib/services/userService';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import type { Unsubscribe } from 'firebase/firestore';
 
 function AdminDashboardPageContent() {
   const { user, userProfile, loading: authLoading } = useAuth();
@@ -24,24 +25,47 @@ function AdminDashboardPageContent() {
 
   const [pendingRequests, setPendingRequests] = useState<StudentLinkRequest[]>([]);
   const [acceptedStudents, setAcceptedStudents] = useState<StudentUserProfile[]>([]);
-  const [isLoadingRequests, setIsLoadingRequests] = useState(false);
+  const [isLoadingRequests, setIsLoadingRequests] = useState(true); // Still true initially
   const [isLoadingStudents, setIsLoadingStudents] = useState(false);
   const [isProcessingRequest, setIsProcessingRequest] = useState<string | null>(null);
   const [currentProcessingStatus, setCurrentProcessingStatus] = useState<'accepted' | 'rejected' | null>(null);
 
 
-  const fetchPendingRequests = useCallback(async () => {
-    if (!user || userProfile?.role !== 'admin') return;
-    setIsLoadingRequests(true);
-    try {
-      const requests = await getStudentLinkRequestsForAdmin(user.uid);
-      setPendingRequests(requests);
-    } catch (error: any) {
-      toast({ title: 'Error Fetching Requests', description: error.message, variant: 'destructive' });
-    } finally {
-      setIsLoadingRequests(false);
+  useEffect(() => {
+    if (!user || userProfile?.role !== 'admin' || authLoading) {
+      if (!authLoading && user && userProfile?.role !== 'admin') {
+        toast({ title: 'Access Denied', description: 'You are not authorized.', variant: 'destructive' });
+        router.replace('/');
+      }
+      return;
     }
-  }, [user, userProfile?.role, toast]);
+
+    setIsLoadingRequests(true); // Set loading true when starting listener setup
+    const unsubscribePendingRequests = getStudentLinkRequestsForAdminRealtime(
+      user.uid,
+      (requests) => {
+        setPendingRequests(requests);
+        setIsLoadingRequests(false); // Set loading false once data is received
+        console.log("AdminDashboard: Pending requests updated from real-time listener", requests);
+      },
+      (error) => {
+        toast({ title: 'Error Fetching Requests', description: error.message, variant: 'destructive' });
+        setIsLoadingRequests(false); // Also set loading false on error
+        console.error("AdminDashboard: Error from real-time requests listener:", error);
+      }
+    );
+
+    // Initial fetch for accepted students (can also be made real-time if desired, but less critical)
+    fetchAcceptedStudents();
+
+    return () => {
+      if (unsubscribePendingRequests) {
+        console.log("AdminDashboard: Unsubscribing from pending requests listener.");
+        unsubscribePendingRequests();
+      }
+    };
+  }, [user, userProfile?.role, authLoading, toast, router]); // Removed fetchAcceptedStudents from deps to avoid re-running its initial fetch on every pending request update
+
 
   const fetchAcceptedStudents = useCallback(async () => {
     if (!user || userProfile?.role !== 'admin') return;
@@ -57,27 +81,18 @@ function AdminDashboardPageContent() {
   }, [user, userProfile?.role, toast]);
 
 
-  useEffect(() => {
-    if (!authLoading && user && userProfile) {
-      if (userProfile.role !== 'admin') {
-        toast({ title: 'Access Denied', description: 'You are not authorized to view this page.', variant: 'destructive' });
-        router.replace('/'); 
-      } else {
-        fetchPendingRequests();
-        fetchAcceptedStudents();
-      }
-    }
-  }, [user, userProfile, authLoading, router, toast, fetchPendingRequests, fetchAcceptedStudents]);
-
   const handleResolveRequest = async (requestId: string, newStatus: 'accepted' | 'rejected') => {
     if (!user) return;
     setIsProcessingRequest(requestId);
     setCurrentProcessingStatus(newStatus);
     try {
+      // The real-time listener for pending requests should automatically update the list.
+      // We might also want to re-fetch accepted students if a request is accepted.
       await updateStudentLinkRequestStatusAndLinkStudent(requestId, user.uid, newStatus);
       toast({ title: 'Request Resolved', description: `Student request has been ${newStatus}.` });
-      fetchPendingRequests(); 
-      fetchAcceptedStudents();
+      if (newStatus === 'accepted') {
+        fetchAcceptedStudents(); // Refresh accepted students list
+      }
     } catch (error: any) {
       toast({ title: 'Error Resolving Request', description: error.message, variant: 'destructive' });
     } finally {
@@ -103,6 +118,7 @@ function AdminDashboardPageContent() {
   }
   
   if (userProfile.role !== 'admin') {
+     // This state should ideally be caught by the useEffect redirect, but as a fallback UI:
      return ( 
       <div className="container mx-auto px-4 py-8 text-center">
         <ShieldAlert className="mx-auto h-16 w-16 text-destructive mb-4" />
@@ -146,7 +162,7 @@ function AdminDashboardPageContent() {
             <CardDescription>Review and approve or reject requests from students to link with you.</CardDescription>
           </CardHeader>
           <CardContent>
-            {isLoadingRequests ? (
+            {isLoadingRequests ? ( // Show loader while initially fetching or if listener is setting up
               <div className="flex justify-center items-center py-6"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
             ) : pendingRequests.length === 0 ? (
               <p className="text-muted-foreground italic">No pending requests at this time.</p>

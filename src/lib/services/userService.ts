@@ -15,8 +15,11 @@ import {
   getDocs,
   limit,
   updateDoc,
+  onSnapshot, // Added for real-time
+  type Unsubscribe, // Added for real-time
 } from 'firebase/firestore'; 
 import { v4 as uuidv4 } from 'uuid';
+import { sendEmail } from '@/lib/emailUtils'; // Import the email utility
 
 const USERS_COLLECTION = 'users';
 const ADMINS_COLLECTION = 'admins'; 
@@ -258,7 +261,7 @@ export const studentRemoveAdminLink = async (
   studentUserId: string
 ): Promise<{ success: boolean; message: string }> => {
   const clientAuthUid = firebaseAuthClient.currentUser?.uid;
-  console.log(`%c[SERVICE/studentRemoveAdminLink] - Function ENTRY. StudentUID_Param: ${studentUserId}, ClientAuthUID (SDK): ${clientAuthUid}`, "color: #FF8C00; font-weight: bold;"); // Orange color for remove link
+  console.log(`%c[SERVICE/studentRemoveAdminLink] - Function ENTRY. StudentUID_Param: ${studentUserId}, ClientAuthUID (SDK): ${clientAuthUid}`, "color: #FF8C00; font-weight: bold;"); 
 
   if (!studentUserId || clientAuthUid !== studentUserId) {
     console.error(`[SERVICE/studentRemoveAdminLink] - Auth MISMATCH or missing studentUserId. Param: '${studentUserId}', SDK UID: '${clientAuthUid}'`);
@@ -277,10 +280,10 @@ export const studentRemoveAdminLink = async (
     }
     const studentProfileData = studentProfileSnap.data() as UserProfile;
     const linkedAdminFirebaseId = studentProfileData.associatedAdminFirebaseId;
+    const linkedAdminUniqueId = studentProfileData.associatedAdminUniqueId; // Capture for logging
 
-    console.log(`[SERVICE/studentRemoveAdminLink] - Student profile fetched. Linked Admin Firebase ID: ${linkedAdminFirebaseId || 'None'}`);
+    console.log(`[SERVICE/studentRemoveAdminLink] - Student profile fetched. Linked Admin Firebase ID: ${linkedAdminFirebaseId || 'None'}, Linked Admin Unique ID: ${linkedAdminUniqueId || 'None'}`);
 
-    // Update student's profile
     batch.update(studentUserDocRef, {
       associatedAdminFirebaseId: null,
       associatedAdminUniqueId: null,
@@ -290,33 +293,53 @@ export const studentRemoveAdminLink = async (
     console.log(`[SERVICE/studentRemoveAdminLink] - Added update to student's profile in batch for UID: ${studentUserId}.`);
 
     if (linkedAdminFirebaseId) {
-      console.log(`[SERVICE/studentRemoveAdminLink] - Student was linked to admin ${linkedAdminFirebaseId}. Querying studentLinkRequests to cancel.`);
+      console.log(`[SERVICE/studentRemoveAdminLink] - Student was linked to admin ${linkedAdminFirebaseId}. Querying studentLinkRequests to update status to 'cancelled'.`);
       const requestsQuery = query(
         collection(firestore, STUDENT_LINK_REQUESTS_COLLECTION),
         where('studentUserId', '==', studentUserId),
         where('adminFirebaseId', '==', linkedAdminFirebaseId),
-        where('status', 'in', ['pending', 'accepted'])
+        where('status', 'in', ['pending', 'accepted']) // Target both pending and previously accepted requests
       );
 
       const requestsSnapshot = await getDocs(requestsQuery);
       if (!requestsSnapshot.empty) {
         requestsSnapshot.forEach(requestDoc => {
-          console.log(`[SERVICE/studentRemoveAdminLink] - Found request ${requestDoc.id} (status: ${requestDoc.data().status}). Adding update to 'cancelled' in batch.`);
+          console.log(`[SERVICE/studentRemoveAdminLink] - Found request ${requestDoc.id} (current status: ${requestDoc.data().status}). Adding update to 'cancelled' in batch.`);
           batch.update(requestDoc.ref, {
-            status: 'cancelled', // Or 'revoked_by_student'
+            status: 'cancelled', // Explicitly mark as cancelled
             updatedAt: serverTimestamp(),
+            resolvedAt: serverTimestamp(), // Mark as resolved now by cancellation
+            resolvedBy: studentUserId, // Indicate student initiated this change
           });
         });
       } else {
-        console.log(`[SERVICE/studentRemoveAdminLink] - No 'pending' or 'accepted' requests found in studentLinkRequests for student ${studentUserId} and admin ${linkedAdminFirebaseId}.`);
+        console.log(`[SERVICE/studentRemoveAdminLink] - No 'pending' or 'accepted' requests found in studentLinkRequests for student ${studentUserId} and admin ${linkedAdminFirebaseId}. This is unusual if they were actively linked.`);
       }
     } else {
-      console.log(`[SERVICE/studentRemoveAdminLink] - Student was not linked to any admin (associatedAdminFirebaseId was null). Skipping query for studentLinkRequests.`);
+      console.log(`[SERVICE/studentRemoveAdminLink] - Student was not actively linked to an admin (associatedAdminFirebaseId was null). Checking for any orphaned 'pending' requests for this student.`);
+       // Check for any 'pending' requests from this student to ANY admin and cancel them too.
+      const orphanedPendingQuery = query(
+        collection(firestore, STUDENT_LINK_REQUESTS_COLLECTION),
+        where('studentUserId', '==', studentUserId),
+        where('status', '==', 'pending')
+      );
+      const orphanedSnapshot = await getDocs(orphanedPendingQuery);
+      if (!orphanedSnapshot.empty) {
+        orphanedSnapshot.forEach(requestDoc => {
+          console.log(`[SERVICE/studentRemoveAdminLink] - Found ORPHANED 'pending' request ${requestDoc.id} (to admin unique ID: ${requestDoc.data().adminUniqueIdTargeted}). Adding update to 'cancelled' in batch.`);
+          batch.update(requestDoc.ref, {
+            status: 'cancelled',
+            updatedAt: serverTimestamp(),
+            resolvedAt: serverTimestamp(),
+            resolvedBy: studentUserId,
+          });
+        });
+      }
     }
 
     console.log(`[SERVICE/studentRemoveAdminLink] - About to commit batch for student UID: ${studentUserId}.`);
     await batch.commit();
-    console.log(`%c[SERVICE/studentRemoveAdminLink] - SUCCESS. Link removed and relevant requests cancelled for StudentUID: ${studentUserId}`, "color: green; font-weight: bold;");
+    console.log(`%c[SERVICE/studentRemoveAdminLink] - SUCCESS. Link removed and relevant requests updated for StudentUID: ${studentUserId}`, "color: green; font-weight: bold;");
     return { success: true, message: 'Link with admin has been removed and associated requests updated.' };
 
   } catch (error: any) {
@@ -326,14 +349,31 @@ export const studentRemoveAdminLink = async (
 };
 
 
-export const getStudentLinkRequestsForAdmin = async (adminFirebaseId: string): Promise<StudentLinkRequest[]> => {
+// New real-time function for admin dashboard
+export const getStudentLinkRequestsForAdminRealtime = (
+  adminFirebaseId: string,
+  callback: (requests: StudentLinkRequest[]) => void,
+  onError: (error: Error) => void
+): Unsubscribe => {
+  console.log(`[SERVICE/getStudentLinkRequestsForAdminRealtime] Setting up listener for admin: ${adminFirebaseId}`);
   const q = query(
     collection(firestore, STUDENT_LINK_REQUESTS_COLLECTION),
     where('adminFirebaseId', '==', adminFirebaseId),
     where('status', '==', 'pending')
   );
-  const querySnapshot = await getDocs(q);
-  return querySnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as StudentLinkRequest));
+
+  const unsubscribe = onSnapshot(q, 
+    (querySnapshot) => {
+      const requests = querySnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as StudentLinkRequest));
+      console.log(`[SERVICE/getStudentLinkRequestsForAdminRealtime] Data received for admin ${adminFirebaseId}. Count: ${requests.length}`);
+      callback(requests);
+    },
+    (error) => {
+      console.error(`[SERVICE/getStudentLinkRequestsForAdminRealtime] Error for admin ${adminFirebaseId}:`, error);
+      onError(error);
+    }
+  );
+  return unsubscribe;
 };
 
 export const updateStudentLinkRequestStatusAndLinkStudent = async (
@@ -376,7 +416,43 @@ export const updateStudentLinkRequestStatusAndLinkStudent = async (
   }
   batch.update(studentUserDocRef, studentUpdateData);
 
-  await batch.commit();
+  try {
+    await batch.commit();
+    console.log(`[SERVICE/updateStudentLinkRequestStatus] Request ${requestId} status updated to ${newStatus} by admin ${adminFirebaseIdResolving}.`);
+
+    // Send email notification to student
+    const studentName = requestData.studentName || requestData.studentEmail.split('@')[0];
+    let emailSubject = '';
+    let emailText = '';
+    let emailHtml = '';
+
+    if (newStatus === 'accepted') {
+      emailSubject = 'Your Link Request to CertIntel Admin Was Approved!';
+      emailText = `Hello ${studentName},\n\nYour request to link with the CertIntel admin (${requestData.adminUniqueIdTargeted}) has been approved. You are now linked.\n\nRegards,\nThe CertIntel Team`;
+      emailHtml = `<p>Hello ${studentName},</p><p>Your request to link with the CertIntel admin (ID: <strong>${requestData.adminUniqueIdTargeted}</strong>) has been <strong>approved</strong>. You are now linked.</p><p>Regards,<br/>The CertIntel Team</p>`;
+    } else if (newStatus === 'rejected') {
+      emailSubject = 'Update on Your CertIntel Admin Link Request';
+      emailText = `Hello ${studentName},\n\nUnfortunately, your request to link with the CertIntel admin (${requestData.adminUniqueIdTargeted}) was not approved at this time.\n\nIf you believe this is an error, please contact your admin or try requesting again.\n\nRegards,\nThe CertIntel Team`;
+      emailHtml = `<p>Hello ${studentName},</p><p>Unfortunately, your request to link with the CertIntel admin (ID: <strong>${requestData.adminUniqueIdTargeted}</strong>) was <strong>not approved</strong> at this time.</p><p>If you believe this is an error, please contact your admin or try requesting again.</p><p>Regards,<br/>The CertIntel Team</p>`;
+    }
+
+    if (requestData.studentEmail && emailSubject) {
+      const emailResult = await sendEmail({
+        to: requestData.studentEmail,
+        subject: emailSubject,
+        text: emailText,
+        html: emailHtml,
+      });
+      if (emailResult.success) {
+        console.log(`[SERVICE/updateStudentLinkRequestStatus] Email notification sent to ${requestData.studentEmail} for request ${requestId} status ${newStatus}.`);
+      } else {
+        console.warn(`[SERVICE/updateStudentLinkRequestStatus] Failed to send email notification to ${requestData.studentEmail} for request ${requestId}. Reason: ${emailResult.message}`);
+      }
+    }
+  } catch (error: any) {
+    console.error(`[SERVICE/updateStudentLinkRequestStatus] Error committing batch or sending email for request ${requestId}:`, error);
+    throw error; // Re-throw the error to be caught by the caller
+  }
 };
 
 export const getStudentsForAdmin = async (adminFirebaseId: string): Promise<UserProfile[]> => {
@@ -403,5 +479,3 @@ export const updateUserProfileDocument = async (userId: string, data: Partial<Us
     return { success: false, message: error.message || "Failed to update profile." };
   }
 };
-
-    
