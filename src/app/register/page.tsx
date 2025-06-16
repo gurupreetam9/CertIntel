@@ -27,7 +27,11 @@ const RoleSelectionSchema = z.object({
 type RoleSelectionFormValues = z.infer<typeof RoleSelectionSchema>;
 
 const EmailSchema = z.object({
-  email: z.string().email({ message: 'Invalid email address.' }),
+  email: z.string()
+    .email({ message: 'Invalid email address format.' })
+    .refine(email => email.endsWith('@gmail.com'), {
+      message: 'Invalid email address. Only @gmail.com accounts are supported for registration.',
+    }),
 });
 type EmailFormValues = z.infer<typeof EmailSchema>;
 
@@ -225,7 +229,7 @@ export default function RegisterPage() {
           <>
             <CardHeader>
               <CardTitle className="text-3xl font-headline">Register as {selectedRole === 'admin' ? 'Admin' : 'Student'}</CardTitle>
-              <CardDescription>Enter your email to receive a verification OTP.</CardDescription>
+              <CardDescription>Enter your email to receive a verification OTP. Only @gmail.com addresses are supported.</CardDescription>
             </CardHeader>
             <CardContent>
               <Form {...emailForm}>
@@ -380,3 +384,5 @@ export default function RegisterPage() {
     </div>
   );
 }
+
+    
