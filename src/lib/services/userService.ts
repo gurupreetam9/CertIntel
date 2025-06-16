@@ -31,12 +31,11 @@ export const createUserProfileDocument = async (
   const userDocRef = doc(firestore, USERS_COLLECTION, userId);
   const now = Timestamp.now();
 
-  // DIAGNOSTIC LOG:
-  console.log(`[UserService/createUserProfileDocument] Attempting to create profile for userId: ${userId}. Current client auth state (auth.currentUser?.uid): ${auth.currentUser?.uid}`);
+  // DIAGNOSTIC LOG for createUserProfileDocument:
+  console.log(`[UserService/createUserProfileDocument] START. UID: ${userId}. ClientAuthUID: ${auth.currentUser?.uid}`);
   if (auth.currentUser?.uid !== userId) {
-    console.warn(`[UserService/createUserProfileDocument] MISMATCH or NULL auth.currentUser: auth.currentUser?.uid is '${auth.currentUser?.uid}' while target userId is '${userId}'. This will likely cause a permission error if rules expect request.auth.uid == userId.`);
+    console.warn(`[UserService/createUserProfileDocument] MISMATCH/NULL ClientAuthUID: '${auth.currentUser?.uid}' vs target UID: '${userId}'.`);
   }
-
 
   const profileData: UserProfile = {
     uid: userId,
@@ -60,7 +59,7 @@ export const createUserProfileDocument = async (
   ) as UserProfile; // Cast as UserProfile, assuming required fields are met by defaults
 
   await setDoc(userDocRef, finalProfileData); // Use setDoc without merge for initial creation
-  console.log(`[UserService/createUserProfileDocument] Profile document supposedly created for userId: ${userId}`);
+  console.log(`[UserService/createUserProfileDocument] END. Profile doc created for UID: ${userId}`);
   return finalProfileData;
 };
 
@@ -113,14 +112,12 @@ export const createStudentLinkRequest = async (
   studentUserId: string,
   studentEmail: string,
   studentName: string,
-  studentRollNo: string | null, // Can be string or null
+  studentRollNo: string | null,
   targetAdminUniqueId: string,
   targetAdminFirebaseId: string
 ): Promise<StudentLinkRequest> => {
   const requestDocRef = doc(collection(firestore, STUDENT_LINK_REQUESTS_COLLECTION));
   const now = Timestamp.now();
-
-  // Ensure studentRollNo is either a non-empty string or null.
   const studentRollNoCleaned = (studentRollNo && studentRollNo.trim() !== '') ? studentRollNo.trim() : null;
 
   const linkRequest: StudentLinkRequest = {
@@ -135,10 +132,11 @@ export const createStudentLinkRequest = async (
     requestedAt: now,
   };
 
-  // DIAGNOSTIC LOG:
-  console.log(`[UserService/createStudentLinkRequest] PRE-BATCH: Student attempting request. studentUserId: ${studentUserId}, Client auth.currentUser?.uid: ${auth.currentUser?.uid}`);
-  if (auth.currentUser?.uid !== studentUserId) {
-    console.warn(`[UserService/createStudentLinkRequest] PRE-BATCH MISMATCH or NULL: auth.currentUser?.uid ('${auth.currentUser?.uid}') vs studentUserId ('${studentUserId}'). THIS WILL LIKELY CAUSE A FIRESTORE PERMISSION ERROR.`);
+  // DIAGNOSTIC LOG for createStudentLinkRequest (batch part):
+  const clientAuthUidForBatch = auth.currentUser?.uid;
+  console.log(`[UserService/createStudentLinkRequest - BATCH] START. StudentUID: ${studentUserId}, ClientAuthUID: ${clientAuthUidForBatch}. TargetAdminUID: ${targetAdminFirebaseId}, TargetAdminUniqueId: ${targetAdminUniqueId}`);
+  if (clientAuthUidForBatch !== studentUserId) {
+    console.warn(`[UserService/createStudentLinkRequest - BATCH] MISMATCH/NULL ClientAuthUID: '${clientAuthUidForBatch}' vs StudentUID: '${studentUserId}'. EXPECT PERMISSION ERROR.`);
   }
 
   const batch = writeBatch(firestore);
@@ -152,14 +150,14 @@ export const createStudentLinkRequest = async (
     updatedAt: serverTimestamp()
   });
   
-  console.log(`[UserService/createStudentLinkRequest] About to commit batch. studentUserId: ${studentUserId}, targetAdminUniqueId: ${targetAdminUniqueId}, targetAdminFirebaseId: ${targetAdminFirebaseId}. Client-side auth.currentUser?.uid: ${auth.currentUser?.uid}`);
+  console.log(`[UserService/createStudentLinkRequest - BATCH] ABOUT TO COMMIT. StudentUID: ${studentUserId}, AdminUniqueId: ${targetAdminUniqueId}. ClientAuthUID: ${clientAuthUidForBatch}`);
   try {
     await batch.commit();
-    console.log(`[UserService/createStudentLinkRequest] POST-BATCH: Batch committed successfully for studentUserId: ${studentUserId}. Request ID: ${linkRequest.id}`);
+    console.log(`[UserService/createStudentLinkRequest - BATCH] SUCCESS. Committed for StudentUID: ${studentUserId}. RequestID: ${linkRequest.id}`);
     return linkRequest;
   } catch (error: any) {
-      console.error(`[UserService/createStudentLinkRequest] BATCH COMMIT FAILED for student ${studentUserId} linking to admin ${targetAdminUniqueId}. Firestore Error Code: ${error.code}. Error Message: ${error.message}. Full Error:`, error);
-      throw error; // Re-throw the error to be caught by the caller
+      console.error(`[UserService/createStudentLinkRequest - BATCH] !!! BATCH COMMIT FAILED !!! StudentUID: ${studentUserId}, Admin: ${targetAdminUniqueId}. Firestore Error Code: ${error.code}. Message: ${error.message}. Full Error:`, error);
+      throw error; 
   }
 };
 
@@ -171,24 +169,29 @@ export const studentRequestLinkWithAdmin = async (
   studentRollNo: string | null,
   targetAdminUniqueId: string
 ): Promise<{ success: boolean; message: string; requestId?: string }> => {
-  console.log(`[UserService/studentRequestLinkWithAdmin] Initiating link request. Student: ${studentUserId}, Target Admin Unique ID: ${targetAdminUniqueId}`);
-  if (!studentUserId || !auth.currentUser || auth.currentUser.uid !== studentUserId) {
-    const authStateMessage = `Auth state check: studentUserId param is '${studentUserId}', auth.currentUser is ${auth.currentUser ? `'${auth.currentUser.uid}'` : 'null'}.`;
-    console.error(`[UserService/studentRequestLinkWithAdmin] Authorization check failed. ${authStateMessage}`);
-    return { success: false, message: `Authentication error or mismatch. Cannot proceed with link request. ${authStateMessage}` };
+  const clientAuthUid = auth.currentUser?.uid;
+  console.log(`[UserService/studentRequestLinkWithAdmin] START. StudentUID_Param: ${studentUserId}, ClientAuthUID: ${clientAuthUid}, TargetAdminUniqueId: ${targetAdminUniqueId}`);
+
+  if (!studentUserId || !auth.currentUser || clientAuthUid !== studentUserId) {
+    const authStateMessage = `Auth state check: studentUserId param is '${studentUserId}', auth.currentUser is ${auth.currentUser ? `'${clientAuthUid}'` : 'null'}.`;
+    console.error(`[UserService/studentRequestLinkWithAdmin] Authorization check FAILED. ${authStateMessage}`);
+    return { success: false, message: `Authentication error or mismatch. Cannot proceed. Client Auth UID: ${clientAuthUid}, Target Student UID: ${studentUserId}` };
   }
   
   const studentRollNoCleaned = (studentRollNo && studentRollNo.trim() !== '') ? studentRollNo.trim() : null;
 
   try {
+    console.log(`[UserService/studentRequestLinkWithAdmin] STEP: Calling getAdminByUniqueId for TargetAdminUniqueId: ${targetAdminUniqueId}`);
     const adminProfile = await getAdminByUniqueId(targetAdminUniqueId);
+    console.log(`[UserService/studentRequestLinkWithAdmin] STEP: getAdminByUniqueId result:`, JSON.stringify(adminProfile));
+
     if (!adminProfile) {
       console.warn(`[UserService/studentRequestLinkWithAdmin] No admin found for unique ID: ${targetAdminUniqueId}`);
       return { success: false, message: `No Teacher/Admin found with ID: ${targetAdminUniqueId}. Please check the ID and try again.` };
     }
     console.log(`[UserService/studentRequestLinkWithAdmin] Found admin profile for ID ${targetAdminUniqueId}: Admin Firebase UID is ${adminProfile.userId}`);
 
-    // Check if student already has a pending or accepted request with this admin
+    console.log(`[UserService/studentRequestLinkWithAdmin] STEP: Checking existing requests for StudentUID: ${studentUserId}, AdminFirebaseUID: ${adminProfile.userId}`);
     const existingRequestQuery = query(
       collection(firestore, STUDENT_LINK_REQUESTS_COLLECTION),
       where('studentUserId', '==', studentUserId),
@@ -196,6 +199,8 @@ export const studentRequestLinkWithAdmin = async (
       where('status', 'in', ['pending', 'accepted'])
     );
     const existingRequestSnap = await getDocs(existingRequestQuery);
+    console.log(`[UserService/studentRequestLinkWithAdmin] STEP: getDocs for existing requests result: empty = ${existingRequestSnap.empty}, size = ${existingRequestSnap.size}`);
+
     if (!existingRequestSnap.empty) {
         const existingStatus = existingRequestSnap.docs[0].data().status;
         console.warn(`[UserService/studentRequestLinkWithAdmin] Student ${studentUserId} already has an existing request with admin ${targetAdminUniqueId} (Admin Firebase ID: ${adminProfile.userId}) with status: ${existingStatus}`);
@@ -206,6 +211,7 @@ export const studentRequestLinkWithAdmin = async (
         }
     }
 
+    console.log(`[UserService/studentRequestLinkWithAdmin] STEP: Calling createStudentLinkRequest. StudentUID: ${studentUserId}, AdminFirebaseUID: ${adminProfile.userId}`);
     const linkRequest = await createStudentLinkRequest(
       studentUserId,
       studentEmail,
@@ -214,11 +220,10 @@ export const studentRequestLinkWithAdmin = async (
       targetAdminUniqueId,
       adminProfile.userId
     );
-    console.log(`[UserService/studentRequestLinkWithAdmin] Link request successfully created. Request ID: ${linkRequest.id}`);
+    console.log(`[UserService/studentRequestLinkWithAdmin] Link request successfully created by createStudentLinkRequest. Request ID: ${linkRequest.id}`);
     return { success: true, message: 'Link request sent successfully.', requestId: linkRequest.id };
   } catch (error: any) {
-    console.error(`[UserService/studentRequestLinkWithAdmin] Error during link request process for student ${studentUserId} and admin ${targetAdminUniqueId}:`, error);
-    // If the error is from Firestore and has a code, use that.
+    console.error(`[UserService/studentRequestLinkWithAdmin] !!! OUTER CATCH BLOCK ERROR !!! StudentUID: ${studentUserId}, AdminUniqueId: ${targetAdminUniqueId}. Error Name: ${error.name}, Code: ${error.code}, Message: ${error.message}. Full Error Object:`, JSON.stringify(error, Object.getOwnPropertyNames(error)));
     const errorMessage = error.code ? `Firestore error (${error.code}): ${error.message}` : error.message;
     return { success: false, message: errorMessage || "Failed to send link request due to an unexpected error." };
   }
@@ -293,9 +298,13 @@ export const updateStudentLinkRequestStatusAndLinkStudent = async (
     studentUpdateData.associatedAdminFirebaseId = adminFirebaseIdResolving;
     // associatedAdminUniqueId should already be on the requestData and thus on student from initial request.
     studentUpdateData.associatedAdminUniqueId = requestData.adminUniqueIdTargeted;
-  } else {
+  } else { // 'rejected' or any other non-accepted status
     studentUpdateData.associatedAdminFirebaseId = null;
     studentUpdateData.associatedAdminUniqueId = null;
+    // If specifically rejected, mark status as 'rejected'. If other non-accepted logic, might be 'none' or keep as is.
+    // For explicit reject by admin, 'rejected' is appropriate on the student profile.
+    // If student cancels, it becomes 'none'.
+    studentUpdateData.linkRequestStatus = 'rejected'; // Ensure student profile reflects admin's rejection.
   }
   batch.update(studentUserDocRef, studentUpdateData);
 
@@ -326,5 +335,3 @@ export const updateUserProfileDocument = async (userId: string, data: Partial<Us
     return { success: false, message: error.message || "Failed to update profile." };
   }
 };
-
-    
