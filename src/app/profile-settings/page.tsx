@@ -24,6 +24,8 @@ import {
   getAdminByUniqueId, 
 } from '@/lib/services/userService';
 import type { UserProfile } from '@/lib/models/user';
+import { doc, getDoc } from 'firebase/firestore';
+import { firestore } from '@/lib/firebase/config';
 
 const profileFormSchema = z.object({
   displayName: z.string().min(1, 'Display name cannot be empty.').max(50, 'Display name is too long.'),
@@ -68,25 +70,19 @@ function ProfileSettingsPageContent() {
         rollNo: userProfile.rollNo || '',
       });
       if (userProfile.role === 'student' && userProfile.associatedAdminUniqueId && userProfile.linkRequestStatus === 'accepted') {
-        // Fetch linked admin's name for display
         getAdminByUniqueId(userProfile.associatedAdminUniqueId).then(admin => {
-          if (admin) {
-            // Assuming admin profile in 'admins' collection has an 'email' or you fetch their user profile from 'users'
-            // For simplicity, using admin unique ID itself or a placeholder if name isn't directly on AdminProfile.
-            // To get display name, you'd need another query on users collection with admin.userId.
-            // For now, just using their email or unique ID as a placeholder for name.
-            // Let's assume the 'admins' collection has email, or we fallback to the unique ID for display.
-            // A proper AdminProfile model would have a displayName or we'd fetch it from the 'users' collection using admin.userId.
-            // For this example, we'll just display the unique ID if we don't have an email.
+          if (admin && admin.userId) { // Ensure admin.userId exists
              const adminDocRef = doc(firestore, 'users', admin.userId);
              getDoc(adminDocRef).then(adminUserDoc => {
                 if(adminUserDoc.exists()) {
                     const adminUserData = adminUserDoc.data() as UserProfile;
                     setLinkedAdminName(adminUserData.displayName || admin.email || admin.adminUniqueId);
                 } else {
-                     setLinkedAdminName(admin.email || admin.adminUniqueId);
+                     setLinkedAdminName(admin.email || admin.adminUniqueId); // Fallback if user profile for admin not found
                 }
-             }).catch(() => setLinkedAdminName(admin.email || admin.adminUniqueId));
+             }).catch(() => setLinkedAdminName(admin.email || admin.adminUniqueId)); // Fallback on error
+          } else if (admin) {
+            setLinkedAdminName(admin.email || admin.adminUniqueId); // Fallback if admin.userId is missing
           }
         });
       } else {
@@ -146,45 +142,79 @@ function ProfileSettingsPageContent() {
   };
 
   const handleRequestLink: SubmitHandler<AdminLinkFormValues> = async (data) => {
-    if (!user || !userProfile || userProfile.role !== 'student' || !user.email) {
-      toast({ title: "Error", description: "User profile not available or invalid role.", variant: "destructive" });
+    console.log("%c[ProfileSettingsPage/handleRequestLink] TRIGGERED", "color: blue; font-weight: bold; font-size: 1.2em;");
+    console.log(`[ProfileSettingsPage/handleRequestLink] Form data submitted: ${JSON.stringify(data)}`);
+
+    if (!user || !user.email || !userProfile) {
+      const errorMsg = `Cannot request link: User=${user ? 'OK' : 'NULL/UNDEFINED'}, Email=${user?.email ? 'OK' : 'NULL/UNDEFINED'}, Profile=${userProfile ? 'OK' : 'NULL/UNDEFINED'}. Please re-login.`;
+      toast({ 
+        title: "Authentication Error", 
+        description: errorMsg, 
+        variant: "destructive",
+        duration: 10000 
+      });
+      console.error(`[ProfileSettingsPage/handleRequestLink] PRE-FLIGHT CHECK FAILED. User object:`, user, `User Profile object:`, userProfile);
+      setIsSubmittingLinkRequest(false); // Ensure button is re-enabled
       return;
     }
+    
+    console.log(`[ProfileSettingsPage/handleRequestLink] PRE-FLIGHT CHECK PASSED. User UID: ${user.uid}, Email: ${user.email}, Role: ${userProfile.role}, Current Profile State:`, JSON.parse(JSON.stringify(userProfile)));
+
+    if (userProfile.role !== 'student') {
+      toast({ title: "Invalid Action", description: "Only students can link with an admin.", variant: "destructive" });
+      console.warn(`[ProfileSettingsPage/handleRequestLink] Invalid action: User role is '${userProfile.role}', not 'student'.`);
+      setIsSubmittingLinkRequest(false); // Ensure button is re-enabled
+      return;
+    }
+
     setIsSubmittingLinkRequest(true);
     try {
+      // Ensure studentUserId passed to the service is from the authenticated user context
       const result = await studentRequestLinkWithAdmin(
-        user.uid,
+        user.uid, // CRITICAL: Use authenticated user's UID
         user.email,
-        userProfile.displayName || user.email.split('@')[0] || 'Student',
+        userProfile.displayName || user.email.split('@')[0] || 'Student', // Fallback for display name
         userProfile.rollNo || null,
         data.newAdminId
       );
+
+      console.log(`[ProfileSettingsPage/handleRequestLink] studentRequestLinkWithAdmin service call result:`, result);
+
       if (result.success) {
         toast({ title: "Link Request Sent", description: `Request to link with Admin ID ${data.newAdminId} has been sent.` });
         adminLinkForm.reset();
-        refreshUserProfile(); // Refresh profile to update link status display
+        refreshUserProfile(); 
       } else {
-        toast({ title: "Link Request Failed", description: result.message, variant: "destructive" });
+        toast({ title: "Link Request Failed", description: result.message, variant: "destructive", duration: 7000 });
       }
     } catch (error: any) {
-      toast({ title: "Error", description: error.message || "An unexpected error occurred.", variant: "destructive" });
+      console.error("[ProfileSettingsPage/handleRequestLink] CATCH BLOCK - Error during link request process:", error);
+      toast({ title: "Error", description: error.message || "An unexpected error occurred while requesting link.", variant: "destructive" });
     } finally {
       setIsSubmittingLinkRequest(false);
     }
   };
 
   const handleRemoveLink = async () => {
-    if (!user || !userProfile || userProfile.role !== 'student') return;
+    console.log("%c[ProfileSettingsPage/handleRemoveLink] TRIGGERED", "color: red; font-weight: bold; font-size: 1.2em;");
+    if (!user || !userProfile || userProfile.role !== 'student') {
+        toast({ title: "Error", description: "User profile not available or invalid role for removing link.", variant: "destructive" });
+        console.error(`[ProfileSettingsPage/handleRemoveLink] Pre-condition FAILED: User: ${JSON.stringify(user)}, UserProfile: ${JSON.stringify(userProfile)}`);
+        return;
+    }
+    console.log(`[ProfileSettingsPage/handleRemoveLink] User UID: ${user.uid}`);
     setIsRemovingLink(true);
     try {
       const result = await studentRemoveAdminLink(user.uid);
+      console.log(`[ProfileSettingsPage/handleRemoveLink] studentRemoveAdminLink service call result:`, result);
       if (result.success) {
         toast({ title: "Link Removed", description: "You are no longer linked with the admin." });
-        refreshUserProfile(); // Refresh profile
+        refreshUserProfile();
       } else {
         toast({ title: "Failed to Remove Link", description: result.message, variant: "destructive" });
       }
     } catch (error: any) {
+      console.error("[ProfileSettingsPage/handleRemoveLink] CATCH BLOCK - Error removing link:", error);
       toast({ title: "Error", description: error.message || "An unexpected error occurred.", variant: "destructive" });
     } finally {
       setIsRemovingLink(false);
@@ -257,7 +287,7 @@ function ProfileSettingsPageContent() {
                         <FormItem>
                         <FormLabel>Roll Number (Optional)</FormLabel>
                         <FormControl>
-                            <Input placeholder="Your Roll Number" {...field} />
+                            <Input placeholder="Your Roll Number" {...field} value={field.value || ''} />
                         </FormControl>
                         <FormMessage />
                         </FormItem>
@@ -313,8 +343,8 @@ function ProfileSettingsPageContent() {
             </CardHeader>
             <CardContent className="space-y-6">
               {isLinkAccepted && userProfile.associatedAdminUniqueId && (
-                <div className="space-y-3 p-4 border rounded-md bg-green-50 border-green-200">
-                  <p className="text-sm text-green-700">
+                <div className="space-y-3 p-4 border rounded-md bg-green-50 border-green-200 dark:bg-green-900/30 dark:border-green-700">
+                  <p className="text-sm text-green-700 dark:text-green-300">
                     You are currently linked with Teacher/Admin: <strong className="font-semibold">{linkedAdminName || userProfile.associatedAdminUniqueId}</strong>.
                   </p>
                   <Button variant="destructive" onClick={handleRemoveLink} disabled={isRemovingLink}>
@@ -325,8 +355,8 @@ function ProfileSettingsPageContent() {
               )}
 
               {isLinkPending && userProfile.associatedAdminUniqueId && (
-                <div className="space-y-2 p-4 border rounded-md bg-yellow-50 border-yellow-200">
-                  <p className="text-sm text-yellow-700 flex items-center">
+                <div className="space-y-2 p-4 border rounded-md bg-yellow-50 border-yellow-200 dark:bg-yellow-800/30 dark:border-yellow-700">
+                  <p className="text-sm text-yellow-700 dark:text-yellow-300 flex items-center">
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Your request to link with Teacher/Admin ID <strong className="font-semibold">{userProfile.associatedAdminUniqueId}</strong> is pending approval.
                   </p>
@@ -338,8 +368,8 @@ function ProfileSettingsPageContent() {
               )}
               
               {userProfile.linkRequestStatus === 'rejected' && userProfile.associatedAdminUniqueId && (
-                <div className="space-y-2 p-4 border rounded-md bg-red-50 border-red-200">
-                  <p className="text-sm text-red-700 flex items-center">
+                <div className="space-y-2 p-4 border rounded-md bg-red-50 border-red-200 dark:bg-red-900/30 dark:border-red-700">
+                  <p className="text-sm text-red-700 dark:text-red-300 flex items-center">
                     <AlertTriangle className="mr-2 h-4 w-4" />
                     Your previous link request with Teacher/Admin ID <strong className="font-semibold">{userProfile.associatedAdminUniqueId}</strong> was not approved. You can try requesting again or with a different ID.
                   </p>
@@ -399,15 +429,10 @@ function ProfileSettingsPageContent() {
 }
 
 export default function ProfileSettingsPage() {
-  // Need to import firestore for getDoc call within the component.
-  // This is okay for client components if rules allow read.
   return (
     <ProtectedPage>
       <ProfileSettingsPageContent />
     </ProtectedPage>
   );
 }
-// Add doc and getDoc to imports if not already there for the admin name fetch
-import { doc, getDoc } from 'firebase/firestore';
-import { firestore } from '@/lib/firebase/config';
 
