@@ -10,9 +10,9 @@ import { Loader2, CheckCircle, XCircle, Users, ShieldAlert, Inbox, FileText, Arr
 import { useToast } from '@/hooks/use-toast';
 import type { StudentLinkRequest, UserProfile as StudentUserProfile } from '@/lib/models/user';
 import { 
-  getStudentLinkRequestsForAdminRealtime, // Changed to new real-time function
+  getStudentLinkRequestsForAdminRealtime, 
   updateStudentLinkRequestStatusAndLinkStudent,
-  getStudentsForAdmin
+  getStudentsForAdminRealtime // Changed to new real-time function
 } from '@/lib/services/userService';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -25,8 +25,8 @@ function AdminDashboardPageContent() {
 
   const [pendingRequests, setPendingRequests] = useState<StudentLinkRequest[]>([]);
   const [acceptedStudents, setAcceptedStudents] = useState<StudentUserProfile[]>([]);
-  const [isLoadingRequests, setIsLoadingRequests] = useState(true); // Still true initially
-  const [isLoadingStudents, setIsLoadingStudents] = useState(false);
+  const [isLoadingRequests, setIsLoadingRequests] = useState(true); 
+  const [isLoadingStudents, setIsLoadingStudents] = useState(true); // Start as true for accepted students
   const [isProcessingRequest, setIsProcessingRequest] = useState<string | null>(null);
   const [currentProcessingStatus, setCurrentProcessingStatus] = useState<'accepted' | 'rejected' | null>(null);
 
@@ -40,45 +40,47 @@ function AdminDashboardPageContent() {
       return;
     }
 
-    setIsLoadingRequests(true); // Set loading true when starting listener setup
+    setIsLoadingRequests(true);
     const unsubscribePendingRequests = getStudentLinkRequestsForAdminRealtime(
       user.uid,
       (requests) => {
         setPendingRequests(requests);
-        setIsLoadingRequests(false); // Set loading false once data is received
+        setIsLoadingRequests(false); 
         console.log("AdminDashboard: Pending requests updated from real-time listener", requests);
       },
       (error) => {
-        toast({ title: 'Error Fetching Requests', description: error.message, variant: 'destructive' });
-        setIsLoadingRequests(false); // Also set loading false on error
-        console.error("AdminDashboard: Error from real-time requests listener:", error);
+        toast({ title: 'Error Fetching Pending Requests', description: error.message, variant: 'destructive' });
+        setIsLoadingRequests(false); 
+        console.error("AdminDashboard: Error from real-time pending requests listener:", error);
       }
     );
 
-    // Initial fetch for accepted students (can also be made real-time if desired, but less critical)
-    fetchAcceptedStudents();
+    setIsLoadingStudents(true);
+    const unsubscribeAcceptedStudents = getStudentsForAdminRealtime(
+      user.uid,
+      (students) => {
+        setAcceptedStudents(students);
+        setIsLoadingStudents(false);
+        console.log("AdminDashboard: Accepted students updated from real-time listener", students);
+      },
+      (error) => {
+        toast({ title: 'Error Fetching Accepted Students', description: error.message, variant: 'destructive' });
+        setIsLoadingStudents(false);
+        console.error("AdminDashboard: Error from real-time accepted students listener:", error);
+      }
+    );
 
     return () => {
       if (unsubscribePendingRequests) {
         console.log("AdminDashboard: Unsubscribing from pending requests listener.");
         unsubscribePendingRequests();
       }
+      if (unsubscribeAcceptedStudents) {
+        console.log("AdminDashboard: Unsubscribing from accepted students listener.");
+        unsubscribeAcceptedStudents();
+      }
     };
-  }, [user, userProfile?.role, authLoading, toast, router]); // Removed fetchAcceptedStudents from deps to avoid re-running its initial fetch on every pending request update
-
-
-  const fetchAcceptedStudents = useCallback(async () => {
-    if (!user || userProfile?.role !== 'admin') return;
-    setIsLoadingStudents(true);
-    try {
-      const students = await getStudentsForAdmin(user.uid);
-      setAcceptedStudents(students);
-    } catch (error: any) {
-      toast({ title: 'Error Fetching Students', description: error.message, variant: 'destructive' });
-    } finally {
-      setIsLoadingStudents(false);
-    }
-  }, [user, userProfile?.role, toast]);
+  }, [user, userProfile?.role, authLoading, toast, router]);
 
 
   const handleResolveRequest = async (requestId: string, newStatus: 'accepted' | 'rejected') => {
@@ -86,13 +88,10 @@ function AdminDashboardPageContent() {
     setIsProcessingRequest(requestId);
     setCurrentProcessingStatus(newStatus);
     try {
-      // The real-time listener for pending requests should automatically update the list.
-      // We might also want to re-fetch accepted students if a request is accepted.
+      // Real-time listeners for both pending and accepted students should update lists automatically.
       await updateStudentLinkRequestStatusAndLinkStudent(requestId, user.uid, newStatus);
       toast({ title: 'Request Resolved', description: `Student request has been ${newStatus}.` });
-      if (newStatus === 'accepted') {
-        fetchAcceptedStudents(); // Refresh accepted students list
-      }
+      // No need to manually fetch acceptedStudents here if the real-time listener is active
     } catch (error: any) {
       toast({ title: 'Error Resolving Request', description: error.message, variant: 'destructive' });
     } finally {
@@ -118,7 +117,6 @@ function AdminDashboardPageContent() {
   }
   
   if (userProfile.role !== 'admin') {
-     // This state should ideally be caught by the useEffect redirect, but as a fallback UI:
      return ( 
       <div className="container mx-auto px-4 py-8 text-center">
         <ShieldAlert className="mx-auto h-16 w-16 text-destructive mb-4" />
@@ -162,7 +160,7 @@ function AdminDashboardPageContent() {
             <CardDescription>Review and approve or reject requests from students to link with you.</CardDescription>
           </CardHeader>
           <CardContent>
-            {isLoadingRequests ? ( // Show loader while initially fetching or if listener is setting up
+            {isLoadingRequests ? ( 
               <div className="flex justify-center items-center py-6"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
             ) : pendingRequests.length === 0 ? (
               <p className="text-muted-foreground italic">No pending requests at this time.</p>
@@ -241,3 +239,4 @@ export default function AdminDashboardPage() {
     </ProtectedPage>
   );
 }
+

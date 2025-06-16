@@ -15,11 +15,11 @@ import {
   getDocs,
   limit,
   updateDoc,
-  onSnapshot, // Added for real-time
-  type Unsubscribe, // Added for real-time
+  onSnapshot, 
+  type Unsubscribe, 
 } from 'firebase/firestore'; 
 import { v4 as uuidv4 } from 'uuid';
-import { sendEmail } from '@/lib/emailUtils'; // Import the email utility
+import { sendEmail } from '@/lib/emailUtils'; 
 
 const USERS_COLLECTION = 'users';
 const ADMINS_COLLECTION = 'admins'; 
@@ -280,7 +280,7 @@ export const studentRemoveAdminLink = async (
     }
     const studentProfileData = studentProfileSnap.data() as UserProfile;
     const linkedAdminFirebaseId = studentProfileData.associatedAdminFirebaseId;
-    const linkedAdminUniqueId = studentProfileData.associatedAdminUniqueId; // Capture for logging
+    const linkedAdminUniqueId = studentProfileData.associatedAdminUniqueId; 
 
     console.log(`[SERVICE/studentRemoveAdminLink] - Student profile fetched. Linked Admin Firebase ID: ${linkedAdminFirebaseId || 'None'}, Linked Admin Unique ID: ${linkedAdminUniqueId || 'None'}`);
 
@@ -298,7 +298,7 @@ export const studentRemoveAdminLink = async (
         collection(firestore, STUDENT_LINK_REQUESTS_COLLECTION),
         where('studentUserId', '==', studentUserId),
         where('adminFirebaseId', '==', linkedAdminFirebaseId),
-        where('status', 'in', ['pending', 'accepted']) // Target both pending and previously accepted requests
+        where('status', 'in', ['pending', 'accepted']) 
       );
 
       const requestsSnapshot = await getDocs(requestsQuery);
@@ -306,10 +306,10 @@ export const studentRemoveAdminLink = async (
         requestsSnapshot.forEach(requestDoc => {
           console.log(`[SERVICE/studentRemoveAdminLink] - Found request ${requestDoc.id} (current status: ${requestDoc.data().status}). Adding update to 'cancelled' in batch.`);
           batch.update(requestDoc.ref, {
-            status: 'cancelled', // Explicitly mark as cancelled
+            status: 'cancelled', 
             updatedAt: serverTimestamp(),
-            resolvedAt: serverTimestamp(), // Mark as resolved now by cancellation
-            resolvedBy: studentUserId, // Indicate student initiated this change
+            resolvedAt: serverTimestamp(), 
+            resolvedBy: studentUserId, 
           });
         });
       } else {
@@ -317,7 +317,6 @@ export const studentRemoveAdminLink = async (
       }
     } else {
       console.log(`[SERVICE/studentRemoveAdminLink] - Student was not actively linked to an admin (associatedAdminFirebaseId was null). Checking for any orphaned 'pending' requests for this student.`);
-       // Check for any 'pending' requests from this student to ANY admin and cancel them too.
       const orphanedPendingQuery = query(
         collection(firestore, STUDENT_LINK_REQUESTS_COLLECTION),
         where('studentUserId', '==', studentUserId),
@@ -349,7 +348,6 @@ export const studentRemoveAdminLink = async (
 };
 
 
-// New real-time function for admin dashboard
 export const getStudentLinkRequestsForAdminRealtime = (
   adminFirebaseId: string,
   callback: (requests: StudentLinkRequest[]) => void,
@@ -420,7 +418,6 @@ export const updateStudentLinkRequestStatusAndLinkStudent = async (
     await batch.commit();
     console.log(`[SERVICE/updateStudentLinkRequestStatus] Request ${requestId} status updated to ${newStatus} by admin ${adminFirebaseIdResolving}.`);
 
-    // Send email notification to student
     const studentName = requestData.studentName || requestData.studentEmail.split('@')[0];
     let emailSubject = '';
     let emailText = '';
@@ -451,7 +448,7 @@ export const updateStudentLinkRequestStatusAndLinkStudent = async (
     }
   } catch (error: any) {
     console.error(`[SERVICE/updateStudentLinkRequestStatus] Error committing batch or sending email for request ${requestId}:`, error);
-    throw error; // Re-throw the error to be caught by the caller
+    throw error; 
   }
 };
 
@@ -466,6 +463,35 @@ export const getStudentsForAdmin = async (adminFirebaseId: string): Promise<User
   return querySnapshot.docs.map(docSnap => docSnap.data() as UserProfile);
 };
 
+// New real-time function for admin's accepted students
+export const getStudentsForAdminRealtime = (
+  adminFirebaseId: string,
+  callback: (students: UserProfile[]) => void,
+  onError: (error: Error) => void
+): Unsubscribe => {
+  console.log(`[SERVICE/getStudentsForAdminRealtime] Setting up listener for admin: ${adminFirebaseId}'s accepted students.`);
+  const q = query(
+    collection(firestore, USERS_COLLECTION),
+    where('role', '==', 'student'),
+    where('associatedAdminFirebaseId', '==', adminFirebaseId),
+    where('linkRequestStatus', '==', 'accepted')
+  );
+
+  const unsubscribe = onSnapshot(q,
+    (querySnapshot) => {
+      const students = querySnapshot.docs.map(docSnap => docSnap.data() as UserProfile);
+      console.log(`[SERVICE/getStudentsForAdminRealtime] Data received for admin ${adminFirebaseId}'s accepted students. Count: ${students.length}`);
+      callback(students);
+    },
+    (error) => {
+      console.error(`[SERVICE/getStudentsForAdminRealtime] Error for admin ${adminFirebaseId}'s accepted students:`, error);
+      onError(error);
+    }
+  );
+  return unsubscribe;
+};
+
+
 export const updateUserProfileDocument = async (userId: string, data: Partial<UserProfile>): Promise<{ success: boolean, message?: string }> => {
   if (!userId) return { success: false, message: 'User ID is required.'};
   const userDocRef = doc(firestore, USERS_COLLECTION, userId);
@@ -479,3 +505,4 @@ export const updateUserProfileDocument = async (userId: string, data: Partial<Us
     return { success: false, message: error.message || "Failed to update profile." };
   }
 };
+
