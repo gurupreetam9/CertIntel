@@ -46,7 +46,7 @@ export const createUserProfileDocument = async (
     createdAt: now,
     updatedAt: now,
     // Student-specific fields initialized
-    rollNo: (role === 'student' && additionalData.rollNo !== undefined) ? additionalData.rollNo : null,
+    rollNo: (role === 'student' && additionalData.rollNo) ? additionalData.rollNo : null,
     linkRequestStatus: (role === 'student') ? 'none' : undefined, // Default to 'none' for students, undefined for admins
     associatedAdminFirebaseId: (role === 'student') ? null : undefined,
     associatedAdminUniqueId: (role === 'student') ? null : undefined,
@@ -199,35 +199,17 @@ export const studentRemoveAdminLink = async (
 ): Promise<{ success: boolean; message: string }> => {
   try {
     const studentUserDocRef = doc(firestore, USERS_COLLECTION, studentUserId);
-    const studentSnap = await getDoc(studentUserDocRef);
-    if (!studentSnap.exists()) {
-        return { success: false, message: "Student profile not found."};
-    }
-    const studentData = studentSnap.data() as UserProfile;
-
+    
+    // The student is only allowed to update their own profile to remove the link.
+    // The corresponding request in studentLinkRequests will remain, but
+    // the admin's query for linked students will no longer pick up this student.
     const batch = writeBatch(firestore);
     batch.update(studentUserDocRef, {
       associatedAdminFirebaseId: null,
       associatedAdminUniqueId: null,
-      linkRequestStatus: 'none',
+      linkRequestStatus: 'none', // Student explicitly removed the link
       updatedAt: serverTimestamp(),
     });
-
-    // Optionally, find and mark the corresponding link request as 'rejected' or 'revoked'
-    // This makes the admin's view cleaner if they look at old requests.
-    if (studentData.associatedAdminFirebaseId) {
-        const requestQuery = query(
-            collection(firestore, STUDENT_LINK_REQUESTS_COLLECTION),
-            where('studentUserId', '==', studentUserId),
-            where('adminFirebaseId', '==', studentData.associatedAdminFirebaseId),
-            where('status', 'in', ['pending', 'accepted']) // Look for current or previously accepted link
-        );
-        const requestSnapshots = await getDocs(requestQuery);
-        requestSnapshots.forEach(docSnap => {
-            // Could use a new status like 'revoked_by_student' or just 'rejected'
-            batch.update(docSnap.ref, { status: 'rejected', resolvedAt: serverTimestamp(), resolvedBy: studentUserId });
-        });
-    }
 
     await batch.commit();
     return { success: true, message: 'Link with admin has been removed.' };
