@@ -12,7 +12,7 @@ import type { StudentLinkRequest, UserProfile as StudentUserProfile } from '@/li
 import { 
   getStudentLinkRequestsForAdminRealtime, 
   updateStudentLinkRequestStatusAndLinkStudent,
-  getStudentsForAdminRealtime // Changed to new real-time function
+  getStudentsForAdminRealtime
 } from '@/lib/services/userService';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -26,7 +26,7 @@ function AdminDashboardPageContent() {
   const [pendingRequests, setPendingRequests] = useState<StudentLinkRequest[]>([]);
   const [acceptedStudents, setAcceptedStudents] = useState<StudentUserProfile[]>([]);
   const [isLoadingRequests, setIsLoadingRequests] = useState(true); 
-  const [isLoadingStudents, setIsLoadingStudents] = useState(true); // Start as true for accepted students
+  const [isLoadingStudents, setIsLoadingStudents] = useState(true);
   const [isProcessingRequest, setIsProcessingRequest] = useState<string | null>(null);
   const [currentProcessingStatus, setCurrentProcessingStatus] = useState<'accepted' | 'rejected' | null>(null);
 
@@ -46,7 +46,7 @@ function AdminDashboardPageContent() {
       (requests) => {
         setPendingRequests(requests);
         setIsLoadingRequests(false); 
-        console.log("AdminDashboard: Pending requests updated from real-time listener", requests);
+        console.log("AdminDashboard: Pending requests updated from real-time listener. Count:", requests.length);
       },
       (error) => {
         toast({ title: 'Error Fetching Pending Requests', description: error.message, variant: 'destructive' });
@@ -61,7 +61,9 @@ function AdminDashboardPageContent() {
       (students) => {
         setAcceptedStudents(students);
         setIsLoadingStudents(false);
-        console.log("AdminDashboard: Accepted students updated from real-time listener", students);
+        const studentDetailsForLog = students.map(s => ({ uid: s.uid, displayName: s.displayName, rollNo: s.rollNo, email: s.email, linkStatus: s.linkRequestStatus }));
+        console.log("AdminDashboard: Accepted students updated from real-time listener. Count:", students.length);
+        console.log("AdminDashboard: Details of received students (incl. rollNo):", JSON.stringify(studentDetailsForLog, null, 2));
       },
       (error) => {
         toast({ title: 'Error Fetching Accepted Students', description: error.message, variant: 'destructive' });
@@ -88,10 +90,8 @@ function AdminDashboardPageContent() {
     setIsProcessingRequest(requestId);
     setCurrentProcessingStatus(newStatus);
     try {
-      // Real-time listeners for both pending and accepted students should update lists automatically.
       await updateStudentLinkRequestStatusAndLinkStudent(requestId, user.uid, newStatus);
       toast({ title: 'Request Resolved', description: `Student request has been ${newStatus}.` });
-      // No need to manually fetch acceptedStudents here if the real-time listener is active
     } catch (error: any) {
       toast({ title: 'Error Resolving Request', description: error.message, variant: 'destructive' });
     } finally {
@@ -142,7 +142,7 @@ function AdminDashboardPageContent() {
         <Card className="mb-8 bg-primary/5 border-primary/20 shadow-md">
           <CardHeader>
             <CardTitle className="text-primary text-xl">Your Unique Admin ID</CardTitle>
-            <CardDescription className="text-muted-foreground">Share this ID with your students so they can link to you upon registration.</CardDescription>
+            <CardDescription className="text-muted-foreground">Share this ID with your students so they can link to you upon registration or from their profile.</CardDescription>
           </CardHeader>
           <CardContent className="flex items-center gap-x-3">
             <p className="text-lg font-mono bg-primary/10 text-primary-foreground px-4 py-2 rounded-md inline-block shadow-sm">{userProfile.adminUniqueId}</p>
