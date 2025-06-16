@@ -1,5 +1,5 @@
 
-import { firestore } from '@/lib/firebase/config'; // For client-side SDK Firestore
+import { auth, firestore } from '@/lib/firebase/config'; // Ensure auth is imported
 import type { UserProfile, AdminProfile, StudentLinkRequest, UserRole, LinkRequestStatus } from '@/lib/models/user';
 import {
   doc,
@@ -13,7 +13,7 @@ import {
   serverTimestamp,
   getDocs,
   limit,
-  updateDoc, 
+  updateDoc,
 } from 'firebase/firestore'; // Client-side SDK imports
 import { v4 as uuidv4 } from 'uuid';
 
@@ -28,9 +28,16 @@ export const createUserProfileDocument = async (
   role: UserRole,
   additionalData: Partial<UserProfile> = {}
 ): Promise<UserProfile> => {
-  const userDocRef = doc(firestore, USERS_COLLECTION, userId); 
+  const userDocRef = doc(firestore, USERS_COLLECTION, userId);
   const now = Timestamp.now();
-  
+
+  // DIAGNOSTIC LOG:
+  console.log(`[UserService/createUserProfileDocument] Attempting to create profile for userId: ${userId}. Current client auth state (auth.currentUser?.uid): ${auth.currentUser?.uid}`);
+  if (auth.currentUser?.uid !== userId) {
+    console.warn(`[UserService/createUserProfileDocument] MISMATCH or NULL auth.currentUser: auth.currentUser?.uid is '${auth.currentUser?.uid}' while target userId is '${userId}'. This will likely cause a permission error if rules expect request.auth.uid == userId.`);
+  }
+
+
   const profileData: UserProfile = {
     uid: userId,
     email,
@@ -53,7 +60,8 @@ export const createUserProfileDocument = async (
   ) as UserProfile; // Cast as UserProfile, assuming required fields are met by defaults
 
   await setDoc(userDocRef, finalProfileData); // Use setDoc without merge for initial creation
-  return finalProfileData; 
+  console.log(`[UserService/createUserProfileDocument] Profile document supposedly created for userId: ${userId}`);
+  return finalProfileData;
 };
 
 export const getUserProfile = async (userId: string): Promise<UserProfile | null> => {
@@ -61,7 +69,7 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
     console.warn("userService (getUserProfile - client): Called with no userId.");
     return null;
   }
-  const userDocRef = doc(firestore, USERS_COLLECTION, userId); 
+  const userDocRef = doc(firestore, USERS_COLLECTION, userId);
   try {
     const userDocSnap = await getDoc(userDocRef);
     if (userDocSnap.exists()) {
@@ -76,7 +84,7 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
 };
 
 export const createAdminProfile = async (userId: string, email: string): Promise<AdminProfile> => {
-  const adminDocRef = doc(firestore, ADMINS_COLLECTION, userId); 
+  const adminDocRef = doc(firestore, ADMINS_COLLECTION, userId);
   const adminUniqueId = uuidv4().substring(0, 8).toUpperCase();
   const now = Timestamp.now();
 
@@ -109,7 +117,7 @@ export const createStudentLinkRequest = async (
   targetAdminUniqueId: string,
   targetAdminFirebaseId: string
 ): Promise<StudentLinkRequest> => {
-  const requestDocRef = doc(collection(firestore, STUDENT_LINK_REQUESTS_COLLECTION)); 
+  const requestDocRef = doc(collection(firestore, STUDENT_LINK_REQUESTS_COLLECTION));
   const now = Timestamp.now();
 
   const linkRequest: StudentLinkRequest = {
@@ -117,22 +125,22 @@ export const createStudentLinkRequest = async (
     studentUserId,
     studentEmail,
     studentName,
-    studentRollNo: studentRollNo !== undefined ? studentRollNo : null, 
+    studentRollNo: studentRollNo !== undefined ? studentRollNo : null,
     adminUniqueIdTargeted: targetAdminUniqueId,
     adminFirebaseId: targetAdminFirebaseId,
     status: 'pending',
     requestedAt: now,
   };
-  
+
   const batch = writeBatch(firestore);
   batch.set(requestDocRef, linkRequest);
-  
+
   const studentUserDocRef = doc(firestore, USERS_COLLECTION, studentUserId);
-  batch.update(studentUserDocRef, { 
-    linkRequestStatus: 'pending', 
-    associatedAdminUniqueId: targetAdminUniqueId, 
+  batch.update(studentUserDocRef, {
+    linkRequestStatus: 'pending',
+    associatedAdminUniqueId: targetAdminUniqueId,
     associatedAdminFirebaseId: targetAdminFirebaseId,
-    updatedAt: serverTimestamp() 
+    updatedAt: serverTimestamp()
   });
 
   await batch.commit();
@@ -176,7 +184,7 @@ export const studentRequestLinkWithAdmin = async (
       studentName,
       studentRollNo,
       targetAdminUniqueId,
-      adminProfile.userId 
+      adminProfile.userId
     );
     return { success: true, message: 'Link request sent successfully.', requestId: linkRequest.id };
   } catch (error: any) {
@@ -217,10 +225,10 @@ export const studentRemoveAdminLink = async (
         const requestSnapshots = await getDocs(requestQuery);
         requestSnapshots.forEach(docSnap => {
             // Could use a new status like 'revoked_by_student' or just 'rejected'
-            batch.update(docSnap.ref, { status: 'rejected', resolvedAt: serverTimestamp(), resolvedBy: studentUserId }); 
+            batch.update(docSnap.ref, { status: 'rejected', resolvedAt: serverTimestamp(), resolvedBy: studentUserId });
         });
     }
-    
+
     await batch.commit();
     return { success: true, message: 'Link with admin has been removed.' };
   } catch (error: any) {
@@ -242,7 +250,7 @@ export const getStudentLinkRequestsForAdmin = async (adminFirebaseId: string): P
 
 export const updateStudentLinkRequestStatusAndLinkStudent = async (
   requestId: string,
-  adminFirebaseIdResolving: string, 
+  adminFirebaseIdResolving: string,
   newStatus: Extract<LinkRequestStatus, 'accepted' | 'rejected'>
 ): Promise<void> => {
   const batch = writeBatch(firestore);
@@ -257,7 +265,7 @@ export const updateStudentLinkRequestStatusAndLinkStudent = async (
   if (requestData.adminFirebaseId !== adminFirebaseIdResolving) {
     throw new Error('Admin not authorized to resolve this request.');
   }
-  
+
   batch.update(requestDocRef, {
     status: newStatus,
     resolvedAt: serverTimestamp(),
@@ -273,9 +281,9 @@ export const updateStudentLinkRequestStatusAndLinkStudent = async (
   if (newStatus === 'accepted') {
     studentUpdateData.associatedAdminFirebaseId = adminFirebaseIdResolving;
     // associatedAdminUniqueId should already be on the requestData and thus on student from initial request.
-    studentUpdateData.associatedAdminUniqueId = requestData.adminUniqueIdTargeted; 
-  } else { 
-    studentUpdateData.associatedAdminFirebaseId = null; 
+    studentUpdateData.associatedAdminUniqueId = requestData.adminUniqueIdTargeted;
+  } else {
+    studentUpdateData.associatedAdminFirebaseId = null;
     studentUpdateData.associatedAdminUniqueId = null;
   }
   batch.update(studentUserDocRef, studentUpdateData);
@@ -307,3 +315,5 @@ export const updateUserProfileDocument = async (userId: string, data: Partial<Us
     return { success: false, message: error.message || "Failed to update profile." };
   }
 };
+
+    
