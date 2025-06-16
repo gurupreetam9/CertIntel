@@ -40,9 +40,11 @@ function AdminDashboardPageContent() {
       return;
     }
 
+    const currentAdminUid = user.uid; // Capture uid for stable dependency if needed, though `user` covers it.
+
     setIsLoadingRequests(true);
     const unsubscribePendingRequests = getStudentLinkRequestsForAdminRealtime(
-      user.uid,
+      currentAdminUid,
       (requests) => {
         setPendingRequests(requests);
         setIsLoadingRequests(false); 
@@ -57,13 +59,25 @@ function AdminDashboardPageContent() {
 
     setIsLoadingStudents(true);
     const unsubscribeAcceptedStudents = getStudentsForAdminRealtime(
-      user.uid,
-      (students) => {
-        setAcceptedStudents(students);
+      currentAdminUid,
+      (newStudents) => {
+        setAcceptedStudents(prevStudents => {
+          const newStudentsJSON = JSON.stringify(newStudents.map(s => ({ uid: s.uid, rollNo: s.rollNo, displayName: s.displayName })));
+          const prevStudentsJSON = JSON.stringify(prevStudents.map(s => ({ uid: s.uid, rollNo: s.rollNo, displayName: s.displayName })));
+
+          if (prevStudentsJSON !== newStudentsJSON) {
+            console.log("%cAdminDashboard: Accepted students list content HAS CHANGED.", "color: blue; font-weight:bold;");
+            const studentDetailsForLog = newStudents.map(s => ({ uid: s.uid, displayName: s.displayName, rollNo: s.rollNo, email: s.email, linkStatus: s.linkRequestStatus }));
+            console.log("AdminDashboard: PREVIOUS accepted students (UID, RollNo, Name):", prevStudentsJSON);
+            console.log("AdminDashboard: NEW accepted students (Full Details):", JSON.stringify(studentDetailsForLog, null, 2));
+          } else if (prevStudents.length === 0 && newStudents.length === 0) {
+            console.log("AdminDashboard: Accepted students list remains empty (initial or no change).");
+          } else {
+            console.log("AdminDashboard: Accepted students list received, but content appears IDENTICAL to previous state based on UID, RollNo, DisplayName check.");
+          }
+          return newStudents; // Return the new students array to update state
+        });
         setIsLoadingStudents(false);
-        const studentDetailsForLog = students.map(s => ({ uid: s.uid, displayName: s.displayName, rollNo: s.rollNo, email: s.email, linkStatus: s.linkRequestStatus }));
-        console.log("AdminDashboard: Accepted students updated from real-time listener. Count:", students.length);
-        console.log("AdminDashboard: Details of received students (incl. rollNo):", JSON.stringify(studentDetailsForLog, null, 2));
       },
       (error) => {
         toast({ title: 'Error Fetching Accepted Students', description: error.message, variant: 'destructive' });
