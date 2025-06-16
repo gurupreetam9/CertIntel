@@ -135,7 +135,7 @@ export const createStudentLinkRequest = async (
     requestedAt: now,
   };
 
-  // DIAGNOSTIC LOG
+  // DIAGNOSTIC LOG:
   console.log(`[UserService/createStudentLinkRequest] PRE-BATCH: Student attempting request. studentUserId: ${studentUserId}, Client auth.currentUser?.uid: ${auth.currentUser?.uid}`);
   if (auth.currentUser?.uid !== studentUserId) {
     console.warn(`[UserService/createStudentLinkRequest] PRE-BATCH MISMATCH or NULL: auth.currentUser?.uid ('${auth.currentUser?.uid}') vs studentUserId ('${studentUserId}'). THIS WILL LIKELY CAUSE A FIRESTORE PERMISSION ERROR.`);
@@ -151,10 +151,16 @@ export const createStudentLinkRequest = async (
     associatedAdminFirebaseId: targetAdminFirebaseId,
     updatedAt: serverTimestamp()
   });
-
-  await batch.commit();
-  console.log(`[UserService/createStudentLinkRequest] POST-BATCH: Batch committed for studentUserId: ${studentUserId}. Request ID: ${linkRequest.id}`);
-  return linkRequest;
+  
+  console.log(`[UserService/createStudentLinkRequest] About to commit batch. studentUserId: ${studentUserId}, targetAdminUniqueId: ${targetAdminUniqueId}, targetAdminFirebaseId: ${targetAdminFirebaseId}. Client-side auth.currentUser?.uid: ${auth.currentUser?.uid}`);
+  try {
+    await batch.commit();
+    console.log(`[UserService/createStudentLinkRequest] POST-BATCH: Batch committed successfully for studentUserId: ${studentUserId}. Request ID: ${linkRequest.id}`);
+    return linkRequest;
+  } catch (error: any) {
+      console.error(`[UserService/createStudentLinkRequest] BATCH COMMIT FAILED for student ${studentUserId} linking to admin ${targetAdminUniqueId}. Firestore Error Code: ${error.code}. Error Message: ${error.message}. Full Error:`, error);
+      throw error; // Re-throw the error to be caught by the caller
+  }
 };
 
 // New function for students to initiate link request from their profile
@@ -165,11 +171,22 @@ export const studentRequestLinkWithAdmin = async (
   studentRollNo: string | null,
   targetAdminUniqueId: string
 ): Promise<{ success: boolean; message: string; requestId?: string }> => {
+  console.log(`[UserService/studentRequestLinkWithAdmin] Initiating link request. Student: ${studentUserId}, Target Admin Unique ID: ${targetAdminUniqueId}`);
+  if (!studentUserId || !auth.currentUser || auth.currentUser.uid !== studentUserId) {
+    const authStateMessage = `Auth state check: studentUserId param is '${studentUserId}', auth.currentUser is ${auth.currentUser ? `'${auth.currentUser.uid}'` : 'null'}.`;
+    console.error(`[UserService/studentRequestLinkWithAdmin] Authorization check failed. ${authStateMessage}`);
+    return { success: false, message: `Authentication error or mismatch. Cannot proceed with link request. ${authStateMessage}` };
+  }
+  
+  const studentRollNoCleaned = (studentRollNo && studentRollNo.trim() !== '') ? studentRollNo.trim() : null;
+
   try {
     const adminProfile = await getAdminByUniqueId(targetAdminUniqueId);
     if (!adminProfile) {
+      console.warn(`[UserService/studentRequestLinkWithAdmin] No admin found for unique ID: ${targetAdminUniqueId}`);
       return { success: false, message: `No Teacher/Admin found with ID: ${targetAdminUniqueId}. Please check the ID and try again.` };
     }
+    console.log(`[UserService/studentRequestLinkWithAdmin] Found admin profile for ID ${targetAdminUniqueId}: Admin Firebase UID is ${adminProfile.userId}`);
 
     // Check if student already has a pending or accepted request with this admin
     const existingRequestQuery = query(
@@ -181,6 +198,7 @@ export const studentRequestLinkWithAdmin = async (
     const existingRequestSnap = await getDocs(existingRequestQuery);
     if (!existingRequestSnap.empty) {
         const existingStatus = existingRequestSnap.docs[0].data().status;
+        console.warn(`[UserService/studentRequestLinkWithAdmin] Student ${studentUserId} already has an existing request with admin ${targetAdminUniqueId} (Admin Firebase ID: ${adminProfile.userId}) with status: ${existingStatus}`);
         if (existingStatus === 'pending') {
             return { success: false, message: `You already have a pending request with Admin ID ${targetAdminUniqueId}.` };
         } else if (existingStatus === 'accepted') {
@@ -192,14 +210,17 @@ export const studentRequestLinkWithAdmin = async (
       studentUserId,
       studentEmail,
       studentName,
-      studentRollNo,
+      studentRollNoCleaned,
       targetAdminUniqueId,
       adminProfile.userId
     );
+    console.log(`[UserService/studentRequestLinkWithAdmin] Link request successfully created. Request ID: ${linkRequest.id}`);
     return { success: true, message: 'Link request sent successfully.', requestId: linkRequest.id };
   } catch (error: any) {
-    console.error("Error in studentRequestLinkWithAdmin:", error);
-    return { success: false, message: error.message || "Failed to send link request." };
+    console.error(`[UserService/studentRequestLinkWithAdmin] Error during link request process for student ${studentUserId} and admin ${targetAdminUniqueId}:`, error);
+    // If the error is from Firestore and has a code, use that.
+    const errorMessage = error.code ? `Firestore error (${error.code}): ${error.message}` : error.message;
+    return { success: false, message: errorMessage || "Failed to send link request due to an unexpected error." };
   }
 };
 
