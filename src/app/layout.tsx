@@ -2,7 +2,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { AuthProvider } from '@/context/AuthContext';
-import { ThemeProvider } from '@/hooks/themeContextManager';
+import { ThemeProvider } from '@/hooks/themeContextManager.tsx'; // Explicitly import .tsx
 import { Toaster } from '@/components/ui/toaster';
 import SiteHeader from '@/components/layout/SiteHeader';
 
