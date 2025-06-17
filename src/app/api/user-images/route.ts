@@ -2,21 +2,19 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { connectToDb } from '@/lib/mongodb';
-import { adminAuth, adminFirestore } from '@/lib/firebase/adminConfig'; 
+import { getAdminAuth, getAdminFirestore } from '@/lib/firebase/adminConfig'; // Use getters
 import type { UserProfile } from '@/lib/models/user';
 
 const USERS_COLLECTION = 'users';
 
 // Local implementation of getAnyUserProfileWithAdmin for this API route
 const getAnyUserProfileWithAdminLocally = async (userId: string): Promise<UserProfile | null> => {
+  const adminFirestore = getAdminFirestore(); // Get instance
   if (!userId) {
     console.warn("user-images API (getAnyUserProfileWithAdminLocally): Called with no userId.");
     return null;
   }
-  if (!adminFirestore || typeof adminFirestore.collection !== 'function') {
-    console.error("user-images API (getAnyUserProfileWithAdminLocally): adminFirestore is not initialized properly.");
-    throw new Error("Admin Firestore service not available.");
-  }
+  // getAdminFirestore() will throw if adminFirestore is not initialized, so direct check removed.
   try {
     const userDocRef = adminFirestore.collection(USERS_COLLECTION).doc(userId);
     const userDocSnap = await userDocRef.get();
@@ -33,6 +31,7 @@ const getAnyUserProfileWithAdminLocally = async (userId: string): Promise<UserPr
 
 
 export async function GET(request: NextRequest) {
+  const adminAuth = getAdminAuth(); // Get instance
   const reqId = Math.random().toString(36).substring(2, 9);
   console.log(`API Route /api/user-images (Req ID: ${reqId}): GET request received. URL: ${request.url}`);
 
@@ -47,10 +46,7 @@ export async function GET(request: NextRequest) {
 
   let decodedToken;
   try {
-    if (!adminAuth || typeof adminAuth.verifyIdToken !== 'function') {
-      console.error(`API Route /api/user-images (Req ID: ${reqId}): Firebase Admin Auth SDK not initialized.`);
-      return NextResponse.json({ message: 'Server error: Authentication service not available.', errorKey: 'ADMIN_AUTH_NOT_INIT' }, { status: 503 });
-    }
+    // getAdminAuth() will throw if adminAuth is not initialized, so direct check removed.
     decodedToken = await adminAuth.verifyIdToken(idToken);
     console.log(`API Route /api/user-images (Req ID: ${reqId}): ID Token verified successfully for UID: ${decodedToken.uid}`);
   } catch (error: any) {
@@ -196,4 +192,3 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(errorPayload, { status: statusCode });
   }
 }
-

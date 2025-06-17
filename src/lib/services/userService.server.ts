@@ -1,13 +1,12 @@
+
 // NO 'use client'; directive
-import { adminFirestore } from '@/lib/firebase/adminConfig'; // Use Admin SDK
+import { getAdminFirestore } from '@/lib/firebase/adminConfig'; // Use Admin SDK via getter
 import type { UserProfile, AdminProfile, UserRole, StudentLinkRequest } from '@/lib/models/user';
-// Import Timestamp and FieldValue from firebase-admin/firestore
-import { Timestamp, FieldValue } from 'firebase-admin/firestore'; // Correct import for Admin SDK
+import { Timestamp, FieldValue } from 'firebase-admin/firestore'; 
 import { v4 as uuidv4 } from 'uuid';
 
 const USERS_COLLECTION = 'users';
 const STUDENT_LINK_REQUESTS_COLLECTION = 'studentLinkRequests';
-
 
 // SERVER-SIDE function for creating/updating user profile, used by registration flow
 export const createUserProfileDocument_SERVER = async (
@@ -16,7 +15,8 @@ export const createUserProfileDocument_SERVER = async (
   role: UserRole,
   additionalData: Partial<UserProfile> = {}
 ): Promise<UserProfile> => {
-  const userDocRef = adminFirestore.collection(USERS_COLLECTION).doc(userId); // Admin SDK: adminFirestore.collection().doc()
+  const adminFirestore = getAdminFirestore(); // Get instance
+  const userDocRef = adminFirestore.collection(USERS_COLLECTION).doc(userId);
   const now = Timestamp.now();
   console.log(`[SERVICE_SERVER/createUserProfileDocument_SERVER] - START. Target UID: ${userId}. Role: ${role}. AdditionalData:`, JSON.stringify(additionalData));
 
@@ -54,7 +54,7 @@ export const createUserProfileDocument_SERVER = async (
     Object.entries(profileData).filter(([_, v]) => v !== undefined)
   ) as UserProfile;
 
-  await userDocRef.set(finalProfileData); // Admin SDK: docRef.set()
+  await userDocRef.set(finalProfileData);
   console.log(`[SERVICE_SERVER/createUserProfileDocument_SERVER] - END. Profile doc created/set for UID: ${userId}. Final data written:`, JSON.stringify(finalProfileData));
 
   if (role === 'student' && initialLinkStatus === 'pending' && associatedAdminFirebaseIdToSet && associatedAdminUniqueIdToSet) {
@@ -73,6 +73,7 @@ export const createUserProfileDocument_SERVER = async (
 
 // SERVER-SIDE function for admin profile specific tasks during registration
 export const createAdminProfile_SERVER = async (userId: string, email: string): Promise<AdminProfile> => {
+  // const adminFirestore = getAdminFirestore(); // Not directly used here, createUserProfileDocument_SERVER will get it
   const adminUniqueId = uuidv4().substring(0, 8).toUpperCase();
   const now = Timestamp.now();
   console.log(`[SERVICE_SERVER/createAdminProfile_SERVER] - START. Target UID: ${userId}. Email: ${email}. Generated AdminUniqueId: ${adminUniqueId}`);
@@ -90,15 +91,16 @@ export const createAdminProfile_SERVER = async (userId: string, email: string): 
 
 // SERVER-SIDE function to get admin details by their unique shareable ID
 export const getAdminByUniqueId_SERVER = async (adminUniqueId: string): Promise<{ userId: string; email: string; adminUniqueId: string; displayName?: string | null } | null> => {
+  const adminFirestore = getAdminFirestore(); // Get instance
   console.log(`[SERVICE_SERVER/getAdminByUniqueId_SERVER] - Querying USERS_COLLECTION for adminUniqueId: ${adminUniqueId}`);
-  // Admin SDK: adminFirestore.collection().where().where().limit().get()
-  const usersQuery = adminFirestore.collection(USERS_COLLECTION)
+  const usersCollectionRef = adminFirestore.collection(USERS_COLLECTION);
+  const usersQuery = usersCollectionRef
     .where('role', '==', 'admin')
     .where('adminUniqueId', '==', adminUniqueId)
     .limit(1);
 
   try {
-    const querySnapshot = await usersQuery.get(); // Admin SDK: query.get()
+    const querySnapshot = await usersQuery.get();
     if (!querySnapshot.empty) {
       const adminUserProfile = querySnapshot.docs[0].data() as UserProfile;
       console.log(`[SERVICE_SERVER/getAdminByUniqueId_SERVER] - Found admin user profile:`, adminUserProfile);
@@ -126,7 +128,8 @@ export const createStudentLinkRequest_SERVER = async (
   targetAdminUniqueId: string,
   targetAdminFirebaseId: string
 ): Promise<StudentLinkRequest> => {
-  const requestDocRef = adminFirestore.collection(STUDENT_LINK_REQUESTS_COLLECTION).doc(); // Admin SDK: create doc ref
+  const adminFirestore = getAdminFirestore(); // Get instance
+  const requestDocRef = adminFirestore.collection(STUDENT_LINK_REQUESTS_COLLECTION).doc(); 
   const now = Timestamp.now();
   const studentRollNoCleaned = (studentRollNo && studentRollNo.trim() !== '') ? studentRollNo.trim() : null;
 
@@ -144,7 +147,7 @@ export const createStudentLinkRequest_SERVER = async (
 
   console.log(`[SERVICE_SERVER/createStudentLinkRequest_SERVER] - Creating link request document for StudentUID: ${studentUserId}, TargetAdminUID: ${targetAdminFirebaseId}`);
   try {
-    await requestDocRef.set(linkRequest); // Admin SDK: docRef.set()
+    await requestDocRef.set(linkRequest); 
     console.log(`%c[SERVICE_SERVER/createStudentLinkRequest_SERVER] - SUCCESS. Link request document created. RequestID: ${linkRequest.id}`, "color: green; font-weight: bold;");
     return linkRequest;
   } catch (error: any) {
