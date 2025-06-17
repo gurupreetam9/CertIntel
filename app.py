@@ -157,7 +157,7 @@ def process_certificates_from_db():
         app_logger.warning(f"Flask (Req ID: {req_id_cert}): User ID not provided.")
         return jsonify({"error": "User ID (userId) not provided"}), 400
 
-    app_logger.info(f"Flask (Req ID: {req_id_cert}): Processing for userId: {user_id}, Mode: {processing_mode}.")
+    app_logger.info(f"Flask (Req ID: {req_id_cert}): Processing for userId: '{user_id}' (Type: {type(user_id)}), Mode: {processing_mode}.")
     app_logger.info(f"Flask (Req ID: {req_id_cert}): General Manual Courses: {additional_manual_courses_general}")
     app_logger.info(f"Flask (Req ID: {req_id_cert}): Known Course Names for Suggestions: {known_course_names_from_frontend}")
 
@@ -169,9 +169,22 @@ def process_certificates_from_db():
 
         if processing_mode == 'ocr_only':
             image_data_for_ocr_processing = []
-            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Finding all images for userId: {user_id} in db.images.files")
+            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Finding all images for userId: '{user_id}' in db.images.files")
+            
+            # Log count of images for the user ID
+            try:
+                count_for_user_id = db.images.files.count_documents({"metadata.userId": user_id})
+                app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): MongoDB count_documents for metadata.userId '{user_id}' is: {count_for_user_id}")
+            except Exception as e_count:
+                app_logger.error(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Error counting documents for userId '{user_id}': {e_count}")
+
             user_image_files_cursor = db.images.files.find({"metadata.userId": user_id}) # Use db instance directly
-            for file_doc in user_image_files_cursor:
+            
+            temp_list_for_cursor = list(user_image_files_cursor) # Convert cursor to list to log its size
+            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Initial count of files from .find() cursor for userId '{user_id}': {len(temp_list_for_cursor)}")
+
+
+            for file_doc in temp_list_for_cursor: # Iterate over the list
                 file_id = file_doc["_id"]
                 original_filename = file_doc.get("metadata", {}).get("originalName", file_doc["filename"])
                 content_type = file_doc.get("contentType", "application/octet-stream")
@@ -201,7 +214,6 @@ def process_certificates_from_db():
                     "processed_image_file_ids": []
                  }), 200
 
-            # This call now includes the new LLM step internally if initial OCR fails
             ocr_phase_raw_results = extract_and_recommend_courses_from_image_data(
                 image_data_list=image_data_for_ocr_processing,
                 mode='ocr_only',
@@ -236,11 +248,10 @@ def process_certificates_from_db():
                  app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): No images failed automated steps. No need to check stored manual names.")
                  ocr_phase_raw_results["successfully_extracted_courses"] = sorted(list(set(current_successful_courses)))
 
-            # Ensure 'processed_image_file_ids' is robustly set with ALL user image IDs for this run.
-            final_processing_result_dict = dict(ocr_phase_raw_results) # Make a copy
+            final_processing_result_dict = dict(ocr_phase_raw_results) 
             final_processing_result_dict["processed_image_file_ids"] = list(set(user_all_image_ids_associated_with_run))
             processing_result_dict = final_processing_result_dict
-            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Final 'processed_image_file_ids' being returned: {processing_result_dict.get('processed_image_file_ids')}")
+            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Final 'processed_image_file_ids' being returned (Count: {len(processing_result_dict.get('processed_image_file_ids', []))}): {processing_result_dict.get('processed_image_file_ids')}")
 
 
         elif processing_mode == 'suggestions_only':
@@ -251,7 +262,7 @@ def process_certificates_from_db():
                 latest_doc = user_course_processing_collection.find_one(
                     {"userId": user_id},
                     sort=[("processedAt", DESCENDING)],
-                    projection={"user_processed_data": 1, "associated_image_file_ids": 1} # Also fetch previous image IDs
+                    projection={"user_processed_data": 1, "associated_image_file_ids": 1} 
                 )
                 if latest_doc and "user_processed_data" in latest_doc:
                     latest_previous_user_data_list = latest_doc["user_processed_data"]
@@ -298,13 +309,12 @@ def process_certificates_from_db():
                     processing_result_dict["associated_image_file_ids"] = current_run_image_ids
                 except Exception as e:
                     app_logger.error(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Error storing new structured result: {e}")
-                    processing_result_dict["associated_image_file_ids"] = current_run_image_ids # Still return current IDs
+                    processing_result_dict["associated_image_file_ids"] = current_run_image_ids 
             elif not current_processed_data_for_db:
                  app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): No user processed data generated, nothing to store.")
-                 processing_result_dict["associated_image_file_ids"] = current_run_image_ids # Return current run's image IDs
+                 processing_result_dict["associated_image_file_ids"] = current_run_image_ids 
             else:
                  app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Result not stored (similar to previous).")
-                 # Use image IDs from the latest stored document if available, otherwise use current run's IDs
                  latest_stored_image_ids = latest_doc.get("associated_image_file_ids") if latest_doc else None
                  processing_result_dict["associated_image_file_ids"] = latest_stored_image_ids if latest_stored_image_ids else current_run_image_ids
         else:
@@ -386,7 +396,7 @@ def convert_pdf_to_images_route():
                 "reqIdParent": req_id
             }
 
-            app.logger.info(f"Flask (Req ID: {req_id}): Storing page {page_number} as '{gridfs_filename}' in GridFS with metadata: {metadata_for_gridfs}")
+            app.logger.info(f"Flask (Req ID: {req_id}): Storing page {page_number} as '{gridfs_filename}' in GridFS with metadata: {json.dumps(metadata_for_gridfs)}")
             file_id_obj = fs_images.put(img_byte_arr_val, filename=gridfs_filename, contentType='image/png', metadata=metadata_for_gridfs)
 
             converted_files_metadata.append({
@@ -396,7 +406,9 @@ def convert_pdf_to_images_route():
                 "contentType": 'image/png',
                 "pageNumber": page_number
             })
-            app.logger.info(f"Flask (Req ID: {req_id}): Stored page {page_number} with GridFS ID: {str(file_id_obj)}.")
+            # This log was already here, but kept for completeness.
+            app.logger.info(f"Flask (Req ID: {req_id}): Stored page {page_number} with GridFS ID: {str(file_id_obj)}. Metadata written: {json.dumps(metadata_for_gridfs)}")
+
 
         app.logger.info(f"Flask (Req ID: {req_id}): Successfully processed and stored {len(converted_files_metadata)} pages for PDF '{original_pdf_name}'.")
         return jsonify({"message": "PDF converted and pages stored successfully.", "converted_files": converted_files_metadata}), 200
