@@ -6,7 +6,7 @@ import logging
 from pymongo import MongoClient, DESCENDING, UpdateOne
 from gridfs import GridFS
 from dotenv import load_dotenv
-from datetime import datetime, timezone
+from datetime import datetime, timezone # Ensure timezone is imported
 import json
 import io # Added import
 from werkzeug.utils import secure_filename # Added import
@@ -156,8 +156,9 @@ def process_certificates_from_db():
     if not user_id:
         app_logger.warning(f"Flask (Req ID: {req_id_cert}): User ID not provided.")
         return jsonify({"error": "User ID (userId) not provided"}), 400
-
-    app_logger.info(f"Flask (Req ID: {req_id_cert}): Processing for userId: '{user_id}' (Type: {type(user_id)}), Mode: {processing_mode}.")
+    
+    app_logger.info(f"Flask (Req ID: {req_id_cert}): Received request for userId: '{user_id}'. Confirming type: {type(user_id)}")
+    app_logger.info(f"Flask (Req ID: {req_id_cert}): Processing for userId: '{user_id}', Mode: {processing_mode}.")
     app_logger.info(f"Flask (Req ID: {req_id_cert}): General Manual Courses: {additional_manual_courses_general}")
     app_logger.info(f"Flask (Req ID: {req_id_cert}): Known Course Names for Suggestions: {known_course_names_from_frontend}")
 
@@ -171,20 +172,19 @@ def process_certificates_from_db():
             image_data_for_ocr_processing = []
             app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Finding all images for userId: '{user_id}' in db.images.files")
             
-            # Log count of images for the user ID
             try:
                 count_for_user_id = db.images.files.count_documents({"metadata.userId": user_id})
                 app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): MongoDB count_documents for metadata.userId '{user_id}' is: {count_for_user_id}")
             except Exception as e_count:
                 app_logger.error(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Error counting documents for userId '{user_id}': {e_count}")
 
-            user_image_files_cursor = db.images.files.find({"metadata.userId": user_id}) # Use db instance directly
+            user_image_files_cursor = db.images.files.find({"metadata.userId": user_id}) 
             
-            temp_list_for_cursor = list(user_image_files_cursor) # Convert cursor to list to log its size
+            temp_list_for_cursor = list(user_image_files_cursor) 
             app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Initial count of files from .find() cursor for userId '{user_id}': {len(temp_list_for_cursor)}")
 
 
-            for file_doc in temp_list_for_cursor: # Iterate over the list
+            for file_doc in temp_list_for_cursor: 
                 file_id = file_doc["_id"]
                 original_filename = file_doc.get("metadata", {}).get("originalName", file_doc["filename"])
                 content_type = file_doc.get("contentType", "application/octet-stream")
@@ -192,7 +192,7 @@ def process_certificates_from_db():
                 app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Found image for user: ID={file_id}, Name={original_filename}. Adding to processing list and associated_run_ids.")
 
                 app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Fetching file bytes: ID={file_id}, Name={original_filename}")
-                grid_out = fs_images.get(file_id) # Use fs_images instance directly
+                grid_out = fs_images.get(file_id) 
                 image_bytes = grid_out.read()
                 grid_out.close()
 
@@ -389,7 +389,7 @@ def convert_pdf_to_images_route():
             metadata_for_gridfs = {
                 "originalName": f"{original_pdf_name} (Page {page_number})",
                 "userId": user_id,
-                "uploadedAt": datetime.utcnow().isoformat(),
+                "uploadedAt": datetime.now(timezone.utc).isoformat(), # Updated to timezone-aware UTC
                 "sourceContentType": "application/pdf",
                 "convertedTo": "image/png",
                 "pageNumber": page_number,
@@ -406,7 +406,6 @@ def convert_pdf_to_images_route():
                 "contentType": 'image/png',
                 "pageNumber": page_number
             })
-            # This log was already here, but kept for completeness.
             app.logger.info(f"Flask (Req ID: {req_id}): Stored page {page_number} with GridFS ID: {str(file_id_obj)}. Metadata written: {json.dumps(metadata_for_gridfs)}")
 
 
