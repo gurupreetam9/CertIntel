@@ -16,12 +16,15 @@ const nextConfig: NextConfig = {
         port: '',
         pathname: '/**',
       },
-      {
-        protocol: 'https',
-        hostname: '*.cloudworkstations.dev', // For dynamic CWS preview URLs
-        port: '',
-        pathname: '/api/images/**', // Assuming your image API route might be here
-      },
+      // If you need to load images from other *.cloudworkstations.dev hostnames
+      // (not the one serving your app), you can keep a general entry.
+      // However, for images served by your app's own /api/images/... route,
+      // no entry is needed here.
+      // Example:
+      // {
+      //   protocol: 'https',
+      //   hostname: '*.another-cws-domain.com', 
+      // },
     ],
   },
   webpack: (config, { isServer }) => {
