@@ -12,8 +12,6 @@ import { AlertCircle, Bot, Camera, CheckCircle, FileText, FileUp, ImagePlus, Loa
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
-// Removed direct import of generateImageDescription
-// import { generateImageDescription, type GenerateImageDescriptionOutput } from '@/ai/flows/generate-image-description';
 
 interface UploadedFileEntry {
   file: File;
@@ -24,6 +22,7 @@ interface UploadedFileEntry {
   fileId?: string;
   isGeneratingDescription: boolean;
   isPdf: boolean;
+  aiDescription?: string; // Added to store AI description
 }
 
 interface ImageUploaderProps {
@@ -66,6 +65,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
             status: 'pending',
             isGeneratingDescription: false,
             isPdf,
+            aiDescription: undefined, // Initialize aiDescription
           };
         });
       setSelectedFiles(prev => [...prev, ...newFileEntries]);
@@ -105,7 +105,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     }
 
     setSelectedFiles(prev => prev.map(f =>
-      f.file.name + f.file.lastModified === fileIdentity ? { ...f, isGeneratingDescription: true } : f
+      f.file.name + f.file.lastModified === fileIdentity ? { ...f, isGeneratingDescription: true, aiDescription: undefined } : f // Reset description while fetching
     ));
 
     try {
@@ -127,16 +127,21 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
       }
 
       if (result.description) {
+        setSelectedFiles(prev => prev.map(f =>
+          f.file.name + f.file.lastModified === fileIdentity ? { ...f, aiDescription: result.description } : f
+        ));
         toast({
-          title: `AI Description for ${targetFileEntry.file.name}`,
-          description: result.description,
-          duration: 8000, // Give more time to read
+          title: `AI Description Loaded`,
+          description: `Description for ${targetFileEntry.file.name} is now visible.`,
         });
       } else {
         throw new Error('API did not return a description.');
       }
     } catch (error: any) {
       console.error(`ImageUploader: Error generating AI description for ${targetFileEntry.file.name}:`, error);
+      setSelectedFiles(prev => prev.map(f =>
+        f.file.name + f.file.lastModified === fileIdentity ? { ...f, aiDescription: "Error fetching description." } : f
+      ));
       toast({
         title: 'AI Description Failed',
         description: error.message || 'Could not generate description for the image.',
@@ -166,7 +171,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     let allUploadedFileMetas: { originalName: string; fileId: string }[] = [];
 
     for (const fileEntry of filesToUpload) {
-      setSelectedFiles(prev => prev.map(f => f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified ? { ...f, status: 'uploading', progress: 30, error: undefined } : f));
+      setSelectedFiles(prev => prev.map(f => f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified ? { ...f, status: 'uploading', progress: 30, error: undefined, aiDescription: undefined } : f));
 
       const formData = new FormData();
       formData.append('file', fileEntry.file);
@@ -186,14 +191,12 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
 
         if (!response.ok) {
           let errorMsg = `Upload failed. Server responded with status ${response.status}.`;
-          // let errorKey = 'UPLOAD_FAILED'; // errorKey not used directly in UI message here
           let reqIdFromServer = null;
 
           try {
             const parsedError = JSON.parse(responseText);
             if (typeof parsedError === 'object' && parsedError !== null) {
               errorMsg = parsedError.message || errorMsg;
-              // errorKey = parsedError.errorKey || errorKey;
               reqIdFromServer = parsedError.reqId || null;
               if (reqIdFromServer && !errorMsg.includes('Req ID:')) {
                 errorMsg += ` (Req ID: ${reqIdFromServer})`;
@@ -290,72 +293,81 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
           <h3 className="text-lg font-medium font-headline">Selected Files:</h3>
           {selectedFiles.map((uploadedFile) => (
             <Card key={uploadedFile.file.name + uploadedFile.file.lastModified} className="overflow-hidden shadow-md">
-              <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                <div className="relative w-24 h-24 sm:w-32 sm:h-32 rounded-md overflow-hidden shrink-0 bg-muted flex items-center justify-center">
-                   {uploadedFile.isPdf ? (
-                     <FileText className="w-12 h-12 text-muted-foreground" />
-                   ) : (
-                     <Image
-                        src={uploadedFile.previewUrl}
-                        alt={`Preview ${uploadedFile.file.name}`}
-                        fill
-                        sizes="(max-width: 640px) 96px, 128px"
-                        className="object-cover"
-                        data-ai-hint="uploaded file preview"
-                      />
-                   )}
-                </div>
-                <div className="flex-grow space-y-2">
-                  <p className="text-sm font-medium truncate" title={uploadedFile.file.name}>{uploadedFile.file.name}</p>
-                  <p className="text-xs text-muted-foreground">{(uploadedFile.file.size / 1024 / 1024).toFixed(2)} MB</p>
+              <CardContent className="p-4 flex flex-col gap-4"> {/* Main content is now column */}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                  <div className="relative w-24 h-24 sm:w-32 sm:h-32 rounded-md overflow-hidden shrink-0 bg-muted flex items-center justify-center">
+                    {uploadedFile.isPdf ? (
+                      <FileText className="w-12 h-12 text-muted-foreground" />
+                    ) : (
+                      <Image
+                          src={uploadedFile.previewUrl}
+                          alt={`Preview ${uploadedFile.file.name}`}
+                          fill
+                          sizes="(max-width: 640px) 96px, 128px"
+                          className="object-cover"
+                          data-ai-hint="uploaded file preview"
+                        />
+                    )}
+                  </div>
+                  <div className="flex-grow space-y-2">
+                    <p className="text-sm font-medium truncate" title={uploadedFile.file.name}>{uploadedFile.file.name}</p>
+                    <p className="text-xs text-muted-foreground">{(uploadedFile.file.size / 1024 / 1024).toFixed(2)} MB</p>
 
-                  {uploadedFile.status === 'pending' && !uploadedFile.isPdf && (
-                    <Card className="mt-2 bg-muted/50 border-dashed">
-                      <CardHeader className="p-2">
-                        <CardTitle className="text-xs font-normal">Image Editor (Placeholder)</CardTitle>
-                      </CardHeader>
-                      <CardContent className="p-2 flex gap-2">
-                        <Button variant="outline" size="sm" disabled>Crop</Button>
-                        <Button variant="outline" size="sm" disabled>Resize</Button>
-                      </CardContent>
-                    </Card>
-                  )}
+                    {uploadedFile.status === 'pending' && !uploadedFile.isPdf && (
+                      <Card className="mt-2 bg-muted/50 border-dashed">
+                        <CardHeader className="p-2">
+                          <CardTitle className="text-xs font-normal">Image Editor (Placeholder)</CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-2 flex gap-2">
+                          <Button variant="outline" size="sm" disabled>Crop</Button>
+                          <Button variant="outline" size="sm" disabled>Resize</Button>
+                        </CardContent>
+                      </Card>
+                    )}
 
-                  {(uploadedFile.status === 'uploading' || (uploadedFile.status === 'success' && uploadedFile.progress < 100)) && (
-                    <Progress value={uploadedFile.progress} className="w-full h-2 mt-1" />
+                    {(uploadedFile.status === 'uploading' || (uploadedFile.status === 'success' && uploadedFile.progress < 100)) && (
+                      <Progress value={uploadedFile.progress} className="w-full h-2 mt-1" />
+                    )}
+                    {uploadedFile.status === 'uploading' && <p className="text-xs text-primary flex items-center"><Loader2 className="w-3 h-3 mr-1 animate-spin"/>Processing &amp; Uploading...</p>}
+                    {uploadedFile.status === 'success' && (
+                      <>
+                        <p className="text-xs text-green-600 flex items-center">
+                          <CheckCircle className="w-3 h-3 mr-1"/>
+                          {uploadedFile.isPdf ? 'PDF uploaded to DB' : 'Image uploaded to DB'}
+                        </p>
+                        {!uploadedFile.isPdf && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="mt-2"
+                            onClick={() => handleGenerateDescription(uploadedFile)}
+                            disabled={uploadedFile.isGeneratingDescription || uploadedFile.isPdf || uploadedFile.status !== 'success'}
+                          >
+                            {uploadedFile.isGeneratingDescription ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                              <Bot className="mr-2 h-4 w-4" />
+                            )}
+                            Get AI Description
+                          </Button>
+                        )}
+                      </>
+                    )}
+                    {uploadedFile.status === 'error' && <p className="text-xs text-destructive flex items-center" title={uploadedFile.error}><AlertCircle className="w-3 h-3 mr-1"/>{uploadedFile.error}</p>}
+                  </div>
+                  {uploadedFile.status !== 'uploading' && !uploadedFile.isGeneratingDescription && (
+                    <Button variant="ghost" size="icon" onClick={() => removeFile(uploadedFile.file.name + uploadedFile.file.lastModified)} className="shrink-0 text-muted-foreground hover:text-destructive sm:ml-auto"> {/* Added sm:ml-auto for alignment */}
+                      <Trash2 className="h-4 w-4" />
+                      <span className="sr-only">Remove {uploadedFile.file.name}</span>
+                    </Button>
                   )}
-                   {uploadedFile.status === 'uploading' && <p className="text-xs text-primary flex items-center"><Loader2 className="w-3 h-3 mr-1 animate-spin"/>Processing &amp; Uploading...</p>}
-                  {uploadedFile.status === 'success' && (
-                    <>
-                      <p className="text-xs text-green-600 flex items-center">
-                        <CheckCircle className="w-3 h-3 mr-1"/>
-                        {uploadedFile.isPdf ? 'PDF uploaded to DB' : 'Image uploaded to DB'}
-                      </p>
-                      {!uploadedFile.isPdf && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="mt-2"
-                          onClick={() => handleGenerateDescription(uploadedFile)}
-                          disabled={uploadedFile.isGeneratingDescription || uploadedFile.isPdf || uploadedFile.status !== 'success'}
-                        >
-                          {uploadedFile.isGeneratingDescription ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          ) : (
-                            <Bot className="mr-2 h-4 w-4" />
-                          )}
-                          Get AI Description
-                        </Button>
-                      )}
-                    </>
-                  )}
-                  {uploadedFile.status === 'error' && <p className="text-xs text-destructive flex items-center" title={uploadedFile.error}><AlertCircle className="w-3 h-3 mr-1"/>{uploadedFile.error}</p>}
                 </div>
-                {uploadedFile.status !== 'uploading' && !uploadedFile.isGeneratingDescription && (
-                  <Button variant="ghost" size="icon" onClick={() => removeFile(uploadedFile.file.name + uploadedFile.file.lastModified)} className="shrink-0 text-muted-foreground hover:text-destructive">
-                    <Trash2 className="h-4 w-4" />
-                    <span className="sr-only">Remove {uploadedFile.file.name}</span>
-                  </Button>
+                {/* Display AI Description if available */}
+                {uploadedFile.aiDescription && (
+                  <div className="mt-2 p-3 bg-muted/40 rounded-md border text-sm text-foreground">
+                    <h4 className="font-semibold mb-1 text-primary/90">AI Description:</h4>
+                    <p className="whitespace-pre-wrap text-xs">{uploadedFile.aiDescription}</p>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -380,3 +392,4 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
     </div>
   );
 }
+
