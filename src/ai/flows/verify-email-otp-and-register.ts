@@ -8,14 +8,16 @@
  */
 import { ai } from '@/ai/genkit';
 import { z } from 'zod';
-import { signUp as firebaseSignUp } from '@/lib/firebase/auth';
-import { 
-  createAdminProfile, 
-  createUserProfileDocument,
-} from '@/lib/services/userService';
+import { signUp as firebaseSignUp } from '@/lib/firebase/auth'; // Firebase client auth for user creation
+import {
+  createUserProfileDocument_SERVER, // Import SERVER version for profile creation
+  createAdminProfile_SERVER,       // Import SERVER version for admin specific tasks
+  // getAdminByUniqueId_SERVER,       // Import SERVER version if needed here
+  // createStudentLinkRequest_SERVER, // Import SERVER version if needed here
+} from '@/lib/services/userService.server'; // Import from the new .server.ts file
 import type { User, AuthError } from 'firebase/auth';
-import type { UserProfile } from '@/lib/models/user';
-import { sendEmail } from '@/lib/emailUtils'; // Import the centralized email utility
+// import type { UserProfile } from '@/lib/models/user'; // UserProfile type might still be useful
+import { sendEmail } from '@/lib/emailUtils';
 
 // HACK: In-memory store for OTPs. NOT SUITABLE FOR PRODUCTION.
 if (!(globalThis as any).otpStore) {
@@ -29,9 +31,9 @@ const VerifyEmailOtpAndRegisterInputSchema = z.object({
   otp: z.string().length(6, { message: 'OTP must be 6 digits.' }),
   password: z.string().min(6, { message: 'Password must be at least 6 characters long.' }),
   role: z.enum(['admin', 'student'], { required_error: 'Role is required.'}),
-  name: z.string().min(1, 'Name is required.').max(100, 'Name is too long.').optional(), 
+  name: z.string().min(1, 'Name is required.').max(100, 'Name is too long.').optional(),
   rollNo: z.string().max(50, 'Roll number is too long.').optional(),
-  adminUniqueId: z.string().max(50, 'Admin ID is too long.').optional(), 
+  adminUniqueId: z.string().max(50, 'Admin ID is too long.').optional(), // This is the associatedAdminUniqueId for students
 }).refine(data => {
     if (data.role === 'student' && !data.name) {
         return false;
@@ -49,7 +51,7 @@ const VerifyEmailOtpAndRegisterOutputSchema = z.object({
   message: z.string(),
   userId: z.string().optional(),
   role: z.enum(['admin', 'student']).optional(),
-  adminUniqueIdGenerated: z.string().optional(), 
+  adminUniqueIdGenerated: z.string().optional(), // For new admins, their own shareable ID
 });
 export type VerifyEmailOtpAndRegisterOutput = z.infer<typeof VerifyEmailOtpAndRegisterOutputSchema>;
 
@@ -72,7 +74,7 @@ const verifyEmailOtpAndRegisterFlow = ai.defineFlow(
     }
 
     if (Date.now() > storedEntry.expiresAt) {
-      delete otpStore[email]; 
+      delete otpStore[email];
       return { success: false, message: 'OTP has expired. Please request a new OTP.' };
     }
 
@@ -80,9 +82,10 @@ const verifyEmailOtpAndRegisterFlow = ai.defineFlow(
       return { success: false, message: 'Invalid OTP. Please try again.' };
     }
 
+    // Step 1: Create Firebase Auth user (uses client SDK functions, but called from server context)
     const firebaseAuthResult: User | AuthError = await firebaseSignUp({ email, password });
 
-    if ('code' in firebaseAuthResult) { 
+    if ('code' in firebaseAuthResult) {
       const firebaseError = firebaseAuthResult as AuthError;
       let errorMessage = 'Registration failed. Please try again.';
       if (firebaseError.code === 'auth/email-already-in-use') {
@@ -91,21 +94,23 @@ const verifyEmailOtpAndRegisterFlow = ai.defineFlow(
         errorMessage = firebaseError.message;
       }
       return { success: false, message: errorMessage };
-    } 
-    
-    const firebaseUser = firebaseAuthResult as User;
-    delete otpStore[email]; 
+    }
 
+    const firebaseUser = firebaseAuthResult as User;
+    delete otpStore[email]; // Valid OTP used
+
+    // Step 2: Create Firestore User Profile Document (uses SERVER versions of service functions)
     try {
       let registrationMessage = 'Registration successful!';
       let adminUniqueIdForResponse: string | undefined = undefined;
       let userDisplayName = name || email.split('@')[0];
 
       if (role === 'admin') {
-        const adminProfileDetails = await createAdminProfile(firebaseUser.uid, email);
-        adminUniqueIdForResponse = adminProfileDetails.adminUniqueId;
+        // createAdminProfile_SERVER internally calls createUserProfileDocument_SERVER
+        const adminProfileDetails = await createAdminProfile_SERVER(firebaseUser.uid, email);
+        adminUniqueIdForResponse = adminProfileDetails.adminUniqueId; // Their own generated ID
         registrationMessage = `Admin registration successful! Your Admin ID is: ${adminUniqueIdForResponse}`;
-        
+
         await sendEmail({
           to: email,
           subject: 'Welcome to CertIntel, Admin!',
@@ -114,29 +119,27 @@ const verifyEmailOtpAndRegisterFlow = ai.defineFlow(
         });
 
       } else if (role === 'student') {
-        if (!name) { 
-            return { success: false, message: "Student name is required." };
+        if (!name) {
+            return { success: false, message: "Student name is required." }; // Should be caught by Zod, but defensive
         }
-        
-        const studentProfileCreationData: Partial<UserProfile> = {
+        userDisplayName = name;
+        const studentProfileCreationData = {
             displayName: name,
-            rollNo: (rollNo && rollNo.trim() !== '') ? rollNo.trim() : undefined, 
+            rollNo: (rollNo && rollNo.trim() !== '') ? rollNo.trim() : undefined,
+            // Pass the adminUniqueId from the form if the student wants to link during registration
             associatedAdminUniqueId: (adminUniqueId && adminUniqueId.trim() !== '') ? adminUniqueId.trim() : undefined,
         };
-        
-        // The createUserProfileDocument will handle setting linkRequestStatus to 'pending' if an adminUniqueId is provided.
-        // This part of the logic (creating the actual studentLinkRequest doc) is handled by studentRequestLinkWithAdmin which is typically called from profile settings.
-        // For now, we just store the intent.
-        await createUserProfileDocument(firebaseUser.uid, email, 'student', studentProfileCreationData);
-        userDisplayName = name;
+
+        // createUserProfileDocument_SERVER will now handle finding adminFirebaseId and creating the link request if associatedAdminUniqueId is provided.
+        await createUserProfileDocument_SERVER(firebaseUser.uid, email, 'student', studentProfileCreationData);
 
         let studentWelcomeMessage = `Hello ${userDisplayName},\n\nWelcome to CertIntel! Your registration is complete.`;
         let studentWelcomeHtml = `<p>Hello ${userDisplayName},</p><p>Welcome to CertIntel! Your registration is complete.</p>`;
 
         if (studentProfileCreationData.associatedAdminUniqueId) {
-          studentWelcomeMessage += ` You attempted to link with Teacher/Admin ID ${studentProfileCreationData.associatedAdminUniqueId}. This request will be processed separately, or you can finalize it from your profile settings.`;
-          studentWelcomeHtml += `<p>You attempted to link with Teacher/Admin ID <strong>${studentProfileCreationData.associatedAdminUniqueId}</strong>. This request will be processed separately, or you can finalize it from your profile settings if the admin needs to approve it.</p>`;
-          registrationMessage = `Student registration successful! Your request to link with Teacher ID ${studentProfileCreationData.associatedAdminUniqueId} has been noted. You might need to finalize this from your profile settings.`;
+          studentWelcomeMessage += ` Your request to link with Teacher/Admin ID ${studentProfileCreationData.associatedAdminUniqueId} has been initiated and is pending approval.`;
+          studentWelcomeHtml += `<p>Your request to link with Teacher/Admin ID <strong>${studentProfileCreationData.associatedAdminUniqueId}</strong> has been initiated and is pending approval.</p>`;
+          registrationMessage = `Student registration successful! Your request to link with Teacher ID ${studentProfileCreationData.associatedAdminUniqueId} is pending.`;
         } else {
            registrationMessage = 'Student registration successful! Welcome to CertIntel!';
         }
@@ -150,31 +153,34 @@ const verifyEmailOtpAndRegisterFlow = ai.defineFlow(
           html: studentWelcomeHtml,
         });
       } else {
+        // Should not happen due to Zod enum
         return { success: false, message: 'Invalid role specified.' };
       }
 
-      return { 
-        success: true, 
-        message: registrationMessage, 
-        userId: firebaseUser.uid, 
+      return {
+        success: true,
+        message: registrationMessage,
+        userId: firebaseUser.uid,
         role: role,
-        adminUniqueIdGenerated: adminUniqueIdForResponse 
+        adminUniqueIdGenerated: adminUniqueIdForResponse
       };
 
     } catch (profileError: any) {
-      console.error(`Error during profile creation or email sending for ${email} (role: ${role}):`, profileError);
+      console.error(`Error during server-side profile creation or email sending for ${email} (role: ${role}):`, profileError);
+      // It's good practice to not leak detailed internal error structures to the client unless necessary.
+      // The original error message was good here.
       let detailedMessage = `Firebase user created, but failed to set up profile/link or send confirmation email. Error: ${profileError.message || 'Unknown Firestore/Email error'}`;
-      if (profileError.code) { 
-        detailedMessage += ` (Code: ${profileError.code})`; 
+      if (profileError.code) {
+        detailedMessage += ` (Code: ${profileError.code})`;
       }
-      if (profileError.details) { 
+      if (profileError.details) {
         detailedMessage += ` Details: ${profileError.details}`;
       }
-      console.error("Full profileError object:", profileError); 
-      return { 
-        success: false, 
+      console.error("Full profileError object from server-side operations:", profileError);
+      return {
+        success: false,
         message: detailedMessage + ". Please contact support.",
-        userId: firebaseUser.uid 
+        userId: firebaseUser.uid // Still return UID as Firebase user was created
       };
     }
   }
