@@ -16,6 +16,7 @@ import cohere
 import json
 import io
 import shutil # For shutil.which
+from typing import List, Optional, Tuple
 
 # --- Initial Setup ---
 try:
@@ -60,7 +61,7 @@ possible_courses = ["HTML", "CSS", "JavaScript", "React", "Astro.js", "Python", 
 course_graph = {
     "HTML": {
         "description": "HTML (HyperText Markup Language) is the standard language for creating webpages.",
-        "next_courses_for_graph_display_only": ["CSS", "JavaScript"], # This field is now less relevant with new LLM structure
+        "next_courses_for_graph_display_only": ["CSS", "JavaScript"], 
         "url": "https://www.freecodecamp.org/learn/responsive-web-design/"
     },
     "CSS": {
@@ -140,68 +141,132 @@ except Exception as e:
 def clean_unicode(text):
     return text.encode("utf-8", "replace").decode("utf-8")
 
-def infer_course_text_from_image_object(pil_image_obj):
-    if not model:
-        logging.error("YOLO model is not loaded. Cannot infer course text.")
-        return None, "YOLO model not loaded. OCR will be skipped."
-    
-    if not TESSERACT_PATH: # Added check
-        logging.error("Tesseract OCR is not installed or not in PATH. Cannot perform OCR.")
-        return None, "Tesseract OCR not found. Install Tesseract and add to PATH."
-        
+def query_llm_for_course_from_text(text_content: str) -> Optional[str]:
+    if not co:
+        logging.warning("Cohere client not initialized. Skipping LLM course extraction from text.")
+        return None
+    if not text_content or not text_content.strip():
+        logging.info("No text content provided to LLM for course extraction.")
+        return None
+
+    prompt = f"""You are an expert at identifying course titles from text. 
+From the following text, extract ONLY the most prominent course name or title. 
+Ensure the output is concise and contains just the course name. 
+If no clear course name is present, respond with the exact string '[[NONE]]'.
+
+Text:
+---
+{text_content[:3000]} 
+---
+Extracted Course Name:"""
     try:
-        image_np = np.array(pil_image_obj)
-        if image_np.ndim == 2: 
-            image_np = cv2.cvtColor(image_np, cv2.COLOR_GRAY2RGB)
-        elif image_np.shape[2] == 4: 
-             image_np = cv2.cvtColor(image_np, cv2.COLOR_RGBA2RGB)
+        response = co.chat(model="command-r-plus", message=prompt, temperature=0.1)
+        extracted_course_name = response.text.strip()
+        logging.info(f"LLM course extraction raw response: '{extracted_course_name}'")
+        if extracted_course_name.upper() == "[[NONE]]" or not extracted_course_name:
+            logging.info("LLM indicated no course name found in the text.")
+            return None
+        # Clean up potential LLM artifacts like "Course Name: Python" -> "Python"
+        extracted_course_name = re.sub(r"^(course name:)\s*", "", extracted_course_name, flags=re.IGNORECASE)
+        return extracted_course_name
+    except Exception as e:
+        logging.error(f"Error querying Cohere LLM for course extraction: {e}")
+        return None
 
-        results = model(image_np)
-        names = results[0].names
-        boxes = results[0].boxes
+def infer_course_text_from_image_object(pil_image_obj: Image.Image) -> Tuple[List[str], str]:
+    """
+    Tries to identify course names from a PIL image object.
+    1. Uses YOLO to find course-related regions and OCRs them.
+    2. If no course found, OCRs the full image.
+    3. If full image OCR yields text, sends it to LLM for course name extraction.
+    4. Filters all extracted names.
+    Returns a list of identified course names and a status message.
+    """
+    extracted_courses: List[str] = []
+    status_message: str = "FAILURE_NO_COURSE_IDENTIFIED"
 
-        if boxes is not None and len(boxes) > 0:
-            for box in boxes:
-                cls_id = int(box.cls[0].item())
-                label = names[cls_id]
-                if label.lower() in ["certificatecourse", "course", "title"]: # Focus on course-related labels
-                    left, top, right, bottom = map(int, box.xyxy[0].cpu().numpy())
-                    cropped_pil_image = pil_image_obj.crop((left, top, right, bottom))
-                    try:
-                        text = pytesseract.image_to_string(cropped_pil_image).strip()
-                        cleaned_text = clean_unicode(text)
-                        if cleaned_text:
-                            logging.info(f"Extracted text from detected region ('{label}'): '{cleaned_text}'")
-                            return cleaned_text, None # Text extracted from specific region
-                        # If cleaned_text is empty, we don't immediately return None here,
-                        # allowing fallback to full image OCR below if no other region yields text.
-                    except pytesseract.TesseractError as tess_err:
-                        logging.error(f"PytesseractError during OCR on cropped region ('{label}'): {tess_err}")
-                        # Don't return yet, fallback might work. Capture reason if it's the only one.
-                        # return None, f"Tesseract OCR error on cropped region: {str(tess_err).splitlines()[0] if str(tess_err) else 'Details in logs.'}"
-                    except Exception as ocr_crop_err:
-                        logging.error(f"Non-Tesseract error during OCR on cropped region ('{label}'): {ocr_crop_err}")
-                        # return None, f"OCR error on cropped region: {str(ocr_crop_err)}"
+    if not model:
+        logging.error("YOLO model is not loaded. Cannot perform regional inference.")
+        # Proceed to full image OCR + LLM
+    elif TESSERACT_PATH:
+        try:
+            image_np = np.array(pil_image_obj)
+            if image_np.ndim == 2: image_np = cv2.cvtColor(image_np, cv2.COLOR_GRAY2RGB)
+            elif image_np.shape[2] == 4: image_np = cv2.cvtColor(image_np, cv2.COLOR_RGBA2RGB)
 
-        logging.info("No specific course region found by YOLO or OCR on region failed/empty, attempting OCR on the whole image as fallback.")
+            results = model(image_np)
+            names = results[0].names
+            boxes = results[0].boxes
+
+            if boxes is not None and len(boxes) > 0:
+                for box in boxes:
+                    cls_id = int(box.cls[0].item())
+                    label = names[cls_id]
+                    if label.lower() in ["certificatecourse", "course", "title"]:
+                        left, top, right, bottom = map(int, box.xyxy[0].cpu().numpy())
+                        cropped_pil_image = pil_image_obj.crop((left, top, right, bottom))
+                        try:
+                            regional_text = pytesseract.image_to_string(cropped_pil_image).strip()
+                            regional_text_cleaned = clean_unicode(regional_text)
+                            if regional_text_cleaned:
+                                logging.info(f"Extracted text from YOLO region ('{label}'): '{regional_text_cleaned}'")
+                                courses_from_region = filter_and_verify_course_text(regional_text_cleaned)
+                                if courses_from_region:
+                                    extracted_courses.extend(courses_from_region)
+                                    status_message = "SUCCESS_YOLO_OCR"
+                                    # If YOLO finds a course, we can potentially stop early for this image
+                                    # However, full image OCR + LLM might be better, so we'll let it continue
+                                    # and consolidate results later, or prioritize YOLO if successful.
+                                    # For now, let's assume if YOLO found something good, we use it.
+                                    return list(set(extracted_courses)), status_message 
+                        except pytesseract.TesseractError as tess_err:
+                            logging.warning(f"PytesseractError on YOLO region ('{label}'): {tess_err}")
+                        except Exception as ocr_crop_err:
+                            logging.warning(f"Error OCRing YOLO region ('{label}'): {ocr_crop_err}")
+        except Exception as yolo_err:
+            logging.error(f"Error during YOLO inference: {yolo_err}", exc_info=True)
+            status_message = "FAILURE_YOLO_ERROR" # Update status if YOLO itself fails
+
+    # If no courses found from YOLO/regional OCR, or YOLO failed/not available
+    if not extracted_courses and TESSERACT_PATH:
+        logging.info("No courses from YOLO or YOLO skipped. Attempting full image OCR + LLM.")
         try:
             full_image_text = pytesseract.image_to_string(pil_image_obj).strip()
-            cleaned_full_text = clean_unicode(full_image_text)
-            if cleaned_full_text:
-                logging.info(f"Extracted text from full image (fallback): '{cleaned_full_text[:100]}...'")
-                return cleaned_full_text, "Full image OCR used as fallback." # Indicate fallback was used
-            logging.info("OCR on full image also yielded no text.")
-            return None, "OCR on full image yielded no text after YOLO fallback."
+            full_image_text_cleaned = clean_unicode(full_image_text)
+
+            if not full_image_text_cleaned or len(full_image_text_cleaned) < 5: # Arbitrary short length check
+                logging.info("Full image OCR yielded no significant text.")
+                status_message = "FAILURE_FULL_IMAGE_OCR_NO_TEXT"
+                return [], status_message # Return empty list and status
+
+            logging.info(f"Full image OCR text (first 200 chars): '{full_image_text_cleaned[:200]}...'")
+            
+            llm_extracted_course_name = query_llm_for_course_from_text(full_image_text_cleaned)
+            if llm_extracted_course_name:
+                logging.info(f"LLM extracted course name: '{llm_extracted_course_name}'")
+                courses_from_llm = filter_and_verify_course_text(llm_extracted_course_name)
+                if courses_from_llm:
+                    extracted_courses.extend(courses_from_llm)
+                    status_message = "SUCCESS_LLM_EXTRACTION_FROM_FULL_OCR"
+                else:
+                    logging.info("LLM output filtered to no valid courses.")
+                    status_message = "FAILURE_LLM_OUTPUT_FILTERED_EMPTY" # LLM gave text, but filter removed it
+            else:
+                logging.info("LLM did not extract a course name from full image text.")
+                status_message = "FAILURE_LLM_NO_COURSE_IN_TEXT" # LLM ran, found nothing
+        
         except pytesseract.TesseractError as tess_err_full:
             logging.error(f"PytesseractError during OCR on full image (fallback): {tess_err_full}")
-            return None, f"Tesseract OCR error on full image: {str(tess_err_full).splitlines()[0] if str(tess_err_full) else 'Details in logs.'}"
+            status_message = f"FAILURE_FULL_IMAGE_TESSERACT_ERROR: {str(tess_err_full).splitlines()[0]}"
         except Exception as ocr_full_err:
             logging.error(f"Non-Tesseract error during OCR on full image (fallback): {ocr_full_err}")
-            return None, f"OCR error on full image: {str(ocr_full_err)}"
+            status_message = f"FAILURE_FULL_IMAGE_OCR_UNKNOWN_ERROR: {str(ocr_full_err)}"
 
-    except Exception as e:
-        logging.error(f"Error during YOLO inference or general image processing: {e}", exc_info=True)
-        return None, f"YOLO/Image processing error: {str(e)}"
+    elif not TESSERACT_PATH:
+        status_message = "FAILURE_TESSERACT_NOT_FOUND"
+
+    return list(set(extracted_courses)), status_message
+
 
 def extract_course_names_from_text(text):
     if not text: return []
@@ -212,40 +277,61 @@ def extract_course_names_from_text(text):
             found_courses.append(course)
     return list(set(found_courses))
 
-def filter_and_verify_course_text(text):
-    if not text or len(text) < 3:
+def filter_and_verify_course_text(text_input: Optional[str]) -> List[str]:
+    if not text_input or len(text_input.strip()) < 3:
         return []
     
+    text = text_input.strip()
     phrases_to_remove = ["certificate of completion", "certificate of achievement", "is awarded to", "has successfully completed"]
     temp_text = text.lower()
     for phrase in phrases_to_remove:
         temp_text = temp_text.replace(phrase, "")
     
     potential_course_lines = [line.strip() for line in temp_text.split('\n') if len(line.strip()) > 4]
+    # If the input text is short and likely a direct course name (e.g., from LLM), treat it as a single line.
+    if len(text.split()) <= 7 and '\n' not in text: # Heuristic for single course name
+        potential_course_lines.append(text.lower()) # Add original text if it was short
+
     identified_courses = []
 
-    direct_matches = extract_course_names_from_text(text)
-    for dm in direct_matches:
+    # Direct matches from pre-defined list
+    direct_matches_from_list = extract_course_names_from_text(text) # Check against the full input text
+    for dm in direct_matches_from_list:
         identified_courses.append(dm)
         
+    # Heuristic-based identification for remaining lines/text
     for line_text in potential_course_lines:
         if not line_text or line_text.lower() in stop_words:
             continue
 
         is_known_course = False
-        for pc in possible_courses:
-            if pc.lower() in line_text.lower():
+        for pc in possible_courses: # Check if line_text contains a known course
+            if pc.lower() in line_text.lower(): # Use 'in' for substring match
                 if pc not in identified_courses: identified_courses.append(pc)
                 is_known_course = True
                 break 
         
-        if not is_known_course:
-            if any(kw in line_text for kw in course_keywords) and \
-               not all(word in course_keywords or word in stop_words or not word.isalnum() for word in line_text.split()) and \
-               len(line_text.split()) >= 2 and len(line_text.split()) <= 7 and \
-               any(word.lower() not in stop_words and len(word) > 2 for word in line_text.split()) and \
-               line_text not in identified_courses: 
-                identified_courses.append(f"{line_text.title()} [UNVERIFIED]") 
+        if not is_known_course: # If line_text itself wasn't or didn't contain a known course from possible_courses
+            # Apply heuristics if the line itself is a candidate
+            # This is more for longer text blocks. If text_input was short (e.g. direct LLM output),
+            # this part might try to make it [UNVERIFIED] if not in possible_courses.
+            words_in_line = line_text.split()
+            is_plausible_new_course = (
+                any(kw in line_text for kw in course_keywords) and # Contains a general course keyword
+                not all(word in course_keywords or word in stop_words or not word.isalnum() for word in words_in_line) and # Not just keywords/stopwords
+                len(words_in_line) >= 2 and len(words_in_line) <= 7 and # Sensible length
+                any(word.lower() not in stop_words and len(word) > 2 for word in words_in_line) # Has meaningful words
+            )
+
+            # If the original input text was short and likely a direct LLM output,
+            # and it wasn't a direct match from `possible_courses`, we might still want to add it as [UNVERIFIED]
+            # without strictly needing general course_keywords in it.
+            is_short_llm_like_input = len(text.split()) <= 7 and '\n' not in text
+
+            if is_plausible_new_course or (is_short_llm_like_input and line_text == text.lower()):
+                title_cased_line = line_text.title()
+                if title_cased_line not in identified_courses: # Avoid adding duplicates
+                    identified_courses.append(f"{title_cased_line} [UNVERIFIED]") 
                     
     return list(set(identified_courses))
 
@@ -382,14 +468,13 @@ def parse_llm_detailed_suggestions_response(llm_response_text):
 
 def process_images_for_ocr(image_data_list):
     """
-    Phase 1: Processes images to extract text using OCR and identifies failures.
-    An image is considered "failed" if no usable course names can be extracted from it
-    after attempting YOLO-region OCR, full-image OCR, and course name filtering.
+    Phase 1: Processes images to extract course names using YOLO OCR, then Full Image OCR + LLM extraction.
+    Identifies images that failed all automated steps.
     Returns a dictionary with 'successfully_extracted_courses' and 'failed_extraction_images'.
     """
     accumulated_successful_courses = []
     processed_image_file_ids = []
-    failed_extraction_images = []
+    failed_extraction_images = [] # Images needing manual input
 
     for image_data_item in image_data_list:
         logging.info(f"--- OCR Phase: Processing image: {image_data_item['original_filename']} (Type: {image_data_item['content_type']}, ID: {image_data_item.get('file_id', 'N/A')}) ---")
@@ -435,7 +520,7 @@ def process_images_for_ocr(image_data_list):
                 failed_extraction_images.append({
                     "file_id": current_file_id, "original_filename": original_filename_for_failure, "reason": load_conversion_reason
                 })
-            continue # Next image_data_item
+            continue 
 
         if not pil_images_to_process_for_file_id:
             no_content_reason = "No image content available after loading (e.g., empty PDF or unreadable image)."
@@ -444,12 +529,10 @@ def process_images_for_ocr(image_data_list):
                 failed_extraction_images.append({
                     "file_id": current_file_id, "original_filename": original_filename_for_failure, "reason": no_content_reason
                 })
-            continue # Next image_data_item
+            continue 
 
-        # Now process the PIL images for this file_id
         any_course_extracted_this_file_id = False
-        # Best reason if all pages of this file_id fail to yield courses
-        best_failure_reason_for_file_id = "OCR yielded no usable text or no course names identified from any page." 
+        best_failure_reason_for_file_id = "FAILURE_NO_COURSE_IDENTIFIED" # Default if all pages fail
 
         for i, pil_img in enumerate(pil_images_to_process_for_file_id):
             page_identifier = f"page {i+1} of " if len(pil_images_to_process_for_file_id) > 1 else ""
@@ -458,43 +541,33 @@ def process_images_for_ocr(image_data_list):
             except Exception as img_convert_err:
                 logging.warning(f"Could not convert image mode for {page_identifier}{original_filename_for_failure}: {img_convert_err}")
                 page_specific_reason = f"Image mode conversion failed for page {i+1}: {img_convert_err}"
-                if best_failure_reason_for_file_id.startswith("OCR yielded no usable text"): # Prefer this more specific error
-                    best_failure_reason_for_file_id = page_specific_reason
-                continue # Try next page
+                best_failure_reason_for_file_id = page_specific_reason
+                continue 
 
-            raw_text_from_page, text_extract_reason_page = infer_course_text_from_image_object(pil_img)
+            # infer_course_text_from_image_object now tries YOLO, then Full OCR + LLM internally
+            courses_from_page, page_status_msg = infer_course_text_from_image_object(pil_img)
+            best_failure_reason_for_file_id = page_status_msg # Update with the latest status from inference
 
-            if raw_text_from_page:
-                courses_from_page = filter_and_verify_course_text(raw_text_from_page)
-                if courses_from_page:
-                    accumulated_successful_courses.extend(courses_from_page)
-                    any_course_extracted_this_file_id = True
-                    logging.info(f"Successfully extracted courses from {page_identifier}{original_filename_for_failure}: {courses_from_page}")
-                    break # Success for this file_id, move to next image_data_item
-                else: # Text found, but no courses filtered
-                    page_specific_reason = text_extract_reason_page or "Page OCR found text, but no course names filtered."
-                    if best_failure_reason_for_file_id.startswith("OCR yielded no usable text"): # Prefer this more specific error
-                         best_failure_reason_for_file_id = page_specific_reason
-                    logging.info(f"No courses filtered from text on {page_identifier}{original_filename_for_failure}. Reason: {page_specific_reason}")
-            
-            elif text_extract_reason_page: # No raw text, but a reason for OCR failure
-                if best_failure_reason_for_file_id.startswith("OCR yielded no usable text") or "Image mode conversion failed" in best_failure_reason_for_file_id:
-                    best_failure_reason_for_file_id = text_extract_reason_page # This is a more direct OCR failure reason
-                logging.warning(f"OCR failed for {page_identifier}{original_filename_for_failure}. Reason: {text_extract_reason_page}")
-            # If raw_text_blob is None and text_extract_reason is None, this page is effectively blank for courses. Loop continues.
-
+            if courses_from_page:
+                accumulated_successful_courses.extend(courses_from_page)
+                any_course_extracted_this_file_id = True
+                logging.info(f"Successfully extracted courses from {page_identifier}{original_filename_for_failure} (Status: {page_status_msg}): {courses_from_page}")
+                break # Success for this file_id, move to next image_data_item
+            else:
+                logging.info(f"No courses extracted from {page_identifier}{original_filename_for_failure}. Status: {page_status_msg}")
+        
         if not any_course_extracted_this_file_id:
             logging.warning(f"Final failure reason for {original_filename_for_failure} (ID: {current_file_id}): {best_failure_reason_for_file_id}")
             if current_file_id != 'N/A' and not any(f['file_id'] == current_file_id for f in failed_extraction_images):
                 failed_extraction_images.append({
                     "file_id": current_file_id,
                     "original_filename": original_filename_for_failure,
-                    "reason": best_failure_reason_for_file_id
+                    "reason": best_failure_reason_for_file_id 
                 })
 
     final_successful_courses = sorted(list(set(accumulated_successful_courses)))
     logging.info(f"OCR Phase: Final successfully extracted courses: {final_successful_courses}")
-    logging.info(f"OCR Phase: Failed extraction images count: {len(failed_extraction_images)}")
+    logging.info(f"OCR Phase: Failed extraction images count (need manual input): {len(failed_extraction_images)}")
     if failed_extraction_images: logging.debug(f"OCR Phase: Failed extraction image details: {failed_extraction_images}")
 
     return {
@@ -611,8 +684,10 @@ def extract_and_recommend_courses_from_image_data(
                 "processed_image_file_ids": [] 
             }
         
+        # process_images_for_ocr now includes the multi-step automated extraction (YOLO -> Full OCR + LLM)
         ocr_results = process_images_for_ocr(current_image_data_list)
         
+        # Add general manual courses to the successfully extracted list
         current_successful_courses = ocr_results.get("successfully_extracted_courses", [])
         if current_additional_manual_courses:
             for manual_course in current_additional_manual_courses:
@@ -621,15 +696,14 @@ def extract_and_recommend_courses_from_image_data(
                     current_successful_courses.append(clean_manual_course)
             ocr_results["successfully_extracted_courses"] = sorted(list(set(current_successful_courses)))
 
-        logging.info(f"OCR Phase complete. Successfully extracted: {len(ocr_results.get('successfully_extracted_courses',[]))}, Failed images: {len(ocr_results.get('failed_extraction_images',[]))}")
+        logging.info(f"OCR Phase complete. Successfully extracted: {len(ocr_results.get('successfully_extracted_courses',[]))}, Failed images (need manual input): {len(ocr_results.get('failed_extraction_images',[]))}")
         return ocr_results
 
     elif mode == 'suggestions_only':
         final_known_names_for_suggestions = known_course_names if isinstance(known_course_names, list) else []
         
-        # Ensure additional_manual_courses (general ones) are also included if provided directly to suggestions_only mode
         current_additional_manual_courses = additional_manual_courses if isinstance(additional_manual_courses, list) else []
-        if current_additional_manual_courses: # This is defensive, frontend should consolidate before calling suggestions_only
+        if current_additional_manual_courses: 
             for manual_course in current_additional_manual_courses:
                 clean_manual_course = manual_course.strip()
                 if clean_manual_course and clean_manual_course not in final_known_names_for_suggestions:
@@ -669,12 +743,42 @@ if __name__ == "__main__":
     try:
         blank_image_path = os.path.join(test_image_folder, "blank_image.png")
         if not os.path.exists(blank_image_path):
-            img = Image.new('RGB', (60, 30), color = 'white')
+            img = Image.new('RGB', (600, 400), color = 'white') # Larger blank image
+            from PIL import ImageDraw, ImageFont
+            draw = ImageDraw.Draw(img)
+            try:
+                font = ImageFont.truetype("arial.ttf", 20)
+            except IOError:
+                font = ImageFont.load_default()
+            draw.text((10,10), "This is a blank test image\nNo course here.\nMaybe some random words like: introduction, project, final.", fill=(0,0,0), font=font)
             img.save(blank_image_path)
-    except Exception as e:
-        logging.error(f"Could not create blank test image: {e}")
+            logging.info(f"Created/updated blank test image with text: {blank_image_path}")
 
-    print("\n--- Testing OCR Only Mode ---")
+        # Create a mock python certificate if it doesn't exist
+        python_cert_path = os.path.join(test_image_folder, "python_cert_mock.png")
+        if not os.path.exists(python_cert_path):
+            py_img = Image.new('RGB', (800, 600), color='lightyellow')
+            draw = ImageDraw.Draw(py_img)
+            try:
+                title_font = ImageFont.truetype("arialbd.ttf", 40) # Bold Arial
+                body_font = ImageFont.truetype("arial.ttf", 24)
+            except IOError:
+                title_font = ImageFont.load_default()
+                body_font = ImageFont.load_default()
+            
+            draw.text((50, 50), "Certificate of Completion", font=title_font, fill="blue")
+            draw.text((50, 150), "This certifies that", font=body_font, fill="black")
+            draw.text((50, 200), "John Doe", font=title_font, fill="darkgreen")
+            draw.text((50, 280), "has successfully completed the course", font=body_font, fill="black")
+            draw.text((50, 330), "Introduction to Python Programming", font=title_font, fill="red")
+            draw.text((50, 400), "on " + datetime.now().strftime("%B %d, %Y"), font=body_font, fill="black")
+            py_img.save(python_cert_path)
+            logging.info(f"Created mock Python certificate: {python_cert_path}")
+
+    except Exception as e:
+        logging.error(f"Could not create test images: {e}")
+
+    print("\n--- Testing OCR Only Mode (with LLM fallback) ---")
     test_img_data = []
     if os.path.exists(blank_image_path):
         with open(blank_image_path, "rb") as f: img_bytes = f.read()
@@ -683,36 +787,35 @@ if __name__ == "__main__":
             "content_type": "image/png", "file_id": "blank_id_1"
         })
     
-    python_img_path = os.path.join(test_image_folder, "python_cert.png") 
-    if os.path.exists(python_img_path):
-       with open(python_img_path, "rb") as f: py_bytes = f.read()
-       test_img_data.append({"bytes": py_bytes, "original_filename": "python_cert.png", "content_type": "image/png", "file_id": "python_id_1"})
+    if os.path.exists(python_cert_path):
+       with open(python_cert_path, "rb") as f: py_bytes = f.read()
+       test_img_data.append({"bytes": py_bytes, "original_filename": "python_cert_mock.png", "content_type": "image/png", "file_id": "python_mock_id_1"})
     else:
-        logging.warning(f"Test image 'python_cert.png' not found in '{test_image_folder}'. OCR success test for it will be skipped.")
+        logging.warning(f"Mock Python certificate '{python_cert_path}' not found. Test may be less effective.")
 
     ocr_results = extract_and_recommend_courses_from_image_data(
         image_data_list=test_img_data,
         mode='ocr_only',
         additional_manual_courses=["Manual Test Course 1"]
     )
-    print("OCR Results (Local Test):")
+    print("OCR Results (Local Test with LLM fallback):")
     print(json.dumps(ocr_results, indent=2))
 
     print("\n--- Testing Suggestions Only Mode (using results from OCR or mocked) ---")
     known_courses_for_suggestions = ocr_results.get("successfully_extracted_courses", [])
-    if not any("Python" in s for s in known_courses_for_suggestions): 
-        known_courses_for_suggestions.append("Python")
-    if not any("AI Intro" in s for s in known_courses_for_suggestions):
-         known_courses_for_suggestions.append("Introduction to AI [UNVERIFIED]")
+    # Ensure some courses are present for suggestion testing
+    if not any("Python" in s.lower() for s in known_courses_for_suggestions): 
+        known_courses_for_suggestions.append("Python Programming") # More specific
+    if not any("Manual Test Course 1" in s for s in known_courses_for_suggestions):
+         known_courses_for_suggestions.append("Manual Test Course 1")
 
     mock_previous_run_data = [
         {
-            "identified_course_name": "Python", 
-            "description_from_graph": course_graph.get("Python",{}).get("description"),
-            "ai_description": "This is a cached AI description for Python.",
+            "identified_course_name": "Python Programming", 
+            "description_from_graph": course_graph.get("Python",{}).get("description"), # Fallback to general Python
+            "ai_description": "This is a cached AI description for Python Programming.",
             "llm_suggestions": [
                 {"name": "Cached Advanced Python", "description": "Deep dive into Python from cache.", "url": "http://example.com/cached-adv-python"},
-                {"name": "Cached Web Dev with Python", "description": "Web dev using Python from cache.", "url": "http://example.com/cached-web-python"}
             ],
             "llm_error": None
         }
@@ -721,55 +824,17 @@ if __name__ == "__main__":
     suggestion_results = extract_and_recommend_courses_from_image_data(
         mode='suggestions_only',
         known_course_names=known_courses_for_suggestions, 
-        previous_user_data_list=mock_previous_run_data, 
-        additional_manual_courses=["Manual Test Course 2"] 
+        previous_user_data_list=mock_previous_run_data
     )
     print("\nSuggestion Results (Local Test):")
     print(json.dumps(suggestion_results, indent=2))
 
-    print("\n--- Testing LLM Detailed Suggestion Parsing (already in file) ---")
-    mock_llm_text = """
-Identified Course: Python
-AI Description: Python is a versatile, high-level programming language known for its readability and extensive libraries.
-Suggested Next Courses:
-- Name: Advanced Python
-  Description: Explore advanced Python topics.
-  URL: https://example.com/advpython
-- Name: Data Science with Python
-  Description: Learn data science using Python.
-  URL: https://example.com/ds-python
----
-Identified Course: JavaScript
-AI Description: JavaScript is essential for web development.
-Suggested Next Courses:
-- Name: React Framework
-  Description: Build UIs with React.
-  URL: https://reactjs.org
-- Name: Node.js Backend
-  Description: Server-side JavaScript with Node.js.
-  URL: https://nodejs.org
----
-Identified Course: Obscure Topic
-AI Description: No AI description available.
-Suggested Next Courses:
-No specific suggestions available for this course.
-"""
-    parsed_data = parse_llm_detailed_suggestions_response(mock_llm_text)
-    print("Parsed LLM Detailed Suggestions:")
-    print(json.dumps(parsed_data, indent=2))
-
     if not COHERE_API_KEY:
         print("\nNOTE: Cohere API key not set. LLM calls were skipped in relevant tests.")
-        print("To fully test, set COHERE_API_KEY in your .env file.")
-
     if not os.getenv("POPPLER_PATH") and not shutil.which("pdftoppm"):
-        logging.warning("Local test: Poppler (pdftoppm) not found in POPPLER_PATH env var or system PATH. PDF processing in tests might be skipped or log errors.")
-    else:
-        logging.info("Local test: Poppler (pdftoppm) seems to be available.")
-
+        logging.warning("Local test: Poppler (pdftoppm) not found. PDF processing in tests might be skipped.")
     if not model:
-        logging.warning("Local test: YOLO model ('best.pt') could not be loaded. OCR functionality will be limited to full image OCR without region detection.")
-
+        logging.warning("Local test: YOLO model ('best.pt') could not be loaded. OCR functionality will be limited.")
     if not TESSERACT_PATH:
          logging.warning("Local test: Tesseract executable not found. OCR will fail.")
 

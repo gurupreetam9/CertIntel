@@ -199,25 +199,28 @@ def process_certificates_from_db():
                     "processed_image_file_ids": []
                  }), 200
             
+            # This call now includes the new LLM step internally if initial OCR fails
             ocr_phase_raw_results = extract_and_recommend_courses_from_image_data(
                 image_data_list=image_data_for_ocr_processing,
                 mode='ocr_only',
                 additional_manual_courses=additional_manual_courses_general 
             )
-            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Initial OCR processing by certificate_processor complete.")
+            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Automated OCR/LLM processing by certificate_processor complete.")
 
             # --- Apply stored manual names ---
+            # This logic remains to apply names that might have been saved by user in previous sessions
+            # for images that *still* failed even after the new LLM step.
             current_successful_courses = ocr_phase_raw_results.get("successfully_extracted_courses", [])
-            initial_failed_images = ocr_phase_raw_results.get("failed_extraction_images", [])
-            final_failed_images_for_frontend = []
+            initial_failed_images_after_automated_steps = ocr_phase_raw_results.get("failed_extraction_images", [])
+            final_failed_images_for_frontend_prompting = [] # These are the ones truly needing manual input now
 
-            if initial_failed_images:
-                app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): {len(initial_failed_images)} images failed initial OCR. Checking for stored manual names.")
+            if initial_failed_images_after_automated_steps:
+                app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): {len(initial_failed_images_after_automated_steps)} images failed automated steps. Checking for stored manual names.")
                 stored_manual_names_cursor = manual_course_names_collection.find({"userId": user_id})
                 stored_manual_names_map = {item["fileId"]: item["courseName"] for item in stored_manual_names_cursor}
                 app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Found {len(stored_manual_names_map)} stored manual names for user {user_id}.")
 
-                for failed_img_info in initial_failed_images:
+                for failed_img_info in initial_failed_images_after_automated_steps:
                     file_id_of_failed_img = failed_img_info.get("file_id")
                     if file_id_of_failed_img in stored_manual_names_map:
                         stored_name = stored_manual_names_map[file_id_of_failed_img]
@@ -227,13 +230,13 @@ def process_certificates_from_db():
                         # This image is no longer considered "failed" for frontend prompting
                     else:
                         # No stored name, so it's a true failure for frontend prompting
-                        final_failed_images_for_frontend.append(failed_img_info)
+                        final_failed_images_for_frontend_prompting.append(failed_img_info)
                 
                 ocr_phase_raw_results["successfully_extracted_courses"] = sorted(list(set(current_successful_courses)))
-                ocr_phase_raw_results["failed_extraction_images"] = final_failed_images_for_frontend
-                app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): After applying stored names - Successful: {len(current_successful_courses)}, Failures to prompt: {len(final_failed_images_for_frontend)}.")
+                ocr_phase_raw_results["failed_extraction_images"] = final_failed_images_for_frontend_prompting # Update with actually failed ones
+                app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): After applying stored names - Successful: {len(current_successful_courses)}, Failures to prompt: {len(final_failed_images_for_frontend_prompting)}.")
             else:
-                 app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): No images initially failed OCR. No need to check stored manual names.")
+                 app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): No images failed automated steps. No need to check stored manual names.")
                  ocr_phase_raw_results["successfully_extracted_courses"] = sorted(list(set(current_successful_courses)))
 
 
@@ -281,9 +284,6 @@ def process_certificates_from_db():
             
             if should_store_new_result and current_processed_data_for_db:
                 try:
-                    # Get all user image IDs to associate with this suggestion run record
-                    # This is needed because suggestions are based on a consolidated list, not necessarily tied to images processed *in this exact OCR run*
-                    # if some courses were already known or added manually.
                     user_all_image_ids_associated_with_suggestions = [str(doc["_id"]) for doc in db.images.files.find({"metadata.userId": user_id}, projection={"_id": 1})]
 
                     data_to_store_in_db = {
@@ -301,16 +301,13 @@ def process_certificates_from_db():
             elif not current_processed_data_for_db:
                  app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): No user processed data generated, nothing to store or associate image IDs with for DB.")
                  processing_result_dict["associated_image_file_ids"] = []
-            else: # should_store_new_result is False, but current_processed_data_for_db exists
+            else: 
                  app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Result not stored (similar to previous). Using image IDs from previous if available or querying all user images.")
-                 # Try to get associated IDs from latest_doc if it's the source of similarity
                  latest_image_ids = latest_doc.get("associated_image_file_ids") if latest_doc else None
                  if latest_image_ids:
                      processing_result_dict["associated_image_file_ids"] = latest_image_ids
-                 else: # Fallback to all user images
+                 else: 
                      processing_result_dict["associated_image_file_ids"] = [str(doc["_id"]) for doc in db.images.files.find({"metadata.userId": user_id}, projection={"_id": 1})]
-
-
         else:
             app_logger.error(f"Flask (Req ID: {req_id_cert}): Invalid processing_mode '{processing_mode}'.")
             return jsonify({"error": f"Invalid processing mode: {processing_mode}"}), 400
@@ -323,7 +320,6 @@ def process_certificates_from_db():
 
 @app.route('/api/convert-pdf-to-images', methods=['POST'])
 def convert_pdf_to_images_route():
-    # Generate a unique ID for this request for logging correlation
     req_id = datetime.now().strftime('%Y%m%d%H%M%S%f')
     app.logger.info(f"Flask /api/convert-pdf-to-images (Req ID: {req_id}): Received request.")
 
@@ -352,7 +348,6 @@ def convert_pdf_to_images_route():
     try:
         pdf_bytes = pdf_file_storage.read()
         
-        # Poppler self-check using pdfinfo_from_bytes
         try:
             app.logger.info(f"Flask (Req ID: {req_id}): Using POPPLER_PATH for pdfinfo: '{POPPLER_PATH if POPPLER_PATH else 'System Default'}'")
             pdfinfo = pdfinfo_from_bytes(pdf_bytes, userpw=None, poppler_path=POPPLER_PATH)
@@ -363,7 +358,7 @@ def convert_pdf_to_images_route():
         except PDFPopplerTimeoutError:
             app.logger.error(f"Flask (Req ID: {req_id}): Poppler (pdfinfo) timed out processing the PDF. The PDF might be too complex or corrupted.")
             return jsonify({"error": "Timeout during PDF information retrieval. The PDF may be too complex or corrupted."}), 400
-        except Exception as info_err: # Catch other potential errors from pdfinfo
+        except Exception as info_err: 
             app.logger.error(f"Flask (Req ID: {req_id}): Error getting PDF info with Poppler: {str(info_err)}", exc_info=True)
             return jsonify({"error": f"Failed to retrieve PDF info: {str(info_err)}"}), 500
 
@@ -386,21 +381,20 @@ def convert_pdf_to_images_route():
                 "originalName": f"{original_pdf_name} (Page {page_number})", 
                 "userId": user_id,
                 "uploadedAt": datetime.utcnow().isoformat(),
-                "sourceContentType": "application/pdf", # Original was PDF
-                "convertedTo": "image/png", # Stored as PNG
+                "sourceContentType": "application/pdf", 
+                "convertedTo": "image/png", 
                 "pageNumber": page_number,
                 "reqIdParent": req_id 
             }
             
             app.logger.info(f"Flask (Req ID: {req_id}): Storing page {page_number} as '{gridfs_filename}' in GridFS with metadata: {metadata_for_gridfs}")
-            # The actual contentType for GridFS should be 'image/png' for the converted file
             file_id_obj = fs_images.put(img_byte_arr_val, filename=gridfs_filename, contentType='image/png', metadata=metadata_for_gridfs)
             
             converted_files_metadata.append({
                 "originalName": metadata_for_gridfs["originalName"],
                 "fileId": str(file_id_obj),
                 "filename": gridfs_filename,
-                "contentType": 'image/png', # This is the type of the file stored in GridFS
+                "contentType": 'image/png', 
                 "pageNumber": page_number
             })
             app.logger.info(f"Flask (Req ID: {req_id}): Stored page {page_number} with GridFS ID: {str(file_id_obj)}.")
@@ -414,12 +408,11 @@ def convert_pdf_to_images_route():
     except PDFSyntaxError:
         app.logger.error(f"Flask (Req ID: {req_id}): pdf2image encountered syntax error for '{original_pdf_name}'. PDF is likely corrupted.", exc_info=True)
         return jsonify({"error": "PDF syntax error. The file may be corrupted."}), 400
-    except PDFPopplerTimeoutError: # This catches timeouts during the convert_from_bytes call
+    except PDFPopplerTimeoutError: 
         app.logger.error(f"Flask (Req ID: {req_id}): Poppler (conversion) timed out processing PDF '{original_pdf_name}'.")
         return jsonify({"error": "Timeout during PDF page conversion. The PDF may be too complex."}), 400
     except Exception as e:
         app.logger.error(f"Flask (Req ID: {req_id}): Error during PDF conversion or storage for '{original_pdf_name}': {str(e)}", exc_info=True)
-        # Check if the error string or type suggests Poppler is not installed (during conversion stage)
         if "PopplerNotInstalledError" in str(type(e)) or "pdftoppm" in str(e).lower() or "pdfinfo" in str(e).lower():
              app.logger.error(f"Flask (Req ID: {req_id}): CRITICAL - Poppler utilities (pdftoppm/pdfinfo) not found or not executable (POPPLER_PATH: '{POPPLER_PATH}').")
              return jsonify({"error": "PDF processing utilities (Poppler) are not installed or configured correctly on the server (conversion stage)."}), 500
@@ -431,9 +424,5 @@ if __name__ == '__main__':
     app_logger.info(f"Effective MONGODB_URI configured: {'Yes' if MONGODB_URI else 'No'}")
     app_logger.info(f"Effective MONGODB_DB_NAME: {DB_NAME}")
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)), debug=True)
-
-    
-
-  
 
     
