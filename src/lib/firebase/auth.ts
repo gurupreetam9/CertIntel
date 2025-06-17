@@ -52,29 +52,28 @@ export const sendPasswordReset = async (email: string): Promise<{ success: boole
 
     if (querySnapshot.empty) {
       // No user profile found in our Firestore database for this email.
-      // Return a generic message for security to avoid confirming/denying email existence.
-      console.log(`sendPasswordReset: No user profile found in Firestore for email: ${email}. Not proceeding with Firebase Auth password reset.`);
-      return { success: true, message: 'If an account exists for this email, a password reset link has been sent. Please check your inbox (and spam folder).' };
+      console.log(`sendPasswordReset: No user profile found in Firestore for email: ${email}.`);
+      return { success: false, message: 'No account found with that email address. Please check your email or register for an account.' };
     }
 
     // User profile exists in Firestore, proceed to request password reset from Firebase Auth
     console.log(`sendPasswordReset: User profile found in Firestore for email: ${email}. Proceeding with Firebase Auth password reset.`);
     await firebaseSendPasswordResetEmail(auth, email);
+    // Even if user exists in Firestore, Firebase Auth might not have this user (e.g. data inconsistency).
+    // However, sendPasswordResetEmail itself doesn't error for non-existent users in Auth to prevent enumeration.
+    // So, we return a generic success message here to maintain that security aspect from Auth's perspective.
     return { success: true, message: 'If an account exists for this email, a password reset link has been sent. Please check your inbox (and spam folder).' };
 
   } catch (error: any) {
     const authError = error as AuthError;
     console.error("sendPasswordResetEmail error:", authError.code, authError.message);
-    // For security, always return a generic success message, even on Firebase Auth errors,
-    // unless it's a clear client-side validation issue like invalid email format (though Zod handles that earlier).
-    // This prevents attackers from enumerating emails registered with Firebase Auth if they bypass our Firestore check somehow.
+    // This catch block is for unexpected errors from Firebase Auth (e.g., network, service unavailable).
+    // auth/invalid-email should be caught by Zod validation on the client.
     if (authError.code === 'auth/invalid-email') {
-      // This case might be redundant if Zod schema validation on the form already catches it.
       return { success: false, message: 'The email address is not valid.' };
     }
-    // For all other errors (including 'auth/user-not-found' from Firebase Auth, which we now expect if the Firestore check passed but Auth differs),
-    // return the generic message.
-    return { success: true, message: 'If an account exists for this email, a password reset link has been sent. Please check your inbox (and spam folder).' };
+    // For other errors, return a generic failure message.
+    return { success: false, message: 'Failed to send password reset email. Please try again later.' };
   }
 };
 
