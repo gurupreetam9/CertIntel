@@ -60,8 +60,6 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
   const [isConfirmDeleteDialogOpen, setIsConfirmDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
-
-  const [imageAIDescriptions, setImageAIDescriptions] = useState<Record<string, string>>({});
   const [generatingDescriptionFor, setGeneratingDescriptionFor] = useState<string | null>(null);
 
   const openViewModal = (image: UserImage) => {
@@ -107,11 +105,6 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
         title: 'File Deleted',
         description: `"${imageToDelete.originalName}" has been successfully deleted.`,
       });
-      setImageAIDescriptions(prev => {
-        const newDescriptions = {...prev};
-        delete newDescriptions[imageToDelete.fileId];
-        return newDescriptions;
-      });
       onImageDeleted();
     } catch (err: any) {
       toast({
@@ -131,20 +124,16 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
         return;
     }
     setGeneratingDescriptionFor(image.fileId);
-    setImageAIDescriptions(prev => ({...prev, [image.fileId]: "Generating..."})); // Show loading state
+    toast({ title: 'Generating AI Description', description: `Requesting description for ${image.originalName}...` });
 
     try {
-        // 1. Fetch the image from our API endpoint
         const imageResponse = await fetch(`/api/images/${image.fileId}`);
         if (!imageResponse.ok) {
             throw new Error(`Failed to fetch image data: ${imageResponse.statusText}`);
         }
         const imageBlob = await imageResponse.blob();
-
-        // 2. Convert blob to data URI
         const photoDataUri = await blobToDataUri(imageBlob);
 
-        // 3. Call the AI description API
         const descriptionApiResponse = await fetch('/api/ai/generate-description', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -157,15 +146,17 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
         }
 
         if (result.description) {
-            setImageAIDescriptions(prev => ({...prev, [image.fileId]: result.description }));
-            toast({ title: 'AI Description Ready', description: `Description generated for ${image.originalName}.`});
+            toast({ 
+                title: `AI Description for ${image.originalName}`, 
+                description: result.description,
+                duration: 10000 // Keep toast longer for reading
+            });
         } else {
             throw new Error('AI did not return a description.');
         }
 
     } catch (err: any) {
         console.error("Error requesting AI description:", err);
-        setImageAIDescriptions(prev => ({...prev, [image.fileId]: "Error fetching description."}));
         toast({ title: 'AI Description Failed', description: err.message, variant: 'destructive' });
     } finally {
         setGeneratingDescriptionFor(null);
@@ -210,7 +201,6 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
           const imageSrc = `/api/images/${image.fileId}`;
           const isPdf = image.contentType === 'application/pdf';
           const imageFitClass = 'object-contain'; 
-          const currentDescription = imageAIDescriptions[image.fileId];
 
           return (
             <Card key={image.fileId} className="overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 group relative flex flex-col">
@@ -273,19 +263,9 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
-              <div className="p-3 mt-auto border-t bg-card"> {/* Changed p-2 text-center, removed bottom positioning, added mt-auto for flex layout */}
+              <div className="p-3 mt-auto border-t bg-card">
                  <p className="text-sm font-medium truncate text-card-foreground mb-1" title={image.originalName}>{image.originalName}</p>
-                 {currentDescription && (
-                    <CardDescription className="text-xs text-muted-foreground max-h-20 overflow-y-auto">
-                        {currentDescription === "Generating..." ? (
-                            <span className="italic flex items-center"><Loader2 className="h-3 w-3 mr-1 animate-spin" /> {currentDescription}</span>
-                        ) : currentDescription === "Error fetching description." ? (
-                            <span className="text-destructive italic">{currentDescription}</span>
-                        ) : (
-                            currentDescription
-                        )}
-                    </CardDescription>
-                 )}
+                 {/* Removed AI description rendering from here */}
               </div>
             </Card>
           );
@@ -327,4 +307,3 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
     </>
   );
 }
-
