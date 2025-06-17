@@ -249,7 +249,12 @@ export default function RegisterPage() {
                   />
                   {serverError && <p className="text-sm font-medium text-destructive">{serverError}</p>}
                   <div className="flex flex-col sm:flex-row gap-2">
-                    <Button variant="outline" onClick={() => { setStep(1); setServerError(null); setSelectedRole(null); }} className="w-full sm:w-auto">
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      onClick={() => { setStep(1); setServerError(null); setSelectedRole(null); }} 
+                      className="w-full sm:w-auto"
+                    >
                       Back to Role
                     </Button>
                     <Button type="submit" className="w-full" disabled={isSubmitting}>
@@ -329,12 +334,17 @@ export default function RegisterPage() {
                     )} />
                     {serverError && <p className="text-sm font-medium text-destructive">{serverError}</p>}
                      <div className="flex flex-col sm:flex-row gap-2 pt-2">
-                        <Button variant="outline" onClick={() => { setStep(2); setServerError(null); }} className="w-full sm:w-auto">
-                        Back to Email
+                        <Button 
+                          type="button" 
+                          variant="outline" 
+                          onClick={() => { setStep(2); setServerError(null); }} 
+                          className="w-full sm:w-auto"
+                        >
+                          Back to Email
                         </Button>
                         <Button type="submit" className="w-full" disabled={isSubmitting}>
-                        {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Verify & Register
+                          {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                          Verify & Register
                         </Button>
                     </div>
                   </form>
@@ -359,12 +369,17 @@ export default function RegisterPage() {
                     )} />
                     {serverError && <p className="text-sm font-medium text-destructive">{serverError}</p>}
                      <div className="flex flex-col sm:flex-row gap-2">
-                        <Button variant="outline" onClick={() => { setStep(2); setServerError(null); }} className="w-full sm:w-auto">
-                        Back to Email
+                        <Button 
+                          type="button" 
+                          variant="outline" 
+                          onClick={() => { setStep(2); setServerError(null); }} 
+                          className="w-full sm:w-auto"
+                        >
+                          Back to Email
                         </Button>
                         <Button type="submit" className="w-full" disabled={isSubmitting}>
-                        {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Verify & Register Admin
+                          {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                          Verify & Register Admin
                         </Button>
                     </div>
                   </form>
