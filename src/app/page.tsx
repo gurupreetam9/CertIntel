@@ -9,14 +9,14 @@ import AiFAB from '@/components/home/AiFAB';
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { FileText } from 'lucide-react'; 
+import { FileText } from 'lucide-react';
 
 function HomePageContent() {
   const [images, setImages] = useState<UserImage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const { user, userId } = useAuth(); 
+  const { user, userId } = useAuth();
   const { toast } = useToast();
 
   const triggerRefresh = useCallback(() => {
@@ -25,7 +25,7 @@ function HomePageContent() {
   }, []);
 
   const fetchImages = useCallback(async () => {
-    if (!userId || !user) { 
+    if (!userId || !user) {
       setIsLoading(false);
       setImages([]);
       console.log("HomePageContent: fetchImages skipped, no userId or user object.");
@@ -46,18 +46,16 @@ function HomePageContent() {
       console.log(`HomePageContent: Fetching from URL: ${fetchUrl} with Authorization header.`);
       const response = await fetch(fetchUrl, {
         headers: {
-          'Authorization': `Bearer ${idToken}` 
+          'Authorization': `Bearer ${idToken}`
         }
       });
 
+      const responseText = await response.text(); // Get raw text first for logging
       if (!response.ok) {
         let errorData = { message: `Error ${response.status}: Failed to load certificates from API.`, detail: `Status code ${response.status}`, errorKey: 'UNKNOWN_CLIENT_ERROR' };
-        let errorPayloadForConsole: any = {};
-        let rawResponseText = '';
+        let errorPayloadForConsole: any = { rawResponse: responseText.substring(0, 500) };
         try {
-          rawResponseText = await response.text(); // Get raw text first
-          console.log(`HomePageContent: API error response (status ${response.status}) raw text (first 500 chars):`, rawResponseText.substring(0, 500));
-          errorPayloadForConsole = JSON.parse(rawResponseText); // Try to parse
+          errorPayloadForConsole = JSON.parse(responseText);
           if (typeof errorPayloadForConsole === 'object' && errorPayloadForConsole !== null) {
             errorData.message = errorPayloadForConsole.message || errorData.message;
             errorData.detail = errorPayloadForConsole.detail || errorData.detail;
@@ -65,9 +63,8 @@ function HomePageContent() {
           }
         } catch (jsonError) {
           console.error("HomePageContent: Could not parse error JSON from API. Raw response text used for error message. JSON parsing error:", jsonError);
-          errorPayloadForConsole = { rawResponse: rawResponseText.substring(0,500) };
-          errorData.message = rawResponseText.substring(0,200).trim() || errorData.message; // Use trimmed raw text if JSON parsing failed
-          if (!rawResponseText.trim() && response.status === 401) { // If raw text is empty and it's 401
+          errorData.message = responseText.substring(0,200).trim() || errorData.message;
+          if (!responseText.trim() && response.status === 401) {
              errorData.message = "Unauthorized: Access denied. Please check your login status.";
           }
         }
@@ -75,9 +72,10 @@ function HomePageContent() {
         console.error(`HomePageContent: API error while fetching certificates. Status: ${response.status}. Parsed/Raw error payload for console:`, errorPayloadForConsole);
         throw new Error(`API Error: ${displayErrorMessage}`);
       }
-      
-      const data: UserImage[] = await response.json();
-      console.log("HomePageContent: Successfully fetched certificate data. Count:", data.length);
+
+      const data: UserImage[] = JSON.parse(responseText); // Parse from text after ensuring response is ok
+      console.log("HomePageContent: Successfully fetched certificate data from API. Count:", data.length);
+      console.log("HomePageContent: Raw data from API (first 5 images stringified):", JSON.stringify(data.slice(0,5), null, 2));
       setImages(data);
     } catch (err: any) {
       console.error("HomePageContent: Error in fetchImages catch block:", err);
@@ -97,7 +95,7 @@ function HomePageContent() {
 
   useEffect(() => {
     console.log("HomePageContent: useEffect triggered for fetchImages. Current userId:", userId, "Current refreshKey:", refreshKey);
-    if (userId && user) { 
+    if (userId && user) {
         fetchImages();
     } else {
         setIsLoading(false);
@@ -133,4 +131,3 @@ export default function HomePage() {
     </ProtectedPage>
   );
 }
-

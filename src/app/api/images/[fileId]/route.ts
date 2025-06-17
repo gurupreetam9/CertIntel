@@ -23,19 +23,19 @@ export async function GET(
     dbConnection = await connectToDb();
     const { bucket } = dbConnection;
     console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): DB connected, GridFS bucket obtained for fileId: ${fileId}`);
-    
+
     const objectId = new ObjectId(fileId);
 
-    console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): Searching for file with _id: ${objectId}`);
+    console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): Searching for file with _id: ${objectId} in bucket "${bucket.bucketName}"`);
     const fileInfoArray = await bucket.find({ _id: objectId }).limit(1).toArray();
-    
+
     if (fileInfoArray.length === 0) {
       console.warn(`API Route /api/images/[fileId] (Req ID: ${reqId}): Image not found for _id: ${objectId}`);
       return NextResponse.json({ message: 'Image not found.' }, { status: 404 });
     }
     const fileInfo = fileInfoArray[0];
-    console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): File found:`, { filename: fileInfo.filename, contentType: fileInfo.contentType, length: fileInfo.length });
-    
+    console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): File found:`, { filename: fileInfo.filename, contentType: fileInfo.contentType, length: fileInfo.length, uploadDate: fileInfo.uploadDate, metadata: fileInfo.metadata });
+
     const downloadStream = bucket.openDownloadStream(objectId);
     console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): Opened download stream for fileId: ${objectId}`);
 
@@ -63,7 +63,7 @@ export async function GET(
         downloadStream.destroy();
       },
     });
-    
+
     const responseHeaders = new Headers();
     responseHeaders.set('Content-Type', contentType);
     responseHeaders.set('Content-Length', fileInfo.length.toString());
@@ -76,10 +76,10 @@ export async function GET(
     });
 
   } catch (error: any) {
-    console.error(`API Route /api/images/[fileId] (Req ID: ${reqId}): Error serving image for fileId ${fileId}:`, { 
-        message: error.message, 
-        name: error.name, 
-        stack: error.stack?.substring(0,300) 
+    console.error(`API Route /api/images/[fileId] (Req ID: ${reqId}): Error serving image for fileId ${fileId}:`, {
+        message: error.message,
+        name: error.name,
+        stack: error.stack?.substring(0,300)
     });
     let status = 500;
     let message = 'Error serving image.';
@@ -111,7 +111,7 @@ export async function DELETE(
     console.warn(`API Route /api/images/[fileId] (Req ID: ${reqId}): Missing userId query parameter for DELETE.`);
     return NextResponse.json({ message: 'Unauthorized: Missing user identification.' }, { status: 401 });
   }
-  
+
   if (!fileId || !ObjectId.isValid(fileId)) {
     console.warn(`API Route /api/images/[fileId] (Req ID: ${reqId}): Invalid fileId for DELETE: ${fileId}`);
     return NextResponse.json({ message: 'Invalid fileId.' }, { status: 400 });
@@ -141,7 +141,7 @@ export async function DELETE(
     console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): Authorized. Attempting to delete file ${fileId} from GridFS.`);
     await bucket.delete(objectId);
     console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): File ${fileId} deleted successfully.`);
-    
+
     return NextResponse.json({ message: 'File deleted successfully.' }, { status: 200 });
 
   } catch (error: any) {
@@ -160,4 +160,3 @@ export async function DELETE(
     return NextResponse.json(errorPayload, { status });
   }
 }
-
