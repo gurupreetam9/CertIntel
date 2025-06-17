@@ -17,6 +17,7 @@ import json
 import io
 import shutil # For shutil.which
 from typing import List, Optional, Tuple
+from datetime import datetime # For test code
 
 # --- Initial Setup ---
 try:
@@ -129,11 +130,11 @@ try:
         logging.info(f"Successfully loaded YOLO model from: {YOLO_MODEL_PATH}")
     else:
         script_dir_model_path = os.path.join(os.path.dirname(__file__), 'best.pt')
-        if os.path.exists(script_dir_model_path) and YOLO_MODEL_PATH == "best.pt":
+        if os.path.exists(script_dir_model_path) and YOLO_MODEL_PATH == "best.pt": # Check if default path was intended for script dir
              model = YOLO(script_dir_model_path)
              logging.info(f"Successfully loaded YOLO model from script directory: {script_dir_model_path}")
         else:
-            logging.error(f"YOLO model not found at path: {YOLO_MODEL_PATH} or in script directory. Please check the path or set YOLO_MODEL_PATH.")
+            logging.error(f"YOLO model not found at path: {YOLO_MODEL_PATH} or in script directory (if default path was 'best.pt'). Please check the path or set YOLO_MODEL_PATH.")
 except Exception as e:
     logging.error(f"Error loading YOLO model: {e}")
 
@@ -349,7 +350,7 @@ def query_llm_for_detailed_suggestions(known_course_names_list):
     prompt = f"""
 You are an expert curriculum advisor. You will be given a list of course names the user is considered to have knowledge in: {', '.join(prompt_course_list)}.
 
-For EACH of these courses from the input list, you MUST provide the following structured information:
+For EACH of these courses from the input list, you MUST provide the following structured information. Treat each item from the input list as a single, distinct course, even if it contains multiple terms or slashes.
 1.  "Identified Course: [The exact course name from the input list that this block refers to]"
 2.  "AI Description: [Generate a concise 1-2 sentence description for this 'Identified Course'. If you cannot generate one, state 'No AI description available.']"
 3.  "Suggested Next Courses:" (This line must be present)
@@ -380,7 +381,7 @@ Suggested Next Courses:
 """
     try:
         response = co.chat(model="command-r-plus", message=prompt, temperature=0.3)
-        logging.info(f"Cohere LLM raw response for detailed suggestions: {response.text[:1000]}...")
+        logging.info(f"Cohere LLM raw response for detailed suggestions (first 500 chars): {response.text[:500]}...")
         return {"text": response.text.strip()}
     except Exception as e:
         logging.error(f"Error querying Cohere LLM for detailed suggestions: {e}")
@@ -411,7 +412,7 @@ def parse_llm_detailed_suggestions_response(llm_response_text):
         ai_description_match = re.search(r"AI Description:\s*(.*?)\nSuggested Next Courses:", block_text, re.IGNORECASE | re.DOTALL)
         
         if not identified_course_match or not ai_description_match:
-            logging.warning(f"LLM Parser: Could not find 'Identified Course' or 'AI Description' in block: '{block_text[:200]}...'")
+            logging.warning(f"LLM Parser: Could not find 'Identified Course' or 'AI Description' in block (first 300 chars): '{block_text[:300]}...'. Full block text: {block_text}")
             continue
             
         identified_course_name = identified_course_match.group(1).strip()
@@ -432,12 +433,17 @@ def parse_llm_detailed_suggestions_response(llm_response_text):
                 for i, sug_block_part in enumerate(individual_suggestion_blocks):
                     sug_block_part_cleaned = sug_block_part.strip()
                     if i == 0 and not sug_block_part_cleaned : 
+                         # This handles cases where the suggestions_blob might start directly with "- Name:" or "Name:"
+                         # or might have leading empty content before the first "Name:" if re.split behaves unusually.
                          if not suggestions_blob.strip().lower().startswith("name:"): 
-                            pass
+                            # If the blob itself doesn't start with "Name:", the first split part might be empty or preamble. Skip it.
+                            pass # Let it continue if the original blob didn't start with Name: and this first part is empty.
                          else: 
+                            # If the blob DID start with Name: and this part is empty, it's likely an artifact of split.
                             continue 
                     
                     full_sug_block = sug_block_part_cleaned
+                    # Ensure the block starts with "Name:" for consistent parsing
                     if not sug_block_part_cleaned.lower().startswith("name:"):
                         full_sug_block = "Name: " + sug_block_part_cleaned
 
@@ -452,9 +458,9 @@ def parse_llm_detailed_suggestions_response(llm_response_text):
                             "url": sug_url_match.group(1).strip()
                         })
                     else:
-                        logging.warning(f"LLM Parser: Could not parse full suggestion (name, desc, or URL missing) in block for '{identified_course_name}'. Suggestion block part: '{full_sug_block[:100]}...' Name_match: {bool(sug_name_match)}, Desc_match: {bool(sug_desc_match)}, URL_match: {bool(sug_url_match)}")
+                        logging.warning(f"LLM Parser: Could not parse full suggestion (name, desc, or URL missing) in block for '{identified_course_name}'. Suggestion block part (first 150 chars): '{full_sug_block[:150]}...'. Name_match: {bool(sug_name_match)}, Desc_match: {bool(sug_desc_match)}, URL_match: {bool(sug_url_match)}")
         else:
-            logging.warning(f"LLM Parser: 'Suggested Next Courses:' section not found or malformed for '{identified_course_name}'.")
+            logging.warning(f"LLM Parser: 'Suggested Next Courses:' section not found or malformed for '{identified_course_name}'. Block text (first 300 chars): '{block_text[:300]}...'")
 
         parsed_results.append({
             "identified_course_name": identified_course_name,
@@ -623,25 +629,29 @@ def generate_suggestions_from_known_courses(
                  logging.warning(f"Suggestions Phase: {llm_error_summary_for_output}")
 
             for course_name in courses_to_query_llm_for:
-                llm_item_for_course = parsed_items_map.get(course_name.replace(" [UNVERIFIED]", ""))
-                
+                # Try matching with and without "[UNVERIFIED]" stripped, depending on how LLM returns "Identified Course"
+                course_name_stripped = course_name.replace(" [UNVERIFIED]", "")
+                llm_item_for_course = parsed_items_map.get(course_name_stripped)
+                if not llm_item_for_course: # Fallback: try matching with original name if LLM kept "[UNVERIFIED]" (unlikely)
+                    llm_item_for_course = parsed_items_map.get(course_name)
+
                 if llm_item_for_course:
                     user_processed_data_output.append({
-                        "identified_course_name": course_name, 
-                        "description_from_graph": course_graph.get(course_name.replace(" [UNVERIFIED]", ""), {}).get("description"),
+                        "identified_course_name": course_name, # Store original name with [UNVERIFIED] if it had it
+                        "description_from_graph": course_graph.get(course_name_stripped, {}).get("description"),
                         "ai_description": llm_item_for_course["ai_description"],
                         "llm_suggestions": llm_item_for_course["llm_suggestions"],
                         "llm_error": None 
                     })
                 else: 
-                    error_msg_for_this_course = f"LLM was queried, but no specific data was returned or parsed for '{course_name}'."
+                    error_msg_for_this_course = f"LLM was queried, but no specific data was returned or parsed for '{course_name}' (or its stripped version '{course_name_stripped}')."
                     if llm_error_summary_for_output and "parsed" in llm_error_summary_for_output: 
                         error_msg_for_this_course = llm_error_summary_for_output
                     
                     logging.warning(error_msg_for_this_course)
                     user_processed_data_output.append({
                         "identified_course_name": course_name,
-                        "description_from_graph": course_graph.get(course_name.replace(" [UNVERIFIED]", ""), {}).get("description"),
+                        "description_from_graph": course_graph.get(course_name_stripped, {}).get("description"),
                         "ai_description": None,
                         "llm_suggestions": [],
                         "llm_error": error_msg_for_this_course
@@ -821,6 +831,9 @@ if __name__ == "__main__":
         }
     ]
 
+    # Test with a composite name
+    known_courses_for_suggestions.append("Deep Learning / Nlp / Artificial Intelligence [UNVERIFIED]")
+
     suggestion_results = extract_and_recommend_courses_from_image_data(
         mode='suggestions_only',
         known_course_names=known_courses_for_suggestions, 
@@ -837,5 +850,7 @@ if __name__ == "__main__":
         logging.warning("Local test: YOLO model ('best.pt') could not be loaded. OCR functionality will be limited.")
     if not TESSERACT_PATH:
          logging.warning("Local test: Tesseract executable not found. OCR will fail.")
+
+    
 
     
