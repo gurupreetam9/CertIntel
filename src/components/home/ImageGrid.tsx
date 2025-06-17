@@ -2,9 +2,9 @@
 'use client';
 
 import Image from 'next/image';
-import { Card, CardContent } from '@/components/ui/card';
-import { ImageIcon, Loader2, Eye, Trash2, ExternalLink, Download, FileText } from 'lucide-react';
-import { useState } from 'react';
+import { Card, CardContent, CardDescription } from '@/components/ui/card';
+import { ImageIcon, Loader2, Eye, Trash2, ExternalLink, Download, FileText, Bot, Sparkles } from 'lucide-react';
+import { useState, useCallback } from 'react';
 import ViewImageModal from './ViewImageModal';
 import {
   AlertDialog,
@@ -18,7 +18,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-// Removed ImageFitMode type import as it's no longer used
 
 export interface UserImage {
   fileId: string;
@@ -37,8 +36,22 @@ interface ImageGridProps {
   error: string | null;
   onImageDeleted: () => void;
   currentUserId: string | null;
-  // imageFitMode prop removed
 }
+
+// Helper function to convert a fetched image URL (Blob) to Data URI
+const blobToDataUri = (blob: Blob): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      resolve(reader.result as string);
+    };
+    reader.onerror = (error) => {
+      reject(error);
+    };
+    reader.readAsDataURL(blob);
+  });
+};
+
 
 export default function ImageGrid({ images, isLoading, error, onImageDeleted, currentUserId }: ImageGridProps) {
   const [selectedImageForView, setSelectedImageForView] = useState<UserImage | null>(null);
@@ -47,6 +60,9 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
   const [isConfirmDeleteDialogOpen, setIsConfirmDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const { toast } = useToast();
+
+  const [imageAIDescriptions, setImageAIDescriptions] = useState<Record<string, string>>({});
+  const [generatingDescriptionFor, setGeneratingDescriptionFor] = useState<string | null>(null);
 
   const openViewModal = (image: UserImage) => {
     setSelectedImageForView(image);
@@ -91,6 +107,11 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
         title: 'File Deleted',
         description: `"${imageToDelete.originalName}" has been successfully deleted.`,
       });
+      setImageAIDescriptions(prev => {
+        const newDescriptions = {...prev};
+        delete newDescriptions[imageToDelete.fileId];
+        return newDescriptions;
+      });
       onImageDeleted();
     } catch (err: any) {
       toast({
@@ -101,6 +122,53 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
     } finally {
       setIsDeleting(false);
       closeDeleteConfirmDialog();
+    }
+  };
+
+  const handleRequestAIDescription = async (image: UserImage) => {
+    if (image.contentType === 'application/pdf') {
+        toast({ title: 'Not an Image', description: 'AI descriptions are only available for image files.', variant: 'destructive' });
+        return;
+    }
+    setGeneratingDescriptionFor(image.fileId);
+    setImageAIDescriptions(prev => ({...prev, [image.fileId]: "Generating..."})); // Show loading state
+
+    try {
+        // 1. Fetch the image from our API endpoint
+        const imageResponse = await fetch(`/api/images/${image.fileId}`);
+        if (!imageResponse.ok) {
+            throw new Error(`Failed to fetch image data: ${imageResponse.statusText}`);
+        }
+        const imageBlob = await imageResponse.blob();
+
+        // 2. Convert blob to data URI
+        const photoDataUri = await blobToDataUri(imageBlob);
+
+        // 3. Call the AI description API
+        const descriptionApiResponse = await fetch('/api/ai/generate-description', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ photoDataUri }),
+        });
+
+        const result = await descriptionApiResponse.json();
+        if (!descriptionApiResponse.ok) {
+            throw new Error(result.message || 'Failed to generate AI description from API.');
+        }
+
+        if (result.description) {
+            setImageAIDescriptions(prev => ({...prev, [image.fileId]: result.description }));
+            toast({ title: 'AI Description Ready', description: `Description generated for ${image.originalName}.`});
+        } else {
+            throw new Error('AI did not return a description.');
+        }
+
+    } catch (err: any) {
+        console.error("Error requesting AI description:", err);
+        setImageAIDescriptions(prev => ({...prev, [image.fileId]: "Error fetching description."}));
+        toast({ title: 'AI Description Failed', description: err.message, variant: 'destructive' });
+    } finally {
+        setGeneratingDescriptionFor(null);
     }
   };
 
@@ -118,7 +186,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center text-center py-12 text-destructive">
-        <FileText className="w-16 h-16 mb-4" /> {/* Changed from ImageIcon to FileText for consistency */}
+        <FileText className="w-16 h-16 mb-4" />
         <h2 className="text-2xl font-headline mb-2">Error Loading Certificates</h2>
         <p>{error}</p>
       </div>
@@ -128,7 +196,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
   if (images.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center text-center py-12">
-        <FileText className="w-16 h-16 text-muted-foreground mb-4" /> {/* Changed from ImageIcon */}
+        <FileText className="w-16 h-16 text-muted-foreground mb-4" />
         <h2 className="text-2xl font-headline mb-2">Your CertIntel Hub is Empty</h2>
         <p className="text-muted-foreground">Start by uploading your first certificate using the &apos;+&apos; button.</p>
       </div>
@@ -141,12 +209,12 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
         {images.map((image) => {
           const imageSrc = `/api/images/${image.fileId}`;
           const isPdf = image.contentType === 'application/pdf';
-          // Hardcode to 'object-contain'
           const imageFitClass = 'object-contain'; 
+          const currentDescription = imageAIDescriptions[image.fileId];
+
           return (
-            <Card key={image.fileId} className="overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 group relative">
-              <CardContent className="p-0 cursor-pointer" onClick={() => openViewModal(image)}>
-                {/* Removed bg-muted from this div */}
+            <Card key={image.fileId} className="overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 group relative flex flex-col">
+              <CardContent className="p-0 cursor-pointer flex-shrink-0" onClick={() => openViewModal(image)}>
                 <div className="aspect-square w-full relative flex items-center justify-center">
                   {isPdf ? (
                      <FileText className="w-1/2 h-1/2 text-muted-foreground" />
@@ -162,8 +230,6 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
                       data-ai-hint={image.dataAiHint || 'uploaded certificate'}
                       onError={(e) => {
                         console.error(`ImageGrid: Error loading image with src: ${imageSrc}`, e);
-                        // Optionally, you could set a fallback image source here
-                        // e.currentTarget.src = '/placeholder-error.png'; // Make sure this placeholder exists in public
                       }}
                     />
                   )}
@@ -182,21 +248,44 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
                   size="icon"
                   className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white"
                   title="Download File"
-                  onClick={(e) => e.stopPropagation()} // Prevents modal from opening
+                  onClick={(e) => e.stopPropagation()}
                 >
                   <a
                     href={`/api/images/${image.fileId}`}
-                    download={image.originalName || image.filename} // Suggest filename for download
+                    download={image.originalName || image.filename}
                   >
                     <Download className="h-4 w-4" />
                   </a>
                 </Button>
+                 {!isPdf && (
+                    <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white" 
+                        onClick={(e) => { e.stopPropagation(); handleRequestAIDescription(image);}} 
+                        title="Get AI Description"
+                        disabled={generatingDescriptionFor === image.fileId}
+                    >
+                        {generatingDescriptionFor === image.fileId ? <Loader2 className="h-4 w-4 animate-spin"/> : <Bot className="h-4 w-4" />}
+                    </Button>
+                )}
                 <Button variant="ghost" size="icon" className="h-8 w-8 bg-destructive/70 hover:bg-destructive/90 text-white" onClick={(e) => { e.stopPropagation(); openDeleteConfirmDialog(image);}} title="Delete File">
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
-              <div className="p-2 text-center bg-card absolute bottom-0 left-0 right-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                 <p className="text-xs font-medium truncate text-card-foreground" title={image.originalName}>{image.originalName}</p>
+              <div className="p-3 mt-auto border-t bg-card"> {/* Changed p-2 text-center, removed bottom positioning, added mt-auto for flex layout */}
+                 <p className="text-sm font-medium truncate text-card-foreground mb-1" title={image.originalName}>{image.originalName}</p>
+                 {currentDescription && (
+                    <CardDescription className="text-xs text-muted-foreground max-h-20 overflow-y-auto">
+                        {currentDescription === "Generating..." ? (
+                            <span className="italic flex items-center"><Loader2 className="h-3 w-3 mr-1 animate-spin" /> {currentDescription}</span>
+                        ) : currentDescription === "Error fetching description." ? (
+                            <span className="text-destructive italic">{currentDescription}</span>
+                        ) : (
+                            currentDescription
+                        )}
+                    </CardDescription>
+                 )}
               </div>
             </Card>
           );
@@ -238,3 +327,4 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
     </>
   );
 }
+
