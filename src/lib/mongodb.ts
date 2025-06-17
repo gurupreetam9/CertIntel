@@ -2,7 +2,26 @@
 import { MongoClient, Db, GridFSBucket, ServerApiVersion } from 'mongodb';
 
 const MONGODB_URI_ENV = process.env.MONGODB_URI;
-const DB_NAME = process.env.MONGODB_DB_NAME || 'imageverse_db';
+const MONGODB_DB_NAME_ENV = process.env.MONGODB_DB_NAME;
+const DESIRED_DB_NAME = 'imageverse_db';
+
+let DB_NAME_TO_USE: string;
+
+if (MONGODB_DB_NAME_ENV && MONGODB_DB_NAME_ENV !== DESIRED_DB_NAME) {
+  console.warn(
+    `MongoDB Lib: Environment variable MONGODB_DB_NAME was found and set to "${MONGODB_DB_NAME_ENV}", ` +
+    `but the application is configured to use "${DESIRED_DB_NAME}". ` +
+    `Proceeding with "${DESIRED_DB_NAME}". Please verify your .env.local file if this is unexpected.`
+  );
+  DB_NAME_TO_USE = DESIRED_DB_NAME;
+} else if (MONGODB_DB_NAME_ENV === DESIRED_DB_NAME) {
+  console.log(`MongoDB Lib: Using database name "${DESIRED_DB_NAME}" from MONGODB_DB_NAME environment variable.`);
+  DB_NAME_TO_USE = MONGODB_DB_NAME_ENV;
+} else {
+  console.log(`MongoDB Lib: MONGODB_DB_NAME environment variable not set or empty. Using default database name "${DESIRED_DB_NAME}".`);
+  DB_NAME_TO_USE = DESIRED_DB_NAME;
+}
+
 
 if (!MONGODB_URI_ENV) {
   const errorMsg = 'CRITICAL: MONGODB_URI is not set in environment variables. The application cannot connect to the database. Please check your .env.local file and ensure the Next.js server is restarted after any changes.';
@@ -23,18 +42,18 @@ interface ConnectionResult {
 export async function connectToDb(): Promise<ConnectionResult> {
   const connectionId = Math.random().toString(36).substring(2, 7);
   
-  console.log(`MongoDB (connectToDb-${connectionId}): Attempting connection. Target DB: "${DB_NAME}".`);
+  console.log(`MongoDB (connectToDb-${connectionId}): Attempting connection. Target DB: "${DB_NAME_TO_USE}".`);
   console.log(`MongoDB (connectToDb-${connectionId}): IMPORTANT: Please MANUALLY VERIFY your MONGODB_URI in .env.local. Ensure it is EXACTLY as provided by MongoDB Atlas, including any options like 'retryWrites=true&w=majority'. Check for typos or accidental modifications. URI being used (credentials redacted): ${MONGODB_URI_ENV.substring(0, MONGODB_URI_ENV.indexOf('://') + 3) + '<credentials_redacted>' + MONGODB_URI_ENV.substring(MONGODB_URI_ENV.indexOf('@'))}`);
   console.log(`MongoDB (connectToDb-${connectionId}): ALSO IMPORTANT: Please check your MongoDB Atlas cluster status directly in the Atlas dashboard to ensure it's healthy and there are no ongoing maintenance activities or alerts. Ensure your Atlas IP Access List includes your Workstation's current public IP or '0.0.0.0/0' (for testing).`);
 
   if (client && dbInstance && bucketInstance) {
     try {
-      console.log(`MongoDB (connectToDb-${connectionId}): Found existing client. Pinging DB "${DB_NAME}" to check connection health...`);
-      await client.db(DB_NAME).command({ ping: 1 });
-      console.log(`MongoDB (connectToDb-${connectionId}): Ping to existing client for DB "${DB_NAME}" was SUCCESSFUL. Re-using existing connection.`);
+      console.log(`MongoDB (connectToDb-${connectionId}): Found existing client. Pinging DB "${DB_NAME_TO_USE}" to check connection health...`);
+      await client.db(DB_NAME_TO_USE).command({ ping: 1 });
+      console.log(`MongoDB (connectToDb-${connectionId}): Ping to existing client for DB "${DB_NAME_TO_USE}" was SUCCESSFUL. Re-using existing connection.`);
       return { client, db: dbInstance, bucket: bucketInstance };
     } catch (pingError: any) {
-      console.warn(`MongoDB (connectToDb-${connectionId}): Ping to existing client failed for DB "${DB_NAME}". It might be unresponsive or the connection was dropped. Will attempt to close and reconnect. Ping Error:`, { message: pingError.message, code: pingError.code, name: pingError.name });
+      console.warn(`MongoDB (connectToDb-${connectionId}): Ping to existing client failed for DB "${DB_NAME_TO_USE}". It might be unresponsive or the connection was dropped. Will attempt to close and reconnect. Ping Error:`, { message: pingError.message, code: pingError.code, name: pingError.name });
       if (client) {
         try {
           await client.close();
@@ -70,17 +89,17 @@ export async function connectToDb(): Promise<ConnectionResult> {
     await newClient.connect();
     console.log(`MongoDB (connectToDb-${connectionId}): New MongoClient connected successfully.`);
 
-    const newDbInstance = newClient.db(DB_NAME);
-    console.log(`MongoDB (connectToDb-${connectionId}): Obtained DB instance for "${DB_NAME}".`);
+    const newDbInstance = newClient.db(DB_NAME_TO_USE);
+    console.log(`MongoDB (connectToDb-${connectionId}): Obtained DB instance for "${DB_NAME_TO_USE}".`);
 
     const newBucketInstance = new GridFSBucket(newDbInstance, { bucketName: 'images' });
-    console.log(`MongoDB (connectToDb-${connectionId}): Initialized GridFS bucket "images" on DB "${DB_NAME}".`);
+    console.log(`MongoDB (connectToDb-${connectionId}): Initialized GridFS bucket "images" on DB "${DB_NAME_TO_USE}".`);
 
     client = newClient;
     dbInstance = newDbInstance;
     bucketInstance = newBucketInstance;
 
-    console.log(`MongoDB (connectToDb-${connectionId}): Successfully established and cached new connection to database "${DB_NAME}" and GridFS bucket "images".`);
+    console.log(`MongoDB (connectToDb-${connectionId}): Successfully established and cached new connection to database "${DB_NAME_TO_USE}" and GridFS bucket "images".`);
     return { client, db: dbInstance, bucket: bucketInstance };
 
   } catch (error: any) {
