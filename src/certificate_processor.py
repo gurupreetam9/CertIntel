@@ -18,7 +18,6 @@ import io
 import shutil # For shutil.which
 from typing import List, Optional, Tuple, Dict, Union
 from datetime import datetime, timezone # Added for timezone-aware datetimes
-# Removed urllib.request and urllib.error as Gemini API call is removed
 
 # --- Initial Setup ---
 try:
@@ -37,7 +36,6 @@ course_keywords = {"course", "certification", "developer", "programming", "bootc
 
 # --- Constants ---
 COHERE_API_KEY = "jrAUYREK77bel5TGil5uyrzogksRcSxP78v97egn"
-# NEXTJS_APP_URL_FOR_GEMINI_API is no longer needed
 
 if not COHERE_API_KEY:
     logging.warning("COHERE_API_KEY not found in environment variables. LLM fallback will not work.")
@@ -58,7 +56,7 @@ else:
     logging.info(f"Tesseract OCR executable found at: {TESSERACT_PATH}")
 
 
-possible_courses = ["HTML", "CSS", "JavaScript", "React", "Astro.js", "Python", "Flask", "C Programming", "Kotlin", "Ethical Hacking", "Networking", "Node.js", "Machine Learning", "Data Structures", "Operating Systems", "Next.js", "Remix", "Express.js", "MongoDB", "Docker", "Kubernetes", "Tailwind CSS", "Django"]
+possible_courses = ["HTML", "CSS", "JavaScript", "React", "Astro.js", "Python", "Flask", "C Programming", "Kotlin", "Ethical Hacking", "Networking", "Node.js", "Machine Learning", "Data Structures", "Operating Systems", "Next.js", "Remix", "Express.js", "MongoDB", "Docker", "Kubernetes", "Tailwind CSS", "Django", "Typescript"]
 
 course_graph = {
     "HTML": {
@@ -139,7 +137,7 @@ try:
         logging.info(f"Successfully loaded YOLO model from: {YOLO_MODEL_PATH}")
     else:
         script_dir_model_path = os.path.join(os.path.dirname(__file__), 'best.pt')
-        if os.path.exists(script_dir_model_path) and YOLO_MODEL_PATH == "best.pt": # Check if default path was intended for script dir
+        if os.path.exists(script_dir_model_path) and YOLO_MODEL_PATH == "best.pt": 
              model = YOLO(script_dir_model_path)
              logging.info(f"Successfully loaded YOLO model from script directory: {script_dir_model_path}")
         else:
@@ -176,7 +174,6 @@ Extracted Course Name:"""
         if extracted_course_name.upper() == "[[NONE]]" or not extracted_course_name:
             logging.info("LLM indicated no course name found in the text.")
             return None
-        # Clean up potential LLM artifacts like "Course Name: Python" -> "Python"
         extracted_course_name = re.sub(r"^(course name:)\s*", "", extracted_course_name, flags=re.IGNORECASE)
         return extracted_course_name
     except Exception as e:
@@ -184,14 +181,6 @@ Extracted Course Name:"""
         return None
 
 def infer_course_text_from_image_object(pil_image_obj: Image.Image) -> Tuple[List[str], str]:
-    """
-    Tries to identify course names from a PIL image object.
-    1. Uses YOLO to find course-related regions and OCRs them.
-    2. If no course found, OCRs the full image.
-    3. If full image OCR yields text, sends it to LLM for course name extraction.
-    4. Filters all extracted names.
-    Returns a list of identified course names and a status message.
-    """
     extracted_courses: List[str] = []
     status_message: str = "FAILURE_NO_COURSE_IDENTIFIED"
 
@@ -286,7 +275,7 @@ def filter_and_verify_course_text(text_input: Optional[str]) -> List[str]:
     if not text_input or len(text_input.strip()) < 3:
         return []
     
-    text = re.sub(r'\s*¢\s*', '', text_input.strip()).strip() # Remove '¢'
+    text = re.sub(r'\s*¢\s*', '', text_input.strip()).strip()
     if not text: 
         return []
 
@@ -342,10 +331,10 @@ def query_llm_for_detailed_suggestions(known_course_names_list_cleaned: List[str
         logging.warning("No known course names provided to Cohere LLM for suggestions.")
         return {"error": "No known course names provided for Cohere suggestions."}
 
-    prompt_course_list = known_course_names_list_cleaned 
+    prompt_course_list_str = ', '.join(f"'{c}'" for c in known_course_names_list_cleaned)
 
     prompt = f"""
-You are an expert curriculum advisor. You will be given a list of course names the user is considered to have knowledge in: {', '.join(prompt_course_list)}.
+You are an expert curriculum advisor. You will be given a list of course names the user is considered to have knowledge in: {prompt_course_list_str}.
 
 For EACH of these courses from the input list, you MUST provide the following structured information. Treat each item from the input list as a single, distinct course, even if it contains multiple terms or slashes.
 1.  "Identified Course: [The exact course name from the input list that this block refers to]"
@@ -378,10 +367,10 @@ Suggested Next Courses:
 """
     try:
         response = co.chat(model="command-r-plus", message=prompt, temperature=0.3)
-        logging.info(f"Cohere LLM raw response for detailed suggestions (courses: {', '.join(prompt_course_list)}) (first 500 chars): {response.text[:500]}...")
+        logging.info(f"Cohere LLM raw response for detailed suggestions (courses: {prompt_course_list_str}) (first 500 chars): {response.text[:500]}...")
         return {"text": response.text.strip()}
     except Exception as e:
-        logging.error(f"Error querying Cohere LLM for detailed suggestions (courses: {', '.join(prompt_course_list)}): {e}")
+        logging.error(f"Error querying Cohere LLM for detailed suggestions (courses: {prompt_course_list_str}): {e}")
         return {"error": f"Error from LLM: {str(e)}"}
 
 def parse_llm_detailed_suggestions_response(llm_response_text: str) -> List[Dict[str, Union[str, None, List[Dict[str, str]]]]]:
@@ -406,22 +395,28 @@ def parse_llm_detailed_suggestions_response(llm_response_text: str) -> List[Dict
             continue
 
         identified_course_match = re.search(r"Identified Course:\s*(.*?)\n", block_text, re.IGNORECASE)
-        ai_description_match = re.search(r"AI Description:\s*(.*?)\nSuggested Next Courses:", block_text, re.IGNORECASE | re.DOTALL)
+        ai_description_match = re.search(r"AI Description:\s*(.*?)(?:\nSuggested Next Courses:|\Z)", block_text, re.IGNORECASE | re.DOTALL)
         
         if not identified_course_match:
-            logging.warning(f"LLM Parser: Could not find 'Identified Course' in block. Full block text: {block_text}")
+            logging.warning(f"LLM Parser: Could not find 'Identified Course' in block. Full block text (first 300 chars): '{block_text[:300]}...'")
             continue
-        if not ai_description_match:
-            ai_description_match_alt = re.search(r"AI Description:\s*(.*?)\n", block_text, re.IGNORECASE | re.DOTALL)
-            if ai_description_match_alt:
-                 ai_description_match = ai_description_match_alt
-            else:
-                logging.warning(f"LLM Parser: Could not find 'AI Description' followed by 'Suggested Next Courses:' in block for '{identified_course_match.group(1).strip()}'. Full block text (first 300 chars): {block_text[:300]}...")
             
         identified_course_name_from_llm = identified_course_match.group(1).strip()
-        ai_description = ai_description_match.group(1).strip() if ai_description_match else "No AI description available."
-        if ai_description.lower() == "no ai description available.":
-            ai_description = None 
+        
+        ai_description = None
+        if ai_description_match:
+            desc_text = ai_description_match.group(1).strip()
+            if desc_text.lower() != "no ai description available.":
+                ai_description = desc_text
+        else: # AI Description might not be followed by Suggested Next Courses if it's the last thing.
+            ai_description_standalone_match = re.search(r"AI Description:\s*(.*?)$", block_text, re.IGNORECASE | re.DOTALL)
+            if ai_description_standalone_match:
+                desc_text = ai_description_standalone_match.group(1).strip()
+                if desc_text.lower() != "no ai description available.":
+                    ai_description = desc_text
+            else:
+                 logging.warning(f"LLM Parser: Could not find 'AI Description' for '{identified_course_name_from_llm}'. Block (first 300): '{block_text[:300]}...'")
+
 
         current_suggestions = []
         suggestions_text_match = re.search(r"Suggested Next Courses:\n(.*?)$", block_text, re.IGNORECASE | re.DOTALL)
@@ -623,7 +618,6 @@ def generate_suggestions_from_known_courses(
             llm_error_summary_for_output = "Unexpected response structure from Cohere LLM (batch) query function."
             logging.error(f"Suggestions Phase (Cohere Batch): {llm_error_summary_for_output}")
 
-    # Populate initial results or failures from the batch call
     for cleaned_course_name_queried_in_batch in courses_to_query_cohere_for_batch_cleaned:
         original_full_name_for_output = cleaned_to_original_map.get(cleaned_course_name_queried_in_batch, cleaned_course_name_queried_in_batch) 
         cohere_item_for_course = parsed_cohere_batch_items_map.get(cleaned_course_name_queried_in_batch) 
@@ -642,7 +636,7 @@ def generate_suggestions_from_known_courses(
             if llm_error_summary_for_output and "parsed" in llm_error_summary_for_output: 
                 error_msg_for_this_course = f"Cohere (batch): {llm_error_summary_for_output}"
             elif llm_error_summary_for_output and "error" in llm_error_summary_for_output.lower():
-                 error_msg_for_this_course = llm_error_summary_for_output # Use the general batch error
+                 error_msg_for_this_course = llm_error_summary_for_output
 
             logging.warning(f"No Cohere (batch) data for '{cleaned_course_name_queried_in_batch}' (original: '{original_full_name_for_output}'). Error: {error_msg_for_this_course}")
             user_processed_data_output.append({
@@ -654,22 +648,20 @@ def generate_suggestions_from_known_courses(
                 "processed_by": "Cohere (batch failed)" 
             })
     
-    # Cohere Individual Fallback Logic
-    final_user_processed_data = []
+    final_user_processed_data_after_fallback = []
     any_individual_fallback_errors = False
 
     for course_data_item in user_processed_data_output:
-        # Check if Cohere batch failed for this item specifically
-        is_cohere_batch_failure_for_item = course_data_item.get("llm_error") and "Cohere (batch)" in course_data_item["llm_error"]
+        is_cohere_batch_failure_for_item = course_data_item.get("processed_by") == "Cohere (batch failed)" and \
+                                           course_data_item.get("llm_error") is not None
         
         original_course_name_for_display = course_data_item['identified_course_name']
-        # For Cohere individual query, use the cleaned name
         cleaned_name_for_individual_query = original_course_name_for_display.replace(" [UNVERIFIED]", "").replace("¢", "").strip()
 
         if is_cohere_batch_failure_for_item and cleaned_name_for_individual_query:
-            logging.info(f"Suggestions Phase: Cohere (batch) failed for original '{original_course_name_for_display}' (cleaned: '{cleaned_name_for_individual_query}'). Attempting Cohere individual fallback. Batch error was: {course_data_item.get('llm_error')}")
+            logging.info(f"Suggestions Phase: Cohere (batch) failed for '{cleaned_name_for_individual_query}'. Attempting Cohere individual fallback. Batch error was: {course_data_item.get('llm_error')}")
             
-            cohere_individual_response = query_llm_for_detailed_suggestions([cleaned_name_for_individual_query]) # Send as list
+            cohere_individual_response = query_llm_for_detailed_suggestions([cleaned_name_for_individual_query])
             
             current_item_individual_error = None
             individual_ai_description = None
@@ -679,7 +671,6 @@ def generate_suggestions_from_known_courses(
             if "text" in cohere_individual_response and cohere_individual_response["text"]:
                 parsed_items = parse_llm_detailed_suggestions_response(cohere_individual_response["text"])
                 if parsed_items:
-                    # Expecting only one item since we sent one course name
                     parsed_individual_item = parsed_items[0] 
                     if parsed_individual_item.get("identified_course_name_from_llm", "").lower() == cleaned_name_for_individual_query.lower():
                         individual_ai_description = parsed_individual_item.get("ai_description")
@@ -690,25 +681,25 @@ def generate_suggestions_from_known_courses(
                     else:
                         current_item_individual_error = f"Cohere (individual): Parsed, but identified course name mismatch ('{parsed_individual_item.get('identified_course_name_from_llm')}' vs '{cleaned_name_for_individual_query}')."
                         any_individual_fallback_errors = True
-                else: # Cohere responded but nothing parsed
+                else: 
                     current_item_individual_error = "Cohere (individual): Response received but no valid items could be parsed."
                     any_individual_fallback_errors = True
             elif "error" in cohere_individual_response:
                 current_item_individual_error = f"Cohere (individual) Error: {cohere_individual_response['error']}"
                 any_individual_fallback_errors = True
-            else: # Unexpected response
+            else: 
                 current_item_individual_error = "Cohere (individual): Unexpected response structure from LLM query function."
                 any_individual_fallback_errors = True
 
             if current_item_individual_error: 
-                final_user_processed_data.append({
+                final_user_processed_data_after_fallback.append({
                     **course_data_item, 
                     "llm_error": f"{course_data_item.get('llm_error', 'Cohere (batch) failed.')} {current_item_individual_error}",
-                    "processed_by": "Cohere (batch failed), Cohere (individual failed)"
+                    "processed_by": "Cohere (batch & individual failed)"
                 })
-                logging.warning(f"Suggestions Phase: Cohere individual fallback FAILED or no useful data for '{cleaned_name_for_individual_query}'. Combined error: {final_user_processed_data[-1]['llm_error']}")
-            else: # Cohere individual fallback succeeded
-                final_user_processed_data.append({
+                logging.warning(f"Suggestions Phase: Cohere individual fallback FAILED or no useful data for '{cleaned_name_for_individual_query}'. Combined error: {final_user_processed_data_after_fallback[-1]['llm_error']}")
+            else: 
+                final_user_processed_data_after_fallback.append({
                     "identified_course_name": original_course_name_for_display,
                     "description_from_graph": course_data_item.get("description_from_graph"), 
                     "ai_description": individual_ai_description,
@@ -718,14 +709,12 @@ def generate_suggestions_from_known_courses(
                 })
                 logging.info(f"Suggestions Phase: Cohere individual fallback SUCCEEDED for '{cleaned_name_for_individual_query}'. Desc: {'Yes' if individual_ai_description else 'No'}, Sugs: {len(individual_suggestions)}")
         else:
-            # Cohere batch was successful, or it's a cached item, or cleaned name was empty (no fallback needed)
-            final_user_processed_data.append(course_data_item) 
+            final_user_processed_data_after_fallback.append(course_data_item) 
     
-    user_processed_data_output = final_user_processed_data
+    user_processed_data_output = final_user_processed_data_after_fallback
     user_processed_data_output.sort(key=lambda x: x.get("identified_course_name", "").lower())
 
-    # Refine final summary error message
-    final_llm_error_summary = llm_error_summary_for_output # This is Cohere's batch error, if any
+    final_llm_error_summary = llm_error_summary_for_output 
     if any_individual_fallback_errors:
         individual_fallback_error_msg = "Some courses also failed individual Cohere fallback or Cohere returned no useful data. Check individual item errors and logs."
         if final_llm_error_summary:
@@ -900,7 +889,8 @@ if __name__ == "__main__":
          known_courses_for_suggestions.append("Manual Test Course 1") 
     
     known_courses_for_suggestions.append("Internet Of Things(Iot With Cloud) ¢ [UNVERIFIED]")
-    known_courses_for_suggestions.append("Super Specific Niche Course That LLMs Wont Know") # Test another failure
+    known_courses_for_suggestions.append("Super Specific Niche Course That LLMs Wont Know") 
+    known_courses_for_suggestions.append("Typescript") # Add Typescript for testing
 
 
     mock_previous_run_data = [
@@ -933,3 +923,4 @@ if __name__ == "__main__":
         logging.warning("Local test: YOLO model ('best.pt') could not be loaded. OCR functionality will be limited.")
     if not TESSERACT_PATH:
          logging.warning("Local test: Tesseract executable not found. OCR will fail.")
+

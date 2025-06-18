@@ -34,7 +34,7 @@ interface UserProcessedCourseData {
   ai_description?: string | null; 
   llm_suggestions: LLMSuggestion[]; 
   llm_error?: string | null; 
-  processed_by?: string; // To know if Cohere or Gemini handled it
+  processed_by?: string; 
 }
 
 interface FailedExtractionImage {
@@ -218,7 +218,7 @@ function AiFeaturePageContent() {
 
     if (phase === 'initial' || phase === 'results') { 
       if (phase === 'results') {
-        resetToInitialState(); // resetToInitialState sets phase to 'initial'
+        resetToInitialState(); 
       }
       setPhase('ocrProcessing'); 
       setIsLoading(true);
@@ -498,7 +498,7 @@ function AiFeaturePageContent() {
                                 <HelpCircle className="ml-2 h-4 w-4 text-muted-foreground cursor-help" />
                               </TooltipTrigger>
                               <TooltipContent>
-                                <p className="text-xs">This course was auto-identified by the system and is not from a pre-defined list.</p>
+                                <p className="text-xs max-w-xs">This course was auto-identified by the system and is not from a pre-defined list.</p>
                               </TooltipContent>
                             </Tooltip>
                           )}
@@ -514,7 +514,11 @@ function AiFeaturePageContent() {
                         )}
                       </CardHeader>
                       <CardContent className="space-y-3">
-                        <h4 className="font-semibold text-md">AI Suggested Next Steps {identifiedCourseData.processed_by && <span className="text-xs text-muted-foreground"> (via {identifiedCourseData.processed_by})</span>}:</h4>
+                        <h4 className="font-semibold text-md">
+                          AI Suggested Next Steps 
+                          {identifiedCourseData.processed_by && <span className="text-xs text-muted-foreground"> (via {identifiedCourseData.processed_by})</span>}
+                          :
+                        </h4>
                         {identifiedCourseData.llm_suggestions && identifiedCourseData.llm_suggestions.length > 0 ? (
                           <ul className="space-y-3 list-none pl-0">
                             {identifiedCourseData.llm_suggestions.map((suggestion, sugIndex) => (
