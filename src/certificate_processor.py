@@ -17,7 +17,7 @@ import json
 import io
 import shutil # For shutil.which
 from typing import List, Optional, Tuple, Dict, Union
-from datetime import datetime # For test code
+from datetime import datetime, timezone # Added for timezone-aware datetimes
 import urllib.request
 import urllib.error
 
@@ -360,7 +360,6 @@ def query_llm_for_detailed_suggestions(known_course_names_list_cleaned: List[str
         logging.warning("No known course names provided to Cohere LLM for suggestions.")
         return {"error": "No known course names provided for Cohere suggestions."}
 
-    # known_course_names_list_cleaned already has [UNVERIFIED] and ¢ removed.
     prompt_course_list = known_course_names_list_cleaned 
 
     prompt = f"""
@@ -427,12 +426,19 @@ def parse_llm_detailed_suggestions_response(llm_response_text: str) -> List[Dict
         identified_course_match = re.search(r"Identified Course:\s*(.*?)\n", block_text, re.IGNORECASE)
         ai_description_match = re.search(r"AI Description:\s*(.*?)\nSuggested Next Courses:", block_text, re.IGNORECASE | re.DOTALL)
         
-        if not identified_course_match or not ai_description_match:
-            logging.warning(f"LLM Parser: Could not find 'Identified Course' or 'AI Description' in block. Full block text: {block_text}")
+        if not identified_course_match:
+            logging.warning(f"LLM Parser: Could not find 'Identified Course' in block. Full block text: {block_text}")
             continue
+        if not ai_description_match: # Allow missing AI Description as per prompt
+            ai_description_match_alt = re.search(r"AI Description:\s*(.*?)\n", block_text, re.IGNORECASE | re.DOTALL)
+            if ai_description_match_alt:
+                 ai_description_match = ai_description_match_alt # Use if only description is found before suggestions
+            else:
+                logging.warning(f"LLM Parser: Could not find 'AI Description' followed by 'Suggested Next Courses:' in block for '{identified_course_match.group(1).strip()}'. Full block text (first 300 chars): {block_text[:300]}...")
+                # Continue to try to parse suggestions if main course is identified
             
         identified_course_name_from_llm = identified_course_match.group(1).strip()
-        ai_description = ai_description_match.group(1).strip()
+        ai_description = ai_description_match.group(1).strip() if ai_description_match else "No AI description available."
         if ai_description.lower() == "no ai description available.":
             ai_description = None 
 
@@ -455,7 +461,7 @@ def parse_llm_detailed_suggestions_response(llm_response_text: str) -> List[Dict
                             continue 
                     
                     full_sug_block = sug_block_part_cleaned
-                    if not sug_block_part_cleaned.lower().startswith("name:"):
+                    if not sug_block_part_cleaned.lower().startswith("name:"): # Add "Name: " prefix if missing due to split
                         full_sug_block = "Name: " + sug_block_part_cleaned
 
                     sug_name_match = re.search(r"Name:\s*(.*?)\n", full_sug_block, re.IGNORECASE)
@@ -595,7 +601,7 @@ def process_images_for_ocr(image_data_list):
 def query_gemini_for_suggestions_via_api(cleaned_course_name_for_api: str) -> Optional[Dict[str, Union[str, None, List[Dict[str, str]]]]]:
     """Makes a POST request to the Next.js API endpoint for Gemini suggestions."""
     gemini_api_url = f"{NEXTJS_APP_URL_FOR_GEMINI_API}/api/ai/gemini-course-suggestions"
-    payload = {"courseName": cleaned_course_name_for_api} # Send cleaned name
+    payload = {"courseName": cleaned_course_name_for_api} 
     headers = {"Content-Type": "application/json"}
     data = json.dumps(payload).encode('utf-8')
     
@@ -607,21 +613,26 @@ def query_gemini_for_suggestions_via_api(cleaned_course_name_for_api: str) -> Op
         with urllib.request.urlopen(req, timeout=60) as response: # 60s timeout
             raw_response_body_for_logging = response.read().decode('utf-8')
             status_code = response.getcode()
-            logging.info(f"Gemini Fallback: Received response for '{cleaned_course_name_for_api}'. Status: {status_code}. Full Response Body: {raw_response_body_for_logging}")
+            logging.info(f"Gemini Fallback: Received response for '{cleaned_course_name_for_api}'. Status: {status_code}. Full Response Body (first 500 chars): {raw_response_body_for_logging[:500]}")
             if status_code == 200:
                 gemini_data = json.loads(raw_response_body_for_logging)
-                # Map Gemini's output schema to the expected structure for user_processed_data
-                return {
-                    "ai_description": gemini_data.get("aiDescription"), # Will be null if Gemini fails to describe
-                    "llm_suggestions": gemini_data.get("suggestedNextCourses", []) # Will be empty if Gemini gives no suggestions
+                # Check if Gemini itself returned an error in its payload
+                if "error" in gemini_data or (gemini_data.get("aiDescription") and "error: gemini failed" in gemini_data.get("aiDescription", "").lower()):
+                    error_message_from_gemini = gemini_data.get("error") or gemini_data.get("message") or gemini_data.get("aiDescription")
+                    logging.warning(f"Gemini Fallback: Gemini API returned 200 but indicated an internal error for '{cleaned_course_name_for_api}'. Message: '{error_message_from_gemini}'. Raw: {raw_response_body_for_logging}")
+                    return {"error": f"Gemini indicated failure: {error_message_from_gemini}", "raw_response": raw_response_body_for_logging}
+
+                return { # Map Gemini's output schema to the expected structure
+                    "ai_description": gemini_data.get("aiDescription"), 
+                    "llm_suggestions": gemini_data.get("suggestedNextCourses", []) 
                 }
             else:
                 logging.error(f"Gemini Fallback: API error for '{cleaned_course_name_for_api}'. Status: {status_code}. Response: {raw_response_body_for_logging}")
-                return {"error": f"Gemini API returned status {status_code}", "raw_response": raw_response_body_for_logging}
+                return {"error": f"Gemini API call failed with status {status_code}", "raw_response": raw_response_body_for_logging}
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else "No response body"
         raw_response_body_for_logging = error_body
-        logging.error(f"Gemini Fallback: HTTPError for '{cleaned_course_name_for_api}'. Status: {e.code}. Error: {e.reason}. Body: {raw_response_body_for_logging[:500]}")
+        logging.error(f"Gemini Fallback: HTTPError for '{cleaned_course_name_for_api}'. Status: {e.code}. Error: {e.reason}. Body (first 500): {raw_response_body_for_logging[:500]}")
         return {"error": f"Gemini API HTTPError {e.code}: {e.reason}", "raw_response": raw_response_body_for_logging}
     except urllib.error.URLError as e:
         logging.error(f"Gemini Fallback: URLError for '{cleaned_course_name_for_api}'. Reason: {e.reason}. Is the Next.js server running at {NEXTJS_APP_URL_FOR_GEMINI_API}?")
@@ -645,7 +656,7 @@ def generate_suggestions_from_known_courses(
     cached_data_map: Dict[str, Dict[str, any]] = {}
     if previous_user_data_list:
         for prev_item in previous_user_data_list: 
-            if "identified_course_name" in prev_item: # This key is the original full name
+            if "identified_course_name" in prev_item: 
                  cached_data_map[prev_item["identified_course_name"]] = prev_item 
     logging.info(f"Suggestions Phase: Built cache map from previous data with {len(cached_data_map)} entries. Keys are original full names.")
 
@@ -660,9 +671,9 @@ def generate_suggestions_from_known_courses(
 
         if original_full_name in cached_data_map:
             logging.info(f"Suggestions Phase: Cache hit for original name '{original_full_name}' (via cleaned '{cleaned_course_name}'). Using cached data.")
-            user_processed_data_output.append(cached_data_map[original_full_name])
+            user_processed_data_output.append({**cached_data_map[original_full_name], "processed_by": "Cache"})
         else:
-            courses_to_query_cohere_for_cleaned.append(cleaned_course_name) # Add cleaned name to Cohere query list
+            courses_to_query_cohere_for_cleaned.append(cleaned_course_name) 
     
     if courses_to_query_cohere_for_cleaned:
         logging.info(f"Suggestions Phase: Querying Cohere LLM for {len(courses_to_query_cohere_for_cleaned)} cleaned courses: {courses_to_query_cohere_for_cleaned}")
@@ -672,37 +683,36 @@ def generate_suggestions_from_known_courses(
         if "text" in cohere_response_data and cohere_response_data["text"]:
             parsed_cohere_items = parse_llm_detailed_suggestions_response(cohere_response_data["text"])
             parsed_cohere_items_map = {item["identified_course_name_from_llm"]: item for item in parsed_cohere_items}
-            if not parsed_cohere_items and courses_to_query_cohere_for_cleaned: # Responded but nothing parsed
+            if not parsed_cohere_items and courses_to_query_cohere_for_cleaned: 
                  llm_error_summary_for_output = "Cohere LLM response received but no valid items could be parsed. Check LLM output format and server logs."
                  logging.warning(f"Suggestions Phase (Cohere): {llm_error_summary_for_output}")
         elif "error" in cohere_response_data:
             llm_error_summary_for_output = cohere_response_data["error"]
             logging.error(f"Suggestions Phase: Cohere LLM query failed for batch: {llm_error_summary_for_output}")
-        else: # Unexpected response
+        else: 
             llm_error_summary_for_output = "Unexpected response structure from Cohere LLM query function."
             logging.error(f"Suggestions Phase (Cohere): {llm_error_summary_for_output}")
 
 
         for cleaned_course_name_queried in courses_to_query_cohere_for_cleaned:
-            original_full_name_for_output = cleaned_to_original_map.get(cleaned_course_name_queried, cleaned_course_name_queried) # Fallback to cleaned if map somehow fails
+            original_full_name_for_output = cleaned_to_original_map.get(cleaned_course_name_queried, cleaned_course_name_queried) 
 
-            # Cohere's "identified_course_name_from_llm" should match cleaned_course_name_queried
             cohere_item_for_course = parsed_cohere_items_map.get(cleaned_course_name_queried) 
 
             if cohere_item_for_course:
                 user_processed_data_output.append({
                     "identified_course_name": original_full_name_for_output, 
-                    "description_from_graph": course_graph.get(cleaned_course_name_queried, {}).get("description"), # Graph uses cleaned name
+                    "description_from_graph": course_graph.get(cleaned_course_name_queried, {}).get("description"), 
                     "ai_description": cohere_item_for_course.get("ai_description"),
                     "llm_suggestions": cohere_item_for_course.get("llm_suggestions", []),
-                    "llm_error": None 
+                    "llm_error": None,
+                    "processed_by": "Cohere"
                 })
             else: 
-                # This course failed Cohere parsing or was not returned by Cohere
                 error_msg_for_this_course = f"Cohere: LLM was queried for '{cleaned_course_name_queried}', but no specific data was returned or parsed for it."
-                if llm_error_summary_for_output and "parsed" in llm_error_summary_for_output: # If there was a general parsing issue
+                if llm_error_summary_for_output and "parsed" in llm_error_summary_for_output: 
                     error_msg_for_this_course = f"Cohere: {llm_error_summary_for_output}"
-                elif llm_error_summary_for_output: # If there was a general Cohere error
+                elif llm_error_summary_for_output: 
                      error_msg_for_this_course = f"Cohere: {llm_error_summary_for_output}"
 
                 logging.warning(f"No Cohere data for '{cleaned_course_name_queried}' (original: '{original_full_name_for_output}'). Error: {error_msg_for_this_course}")
@@ -711,27 +721,20 @@ def generate_suggestions_from_known_courses(
                     "description_from_graph": course_graph.get(cleaned_course_name_queried, {}).get("description"),
                     "ai_description": None,
                     "llm_suggestions": [],
-                    "llm_error": error_msg_for_this_course
+                    "llm_error": error_msg_for_this_course, # Store Cohere error
+                    "processed_by": "Cohere (failed attempt)" 
                 })
     
-    # Gemini Fallback Logic
     final_user_processed_data = []
     any_gemini_errors_encountered_this_run = False
 
     for course_data_item in user_processed_data_output:
-        # Check if Cohere failed for this item specifically
-        is_cohere_failure_for_item = course_data_item.get("llm_error") and \
-                                     ("no specific data was returned or parsed for" in course_data_item["llm_error"] or \
-                                      "LLM query failed" in course_data_item["llm_error"] or \
-                                      "Unexpected response structure" in course_data_item["llm_error"] or \
-                                      "Cohere LLM not available" in course_data_item["llm_error"] or \
-                                      "Error from LLM" in course_data_item["llm_error"])
+        is_cohere_failure_for_item = course_data_item.get("llm_error") and "Cohere:" in course_data_item["llm_error"]
         
         original_course_name_for_display = course_data_item['identified_course_name']
-        # For Gemini query, we need the cleaned name that was originally intended for LLMs
         cleaned_name_for_gemini_query = original_course_name_for_display.replace(" [UNVERIFIED]", "").replace("¢", "").strip()
 
-        if is_cohere_failure_for_item and cleaned_name_for_gemini_query: # Only try Gemini if cleaned name is valid
+        if is_cohere_failure_for_item and cleaned_name_for_gemini_query:
             logging.info(f"Suggestions Phase: Cohere failed for original '{original_course_name_for_display}' (cleaned: '{cleaned_name_for_gemini_query}'). Attempting Gemini fallback. Cohere error was: {course_data_item.get('llm_error')}")
             
             gemini_result_data = query_gemini_for_suggestions_via_api(cleaned_name_for_gemini_query)
@@ -746,47 +749,39 @@ def generate_suggestions_from_known_courses(
                     if "raw_response" in gemini_result_data:
                          current_item_gemini_error += f" (Raw: {str(gemini_result_data['raw_response'])[:100]}...)"
                     any_gemini_errors_encountered_this_run = True
-                else: # Gemini success
+                else: 
                     gemini_ai_description = gemini_result_data.get("ai_description")
                     gemini_suggestions = gemini_result_data.get("llm_suggestions", [])
-                    # Check if Gemini actually gave useful data or its own "error" description
-                    if gemini_ai_description and "error: gemini failed to generate" in gemini_ai_description.lower():
-                        logging.warning(f"Gemini Fallback for '{cleaned_name_for_gemini_query}': Gemini indicated failure in its description: '{gemini_ai_description}'")
-                        # current_item_gemini_error = f"Gemini: Provided error in description ('{gemini_ai_description}')" # Optional: make error more explicit
-                        # gemini_ai_description = None # Clear the error description
-                        # if not gemini_suggestions: any_gemini_errors_encountered_this_run = True
-                    elif not gemini_ai_description and not gemini_suggestions:
-                        logging.warning(f"Gemini Fallback for '{cleaned_name_for_gemini_query}': Returned empty description and suggestions.")
+                    if not gemini_ai_description and not gemini_suggestions: # If Gemini returns empty but no explicit error
+                        logging.warning(f"Gemini Fallback for '{cleaned_name_for_gemini_query}': Returned empty description and suggestions (no explicit error from API).")
                         current_item_gemini_error = "Gemini: Returned no description or suggestions."
                         any_gemini_errors_encountered_this_run = True
 
 
-            if current_item_gemini_error: # Gemini failed or returned nothing useful
+            if current_item_gemini_error: 
                 final_user_processed_data.append({
-                    **course_data_item, # Keep original item data (including Cohere error)
+                    **course_data_item, 
                     "llm_error": f"{course_data_item.get('llm_error', 'Cohere failed.')} {current_item_gemini_error}",
                     "processed_by": "Cohere (failed), Gemini (failed)"
                 })
                 logging.warning(f"Suggestions Phase: Gemini fallback FAILED or no useful data for '{cleaned_name_for_gemini_query}'. Combined error: {final_user_processed_data[-1]['llm_error']}")
-            else: # Gemini succeeded with some data
+            else: 
                 final_user_processed_data.append({
                     "identified_course_name": original_course_name_for_display,
-                    "description_from_graph": course_data_item.get("description_from_graph"), # Keep original graph desc
+                    "description_from_graph": course_data_item.get("description_from_graph"), 
                     "ai_description": gemini_ai_description,
                     "llm_suggestions": gemini_suggestions,
-                    "llm_error": None, # Clear previous Cohere error
+                    "llm_error": None, 
                     "processed_by": "Gemini"
                 })
                 logging.info(f"Suggestions Phase: Gemini fallback SUCCEEDED for '{cleaned_name_for_gemini_query}'. Desc: {'Yes' if gemini_ai_description else 'No'}, Sugs: {len(gemini_suggestions)}")
         else:
-            # Cohere was successful, or it's a cached item, or cleaned name was empty
             final_user_processed_data.append({**course_data_item, "processed_by": course_data_item.get("processed_by", "Cohere/Cache")})
     
     user_processed_data_output = final_user_processed_data
     user_processed_data_output.sort(key=lambda x: x.get("identified_course_name", "").lower())
 
-    # Refine final summary error message
-    final_llm_error_summary = llm_error_summary_for_output # This is Cohere's batch error, if any
+    final_llm_error_summary = llm_error_summary_for_output 
     if any_gemini_errors_encountered_this_run:
         gemini_error_msg_part = "Some courses also failed Gemini fallback or Gemini returned no useful data. Check individual item errors and logs."
         if final_llm_error_summary:
@@ -825,8 +820,7 @@ def extract_and_recommend_courses_from_image_data(
         current_successful_courses = ocr_results.get("successfully_extracted_courses", [])
         if current_additional_manual_courses:
             for manual_course in current_additional_manual_courses:
-                clean_manual_course = manual_course.strip() # Basic strip, full cleaning in filter_and_verify
-                # filter_and_verify will add [UNVERIFIED] if needed
+                clean_manual_course = manual_course.strip() 
                 verified_manual_courses = filter_and_verify_course_text(clean_manual_course)
                 for vmc in verified_manual_courses:
                     if vmc not in current_successful_courses:
@@ -837,30 +831,26 @@ def extract_and_recommend_courses_from_image_data(
         return ocr_results
 
     elif mode == 'suggestions_only':
-        # Consolidate all raw course names first
         consolidated_raw_names: List[str] = []
         if isinstance(known_course_names, list):
             consolidated_raw_names.extend(known_course_names)
-        if isinstance(additional_manual_courses, list): # These might come from general input field
+        if isinstance(additional_manual_courses, list): 
             consolidated_raw_names.extend(additional_manual_courses)
         
         unique_raw_names = sorted(list(set(filter(None, consolidated_raw_names))))
 
-        # Prepare cleaned names for LLM queries and the mapping back to original names
         cleaned_names_for_llm_query: List[str] = []
         cleaned_to_original_map: Dict[str, str] = {} 
 
         for raw_name in unique_raw_names:
-            # Clean for LLM: remove [UNVERIFIED] and '¢', then strip whitespace
             cleaned_name = raw_name.replace(" [UNVERIFIED]", "").replace("¢", "").strip()
             if cleaned_name: 
-                if cleaned_name not in cleaned_to_original_map: # Ensure one-to-one mapping from cleaned to one original
+                if cleaned_name not in cleaned_to_original_map: 
                     cleaned_names_for_llm_query.append(cleaned_name)
-                    cleaned_to_original_map[cleaned_name] = raw_name # Map cleaned name to its original full form
+                    cleaned_to_original_map[cleaned_name] = raw_name 
             elif raw_name: 
                  logging.warning(f"Suggestions Phase Init: Raw course name '{raw_name}' became empty after cleaning. It will be skipped for LLM suggestions.")
         
-        # Deduplicate cleaned names again (though above logic should handle it)
         final_cleaned_names_for_llm = sorted(list(set(cleaned_names_for_llm_query)))
 
         if not final_cleaned_names_for_llm:
@@ -908,13 +898,12 @@ if __name__ == "__main__":
             img.save(blank_image_path)
             logging.info(f"Created/updated blank test image with text: {blank_image_path}")
 
-        # Create a mock python certificate if it doesn't exist
         python_cert_path = os.path.join(test_image_folder, "python_cert_mock.png")
         if not os.path.exists(python_cert_path):
             py_img = Image.new('RGB', (800, 600), color='lightyellow')
             draw = ImageDraw.Draw(py_img)
             try:
-                title_font = ImageFont.truetype("arialbd.ttf", 40) # Bold Arial
+                title_font = ImageFont.truetype("arialbd.ttf", 40) 
                 body_font = ImageFont.truetype("arial.ttf", 24)
             except IOError:
                 title_font = ImageFont.load_default()
@@ -925,7 +914,7 @@ if __name__ == "__main__":
             draw.text((50, 200), "John Doe", font=title_font, fill="darkgreen")
             draw.text((50, 280), "has successfully completed the course", font=body_font, fill="black")
             draw.text((50, 330), "Introduction to Python Programming", font=title_font, fill="red")
-            draw.text((50, 400), "on " + datetime.now().strftime("%B %d, %Y"), font=body_font, fill="black")
+            draw.text((50, 400), "on " + datetime.now(timezone.utc).strftime("%B %d, %Y"), font=body_font, fill="black")
             py_img.save(python_cert_path)
             logging.info(f"Created mock Python certificate: {python_cert_path}")
 
@@ -950,7 +939,7 @@ if __name__ == "__main__":
     ocr_results = extract_and_recommend_courses_from_image_data(
         image_data_list=test_img_data,
         mode='ocr_only',
-        additional_manual_courses=["Manual Test Course 1", "Problematic Course ¢ Name [UNVERIFIED]"] # Test cleaning here too
+        additional_manual_courses=["Manual Test Course 1", "Problematic Course ¢ Name [UNVERIFIED]"] 
     )
     print("OCR Results (Local Test with LLM fallback):")
     print(json.dumps(ocr_results, indent=2))
@@ -963,16 +952,15 @@ if __name__ == "__main__":
         
     if not any("Python" in s.lower() for s in known_courses_for_suggestions): 
         known_courses_for_suggestions.append("Python Programming") 
-    if not any("Manual Test Course 1" in s for s in known_courses_for_suggestions): # Already cleaned by filter_and_verify if added through additional_manual_courses
-         known_courses_for_suggestions.append("Manual Test Course 1") # Should be "Manual Test Course 1 [UNVERIFIED]" if not in possible_courses
+    if not any("Manual Test Course 1" in s for s in known_courses_for_suggestions): 
+         known_courses_for_suggestions.append("Manual Test Course 1") 
     
-    # Add the problematic course name exactly as it might appear after OCR phase
     known_courses_for_suggestions.append("Internet Of Things(Iot With Cloud) ¢ [UNVERIFIED]")
 
 
     mock_previous_run_data = [
         {
-            "identified_course_name": "Python Programming", # Cache keys are original full names
+            "identified_course_name": "Python Programming", 
             "description_from_graph": course_graph.get("Python",{}).get("description"),
             "ai_description": "This is a cached AI description for Python Programming.",
             "llm_suggestions": [
@@ -1000,8 +988,3 @@ if __name__ == "__main__":
         logging.warning("Local test: YOLO model ('best.pt') could not be loaded. OCR functionality will be limited.")
     if not TESSERACT_PATH:
          logging.warning("Local test: Tesseract executable not found. OCR will fail.")
-
-    
-
-
-    
