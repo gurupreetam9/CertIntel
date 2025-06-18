@@ -337,23 +337,23 @@ def query_llm_for_detailed_suggestions(known_course_names_list_cleaned: List[str
 You are an expert curriculum advisor. You will be given a list of course names the user is considered to have knowledge in: {prompt_course_list_str}.
 
 For EACH of these courses from the input list, you MUST provide the following structured information. Treat each item from the input list as a single, distinct course, even if it contains multiple terms or slashes.
-1.  "Identified Course: [The exact course name from the input list that this block refers to]"
-2.  "AI Description: [Generate a concise 1-2 sentence description for this 'Identified Course'. If you cannot generate one, state 'No AI description available.']"
+1.  "Original Input Course: [The exact course name from the input list that this block refers to. This must be an exact copy from the input list you received.]"
+2.  "AI Description: [Generate a concise 1-2 sentence description for this course. If you cannot generate one, state 'No AI description available.']"
 3.  "Suggested Next Courses:" (This line must be present)
-    Then, for 2-3 relevant next courses that build upon the 'Identified Course', provide:
+    Then, for 2-3 relevant next courses that build upon the 'Original Input Course', provide:
     - "Name: [Suggested Course 1 Name]" (on a new line)
     - "Description: [Brief 1-2 sentence description for Suggested Course 1]" (on a new line)
     - "URL: [A valid, direct link to take Suggested Course 1]" (on a new line)
-    (Repeat the Name, Description, URL lines for each of the 2-3 suggestions for this 'Identified Course')
+    (Repeat the Name, Description, URL lines for each of the 2-3 suggestions for this 'Original Input Course')
 
 IMPORTANT FORMATTING RULES:
--   Separate each main "Identified Course" block (meaning the block starting with "Identified Course: ... AI Description: ... Suggested Next Courses: ...") with a line containing only "---".
--   If no relevant next courses can be suggested for a particular "Identified Course", then under "Suggested Next Courses:", you MUST write "No specific suggestions available for this course." on a new line and nothing else for that suggestion part.
+-   Separate each main "Original Input Course" block (meaning the block starting with "Original Input Course: ... AI Description: ... Suggested Next Courses: ...") with a line containing only "---".
+-   If no relevant next courses can be suggested for a particular "Original Input Course", then under "Suggested Next Courses:", you MUST write "No specific suggestions available for this course." on a new line and nothing else for that suggestion part.
 -   Do NOT include any other preambles, summaries, or explanations outside of this structure for each identified course.
 -   Ensure URLs are complete and valid (e.g., start with http:// or https://).
 
 Example of a valid response for ONE identified course:
-Identified Course: Python
+Original Input Course: Python
 AI Description: Python is a versatile, high-level programming language known for its readability and extensive libraries, widely used in web development, data science, and artificial intelligence.
 Suggested Next Courses:
 - Name: Advanced Python Programming
@@ -394,28 +394,28 @@ def parse_llm_detailed_suggestions_response(llm_response_text: str) -> List[Dict
         if not block_text:
             continue
 
-        identified_course_match = re.search(r"Identified Course:\s*(.*?)\n", block_text, re.IGNORECASE)
+        original_input_course_match = re.search(r"Original Input Course:\s*(.*?)\n", block_text, re.IGNORECASE)
         ai_description_match = re.search(r"AI Description:\s*(.*?)(?:\nSuggested Next Courses:|\Z)", block_text, re.IGNORECASE | re.DOTALL)
         
-        if not identified_course_match:
-            logging.warning(f"LLM Parser: Could not find 'Identified Course' in block. Full block text (first 300 chars): '{block_text[:300]}...'")
+        if not original_input_course_match:
+            logging.warning(f"LLM Parser: Could not find 'Original Input Course' in block. Full block text (first 300 chars): '{block_text[:300]}...'")
             continue
             
-        identified_course_name_from_llm = identified_course_match.group(1).strip()
+        original_input_course_from_llm = original_input_course_match.group(1).strip()
         
         ai_description = None
         if ai_description_match:
             desc_text = ai_description_match.group(1).strip()
             if desc_text.lower() != "no ai description available.":
                 ai_description = desc_text
-        else: # AI Description might not be followed by Suggested Next Courses if it's the last thing.
+        else: 
             ai_description_standalone_match = re.search(r"AI Description:\s*(.*?)$", block_text, re.IGNORECASE | re.DOTALL)
             if ai_description_standalone_match:
                 desc_text = ai_description_standalone_match.group(1).strip()
                 if desc_text.lower() != "no ai description available.":
                     ai_description = desc_text
             else:
-                 logging.warning(f"LLM Parser: Could not find 'AI Description' for '{identified_course_name_from_llm}'. Block (first 300): '{block_text[:300]}...'")
+                 logging.warning(f"LLM Parser: Could not find 'AI Description' for Original Input '{original_input_course_from_llm}'. Block (first 300): '{block_text[:300]}...'")
 
 
         current_suggestions = []
@@ -424,7 +424,7 @@ def parse_llm_detailed_suggestions_response(llm_response_text: str) -> List[Dict
         if suggestions_text_match:
             suggestions_blob = suggestions_text_match.group(1).strip()
             if suggestions_blob.lower() == "no specific suggestions available for this course.":
-                logging.info(f"LLM Parser: No specific suggestions for '{identified_course_name_from_llm}'.")
+                logging.info(f"LLM Parser: No specific suggestions for Original Input '{original_input_course_from_llm}'.")
             else:
                 individual_suggestion_blocks = re.split(r'\n(?:-\s*)?Name:', suggestions_blob)
                 
@@ -451,16 +451,16 @@ def parse_llm_detailed_suggestions_response(llm_response_text: str) -> List[Dict
                             "url": sug_url_match.group(1).strip()
                         })
                     else:
-                        logging.warning(f"LLM Parser: Could not parse full suggestion (name, desc, or URL missing) in block for '{identified_course_name_from_llm}'. Suggestion block part (first 150 chars): '{full_sug_block[:150]}...'. Name_match: {bool(sug_name_match)}, Desc_match: {bool(sug_desc_match)}, URL_match: {bool(sug_url_match)}")
+                        logging.warning(f"LLM Parser: Could not parse full suggestion (name, desc, or URL missing) in block for Original Input '{original_input_course_from_llm}'. Suggestion block part (first 150 chars): '{full_sug_block[:150]}...'. Name_match: {bool(sug_name_match)}, Desc_match: {bool(sug_desc_match)}, URL_match: {bool(sug_url_match)}")
         else:
-            logging.warning(f"LLM Parser: 'Suggested Next Courses:' section not found or malformed for '{identified_course_name_from_llm}'. Block text (first 300 chars): '{block_text[:300]}...'")
+            logging.warning(f"LLM Parser: 'Suggested Next Courses:' section not found or malformed for Original Input '{original_input_course_from_llm}'. Block text (first 300 chars): '{block_text[:300]}...'")
 
         parsed_results.append({
-            "identified_course_name_from_llm": identified_course_name_from_llm,
+            "original_input_course_from_llm": original_input_course_from_llm,
             "ai_description": ai_description,
             "llm_suggestions": current_suggestions
         })
-        logging.info(f"LLM Parser: Parsed '{identified_course_name_from_llm}', AI Desc: {'Present' if ai_description else 'None'}, Suggestions: {len(current_suggestions)}")
+        logging.info(f"LLM Parser: Parsed for Original Input '{original_input_course_from_llm}', AI Desc: {'Present' if ai_description else 'None'}, Suggestions: {len(current_suggestions)}")
 
     return parsed_results
 
@@ -607,7 +607,10 @@ def generate_suggestions_from_known_courses(
         
         if "text" in cohere_batch_response_data and cohere_batch_response_data["text"]:
             parsed_cohere_batch_items = parse_llm_detailed_suggestions_response(cohere_batch_response_data["text"])
-            parsed_cohere_batch_items_map = {item["identified_course_name_from_llm"]: item for item in parsed_cohere_batch_items}
+            parsed_cohere_batch_items_map = {
+                item["original_input_course_from_llm"].lower(): item 
+                for item in parsed_cohere_batch_items if "original_input_course_from_llm" in item
+            }
             if not parsed_cohere_batch_items and courses_to_query_cohere_for_batch_cleaned: 
                  llm_error_summary_for_output = "Cohere LLM (batch) response received but no valid items could be parsed. Check LLM output format and server logs."
                  logging.warning(f"Suggestions Phase (Cohere Batch): {llm_error_summary_for_output}")
@@ -620,7 +623,7 @@ def generate_suggestions_from_known_courses(
 
     for cleaned_course_name_queried_in_batch in courses_to_query_cohere_for_batch_cleaned:
         original_full_name_for_output = cleaned_to_original_map.get(cleaned_course_name_queried_in_batch, cleaned_course_name_queried_in_batch) 
-        cohere_item_for_course = parsed_cohere_batch_items_map.get(cleaned_course_name_queried_in_batch) 
+        cohere_item_for_course = parsed_cohere_batch_items_map.get(cleaned_course_name_queried_in_batch.lower()) 
 
         if cohere_item_for_course:
             user_processed_data_output.append({
@@ -632,7 +635,7 @@ def generate_suggestions_from_known_courses(
                 "processed_by": "Cohere (batch)"
             })
         else: 
-            error_msg_for_this_course = f"Cohere (batch): LLM was queried for '{cleaned_course_name_queried_in_batch}', but no specific data was returned or parsed for it."
+            error_msg_for_this_course = f"Cohere (batch): LLM was queried for '{cleaned_course_name_queried_in_batch}', but no specific data was returned or parsed for it in the batch response."
             if llm_error_summary_for_output and "parsed" in llm_error_summary_for_output: 
                 error_msg_for_this_course = f"Cohere (batch): {llm_error_summary_for_output}"
             elif llm_error_summary_for_output and "error" in llm_error_summary_for_output.lower():
@@ -666,21 +669,23 @@ def generate_suggestions_from_known_courses(
             current_item_individual_error = None
             individual_ai_description = None
             individual_suggestions = []
-            parsed_individual_item = None
-
+            
             if "text" in cohere_individual_response and cohere_individual_response["text"]:
                 parsed_items = parse_llm_detailed_suggestions_response(cohere_individual_response["text"])
-                if parsed_items:
-                    parsed_individual_item = parsed_items[0] 
-                    if parsed_individual_item.get("identified_course_name_from_llm", "").lower() == cleaned_name_for_individual_query.lower():
+                if parsed_items and len(parsed_items) == 1:
+                    parsed_individual_item = parsed_items[0]
+                    if parsed_individual_item.get("original_input_course_from_llm", "").lower() == cleaned_name_for_individual_query.lower():
                         individual_ai_description = parsed_individual_item.get("ai_description")
                         individual_suggestions = parsed_individual_item.get("llm_suggestions", [])
-                        if not individual_ai_description and not individual_suggestions:
+                        if not individual_ai_description and not individual_suggestions and not (parsed_individual_item.get("llm_suggestions") == [] and not parsed_individual_item.get("ai_description")): # Check if it was explicitly no suggestions vs total failure
                             current_item_individual_error = "Cohere (individual): Returned no description or suggestions."
                             any_individual_fallback_errors = True
                     else:
-                        current_item_individual_error = f"Cohere (individual): Parsed, but identified course name mismatch ('{parsed_individual_item.get('identified_course_name_from_llm')}' vs '{cleaned_name_for_individual_query}')."
+                        current_item_individual_error = f"Cohere (individual): Parsed, but LLM's 'Original Input Course' ('{parsed_individual_item.get('original_input_course_from_llm')}') did not match expected input ('{cleaned_name_for_individual_query}')."
                         any_individual_fallback_errors = True
+                elif parsed_items and len(parsed_items) > 1 :
+                     current_item_individual_error = f"Cohere (individual): Expected 1 parsed item for single course input, but got {len(parsed_items)}."
+                     any_individual_fallback_errors = True
                 else: 
                     current_item_individual_error = "Cohere (individual): Response received but no valid items could be parsed."
                     any_individual_fallback_errors = True
@@ -924,3 +929,4 @@ if __name__ == "__main__":
     if not TESSERACT_PATH:
          logging.warning("Local test: Tesseract executable not found. OCR will fail.")
 
+    
