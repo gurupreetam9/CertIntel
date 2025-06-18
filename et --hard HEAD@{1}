@@ -1,0 +1,318 @@
+[33m9c97917[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m HEAD@{0}: commit: even though i have python in course_graph why did it go for AI cohere Py
+[33m8d45db3[m HEAD@{1}: commit: "Internet Of Things(Iot With Cloud)"
+[33ma7d524f[m HEAD@{2}: commit: "Internet Of Things(Iot With Cloud)"
+[33mc65c8fd[m HEAD@{3}: commit: do one thing instead of Gemini can u use cohere API only for that task a
+[33m9f6aff3[m HEAD@{4}: commit: i still see some of the courses which dont have recommendations and i al
+[33mbeeea69[m HEAD@{5}: commit: there are some with correct course names returning no data like:
+[33m93a475d[m HEAD@{6}: commit: for certificate_processor.py incase the cohere LLM cant find the course
+[33m20e81cb[m HEAD@{7}: commit: for the courses which return:
+[33md859154[m HEAD@{8}: commit: I think there is an another database created in MongoDB with YOUR_DATABA
+[33m0010330[m HEAD@{9}: commit: There is nothing wrong with the pyhton code, i think there is something
+[33m2a642cb[m HEAD@{10}: commit: (myEnvAI) PS D:\CertIntel\CertIntel_> python app.py
+[33m9b415b2[m HEAD@{11}: commit: ,
+[33m2b6d778[m HEAD@{12}: commit: When i uploaded pdf they are converted into images but i cant see them l
+[33mea2ccb5[m HEAD@{13}: commit: for my AI model i.e in app.py and certificate_processor.py i want to do
+[33m34b946b[m HEAD@{14}: commit: for this you can give pop up toast
+[33mad41aa8[m HEAD@{15}: commit: just like the view,download,delete buttons when i hover over the image c
+[33m88afab8[m HEAD@{16}: commit: The pop up i got when i clicked in Get AI decription i want it within th
+[33m56f1ca6[m HEAD@{17}: commit: for student registration and teacher registration in the input fields wh
+[33m3314856[m HEAD@{18}: commit: It should show account not found if there is no account present for rese
+[33m504315d[m HEAD@{19}: commit: The password reset should be sent only to the emails present in our db t
+[33mb46985f[m HEAD@{20}: commit: include the mail format @gmail.com checking for reset your password page
+[33m7f34b97[m HEAD@{21}: commit: Cannot read properties of undefined (reading 'apply')
+[33m4fd8a78[m HEAD@{22}: commit: Firebase user created, but failed to set up profile/link or send confirm
+[33m1adf4c6[m HEAD@{23}: commit: Firebase user created, but failed to set up profile/link or send confirm
+[33m185788d[m HEAD@{24}: commit: Another important thing when i give random@scnc.com or sdksd@gmil.com wh
+[33mbcc165c[m HEAD@{25}: commit: [SERVICE/getStudentLinkRequestsForAdminRealtime] Setting up listener for
+[33mf06c6da[m HEAD@{26}: commit: i dont see the updated Roll Numbers like when i save profile changes in
+[33m27cb1d8[m HEAD@{27}: commit: after removing the link i had to refresh the admin dashboard for the dis
+[33m1c92432[m HEAD@{28}: commit: still same the student isnt able to unlink:
+[33mde5d4ea[m HEAD@{29}: commit: [CLIENT] ProfileSettingsPage: handleRemoveLink - Function ENTRY.
+[33mff451e5[m HEAD@{30}: commit: Do this for admin also, the requests arent showing for admin unitl i ref
+[33m1c5fb6c[m HEAD@{31}: commit: The accept and reject from admin arent changing in real time until i ref
+[33madd6ab8[m HEAD@{32}: commit: I think there is a bug, after removing the link and again requesting i s
+[33m85dae2e[m HEAD@{33}: commit: studentRequestLinkWithAdmin service call result: {success: false, messag
+[33ma14b91c[m HEAD@{34}: commit: I cant see anything new in the log, are u sure there are permissions.
+[33md2dcb93[m HEAD@{35}: commit: still same i see no new logging also
+[33m0c7e782[m HEAD@{36}: commit: still insufficient permissions:
+[33m03dca24[m HEAD@{37}: commit: studio-6629810738:~/studio{main}$ next dev -p 9005
+[33me46a308[m HEAD@{38}: commit: got this
+[33me1e1a31[m HEAD@{39}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m2f0e824[m HEAD@{40}: commit: The issue:
+[33ma505f67[m HEAD@{41}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m48426c4[m HEAD@{42}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33me30ae95[m HEAD@{43}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m773bf1c[m HEAD@{44}: commit: studio-6629810738:~/studio{main}$ next dev -p 9005
+[33mb89bd0f[m HEAD@{45}: commit: still got missing permissions
+[33mc5acdee[m HEAD@{46}: commit: im using this since none of those rules are working:
+[33mdec12a8[m HEAD@{47}: commit: Console Error
+[33m81dd04b[m HEAD@{48}: commit: The page only keeps loading
+[33meb76a39[m HEAD@{49}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33maca3572[m HEAD@{50}: commit: i asked for this:
+[33mc501b91[m HEAD@{51}: commit: i dont see any changes
+[33mc0bdeb9[m HEAD@{52}: commit: Error saving rules – Line 65: Unexpected 'if'.; Line 68: Unexpected 'if'
+[33m50de4a5[m HEAD@{53}: commit: still same,what is the problem i dont understand
+[33m90de8e4[m HEAD@{54}: commit: Still getting this:
+[33m4720de3[m HEAD@{55}: commit: still same:
+[33m7529783[m HEAD@{56}: commit: still same failed to set up profile/link: Permission Denied
+[33m6b82b5a[m HEAD@{57}: commit: during registration im getting missing permissions
+[33m32df9b6[m HEAD@{58}: commit: i still dont find it good, earlier one was better than this
+[33md21526c[m HEAD@{59}: commit: i dont find it matching with the current UI
+[33m7410a7a[m HEAD@{60}: commit: In Admin dashboard add a back button to go back to the home screen and c
+[33mde738e2[m HEAD@{61}: commit: studio-6629810738:~/studio{main}$ next dev -p 9005
+[33m704bac8[m HEAD@{62}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m7de3ba5[m HEAD@{63}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m96e4e3d[m HEAD@{64}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m55292d8[m HEAD@{65}: commit: remove firebase admin also
+[33m9f2a411[m HEAD@{66}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33mcea0509[m HEAD@{67}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m59df624[m HEAD@{68}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m74e4185[m HEAD@{69}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33ma10756a[m HEAD@{70}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m7a37e01[m HEAD@{71}: commit: no fallback to previous code, the one where i said its working
+[33ma887e5b[m HEAD@{72}: commit: still same, this error doesnt seem to go. Do one thing the thing that wo
+[33mc0dcff4[m HEAD@{73}: commit: 1/1
+[33mf6b0dc6[m HEAD@{74}: commit: studio-6629810738:~/studio{main}$ next dev -p 9005
+[33m987a1b6[m HEAD@{75}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33mcbf6130[m HEAD@{76}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m05ac328[m HEAD@{77}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m9878962[m HEAD@{78}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33mf24a2f4[m HEAD@{79}: commit: Build Error
+[33m8eff379[m HEAD@{80}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33mf6ce54b[m HEAD@{81}: commit: continue with the required file changes
+[33m9a0fe6c[m HEAD@{82}: commit: That worked
+[33mcc22269[m HEAD@{83}: commit: ./node_modules/genkit/lib/registry.js
+[33meac1851[m HEAD@{84}: commit: no change:
+[33m4c4272e[m HEAD@{85}: commit: still same insufficient permissions, is it anyway cause of MonogoDB sinc
+[33m2d38c31[m HEAD@{86}: commit: still insufficient permissions for accessing the certificates
+[33m1b67c45[m HEAD@{87}: commit: still same
+[33m6fbdce7[m HEAD@{88}: commit: cant see the user certificates
+[33m4062679[m HEAD@{89}: commit: Got missing or insufficient permissions for accepting or rejecting
+[33m424069a[m HEAD@{90}: commit: getting these in admin dashboard
+[33mf9c0282[m HEAD@{91}: commit: Firebase user created, but failed to set up profile/link: Function setDo
+[33m15d8459[m HEAD@{92}: commit: Firebase user created, but failed to set up profile/link: 7 PERMISSION_D
+[33me2f290f[m HEAD@{93}: commit: should i do something in Firebase studio
+[33mfa8c8b4[m HEAD@{94}: commit: Runtime Error
+[33m9553de8[m HEAD@{95}: commit: OK now build the Admin Dashboard
+[33m69d83f7[m HEAD@{96}: commit: i want to do some major changes so remember the current workspace as Che
+[33m0b8ef5d[m HEAD@{97}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33mb64d0b9[m HEAD@{98}: commit: wait u didnt change anything in the flask server for pdf to image conver
+[33m27893c1[m HEAD@{99}: commit: remember this as a checkpoint 1, now we will try the pdf to image conver
+[33ma944c76[m HEAD@{100}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33mb78bf90[m HEAD@{101}: commit: It still doesnt preview the image
+[33m1042e52[m HEAD@{102}: commit: The app.py u tried to change earlier for pdf preview is it completed
+[33mf94aad3[m HEAD@{103}: commit: i think its stuck
+[33m2502c64[m HEAD@{104}: commit: Check the route.ts api from upload image,i modified i added pdf poppler
+[33m4941f63[m HEAD@{105}: pull --tags origin main: Fast-forward
+[33meb37727[m HEAD@{106}: checkout: moving from 4941f63e9a29c7489e488c0a834a94ebcc1ad925 to main
+[33m4941f63[m HEAD@{107}: reset: moving to origin/main
+[33m261e41d[m HEAD@{108}: commit: It seems all the changes i did previously arent taken effect or they are
+[33me9540c1[m HEAD@{109}: rebase (pick): tudio-6629810738:~/studio{master}$ next dev --turbopack -p 9005
+[33m1d826b5[m HEAD@{110}: rebase (pick): I see this error with the app, reported by NextJS, please fix it. The er
+[33m99d6a45[m HEAD@{111}: rebase (continue): try another library this also shows error
+[33me8310b1[m HEAD@{112}: rebase (pick): it doesnt seem to work try another module/library
+[33m24130fe[m HEAD@{113}: rebase (pick): studio-6629810738:~/studio{master}$ next dev --turbopack -p 9005
+[33m88da0b9[m HEAD@{114}: rebase (pick): unreachable code after return statement node_modules_b4ef4e7a._.js:5576:
+[33mbf9ef3a[m HEAD@{115}: rebase (pick): I see this error with the app, reported by NextJS, please fix it. The er
+[33mf5458bd[m HEAD@{116}: rebase (pick): I see this error with the app, reported by NextJS, please fix it. The er
+[33m0fd311a[m HEAD@{117}: rebase (pick): The `npm install` command failed in my project. Analyze the following er
+[33m02b9388[m HEAD@{118}: rebase (pick): I see this error with the app, reported by NextJS, please fix it. The er
+[33m03b6cde[m HEAD@{119}: rebase (pick): I see this error with the app, reported by NextJS, please fix it. The er
+[33m2655724[m HEAD@{120}: rebase (pick): still same:
+[33m371e464[m HEAD@{121}: rebase (pick): ImageUploader: Failed to parse JSON response for Typescript.pdf. Status:
+[33ma11c614[m HEAD@{122}: rebase (pick): I see this error with the app, reported by NextJS, please fix it. The er
+[33m07b8d56[m HEAD@{123}: rebase (pick): I see this error with the app, reported by NextJS, please fix it. The er
+[33mfb410a5[m HEAD@{124}: rebase (pick): I see this error with the app, reported by NextJS, please fix it. The er
+[33m0af977f[m HEAD@{125}: rebase (pick): I see this error with the app, reported by NextJS, please fix it. The er
+[33m423a024[m HEAD@{126}: rebase (pick): i want the user to upload pdfs also, the uploaded pdfs should be coverte
+[33me35d076[m HEAD@{127}: rebase (pick): why is the cached_cached_llm stored 3 times in DB when clicked on the pr
+[33mee56720[m HEAD@{128}: rebase (pick): another thing is if suppose the user has 3 certificates the first one is
+[33m28d58bb[m HEAD@{129}: commit: in ai-feature remove Raw JSON Output used for debugging and also the not
+[33me9ce36f[m HEAD@{130}: rebase (continue): now i want to go further, the result i got would be based on the course
+[33m9bc0213[m HEAD@{131}: rebase (continue): WARNING:werkzeug: * Debugger is active!
+[33m58620e9[m HEAD@{132}: rebase (continue): i want scenario A where Flask pulls from MongoDB and here is my process_
+[33m8aaa37b[m HEAD@{133}: pull --rebase origin main (pick): This is my app.py code:
+[33ma366914[m HEAD@{134}: pull --rebase origin main (pick): include a forgot password mechanism in login page
+[33mb5d6339[m HEAD@{135}: pull --rebase origin main (pick): finally this worked
+[33m18f4626[m HEAD@{136}: pull --rebase origin main (pick): still same, do one thing make a fresh start for displaying images
+[33m4e22eb9[m HEAD@{137}: pull --rebase origin main (pick): we are repeating the same thing again and again,now the image is not dis
+[33mf57d169[m HEAD@{138}: pull --rebase origin main (pick): look
+[33m689c4d1[m HEAD@{139}: pull --rebase origin main (pick): now again the image isnt being shown
+[33ma834536[m HEAD@{140}: pull --rebase origin main (pick): The image is too small again
+[33me57c5c2[m HEAD@{141}: pull --rebase origin main (pick): now the image isnt being shown again
+[33m6e681d2[m HEAD@{142}: pull --rebase origin main (pick): ok now i got to see the image but the image is to small in size
+[33m2993fe0[m HEAD@{143}: pull --rebase origin main (pick): still same:
+[33m0cbbd5e[m HEAD@{144}: pull --rebase origin main (pick): ViewImageModal: Render/Update. isOpen: true Image prop ID: 6844053dbcc29
+[33me99e665[m HEAD@{145}: pull --rebase origin main (pick): ViewImageModal.tsx:46
+[33m4512cd9[m HEAD@{146}: pull --rebase origin main (pick): The status shows 200 and i can see the image in preview
+[33m33d9f01[m HEAD@{147}: pull --rebase origin main (pick): Make the following changes:
+[33m0f363e4[m HEAD@{148}: pull --rebase origin main (pick): Still same problem the image isnt shown
+[33m0e604f0[m HEAD@{149}: pull --rebase origin main (pick): i can see the red box around the close button
+[33m65a93b1[m HEAD@{150}: pull --rebase origin main (pick): Make the following changes:
+[33mf5c7f62[m HEAD@{151}: pull --rebase origin main (pick): The view option isnt showing the image
+[33m52c525f[m HEAD@{152}: pull --rebase origin main (pick): No the updates arent still shown until i refresh, and also add an option
+[33maaf22f7[m HEAD@{153}: pull --rebase origin main (pick): after uploading the image successfully the uploaded images arent being r
+[33m1c763a8[m HEAD@{154}: pull --rebase origin main (pick): The images still arent being displayed
+[33md916fbe[m HEAD@{155}: pull --rebase origin main (pick): the images uploaded arent being displayed
+[33mc985331[m HEAD@{156}: pull --rebase origin main (pick): The AI server connection should only be done when clicked on the ai butt
+[33me87c413[m HEAD@{157}: pull --rebase origin main (pick): I see this error with the app, reported by NextJS, please fix it. The er
+[33m49d46ff[m HEAD@{158}: pull --rebase origin main (pick): I see this error with the app, reported by NextJS, please fix it. The er
+[33m1131716[m HEAD@{159}: pull --rebase origin main (pick): its still not working should i do any changes in atlas
+[33m0101dfb[m HEAD@{160}: pull --rebase origin main (pick): Server configuration error: MongoDB connection error: 804CEAA2B97A0000:e
+[33md6dcecc[m HEAD@{161}: pull --rebase origin main (pick): I see this error with the app, reported by NextJS, please fix it. The er
+[33mafe5f19[m HEAD@{162}: pull --rebase origin main (pick): I see this error with the app, reported by NextJS, please fix it. The er
+[33mead3f8c[m HEAD@{163}: pull --rebase origin main (pick): i cant afford for the firebase storage which requires billing plan, can
+[33m6a4ea6b[m HEAD@{164}: pull --rebase origin main (pick): i have something to confirm, in the code are we using firebase cloud for
+[33mb0c5511[m HEAD@{165}: pull --rebase origin main (pick): i want the images to be saved into the cloud and also give those images
+[33mfd9ab25[m HEAD@{166}: pull --rebase origin main (pick): Upload timed out after multiple retries. Check your internet connection.
+[33mb7a336d[m HEAD@{167}: pull --rebase origin main (pick): still it is showing uploading indefinitely
+[33ma0249e2[m HEAD@{168}: pull --rebase origin main (pick): I see this error with the app, reported by NextJS, please fix it. The er
+[33m8c85283[m HEAD@{169}: pull --rebase origin main (pick): The images arent uploading
+[33mdc0eac3[m HEAD@{170}: pull --rebase origin main (pick): change the font family it isnt good
+[33m406902e[m HEAD@{171}: pull --rebase origin main (pick): I see this error with the app, reported by NextJS, please fix it. The er
+[33mcef6fc2[m HEAD@{172}: pull --rebase origin main (pick): i just want to use my gmail to test whether the OTP goes or not
+[33mf5bd72e[m HEAD@{173}: pull --rebase origin main (pick): The NextJS app server is having trouble starting. Please identify what c
+[33me904788[m HEAD@{174}: pull --rebase origin main (pick): in register create a Two Step verification, like when user enters his em
+[33m8d6a8e1[m HEAD@{175}: pull --rebase origin main (pick): I see this error with the app, reported by NextJS, please fix it. The er
+[33m9c5e585[m HEAD@{176}: pull --rebase origin main (pick): I see this error with the app, reported by NextJS, please fix it. The er
+[33ma6b8673[m HEAD@{177}: pull --rebase origin main (pick): initial scaffold
+[33m0220da0[m HEAD@{178}: pull --rebase origin main (start): checkout 0220da03e6405449b2cc88e96e3c4a62eeded82f
+[33meb37727[m HEAD@{179}: Branch: renamed refs/heads/master to refs/heads/main
+[33meb37727[m HEAD@{181}: commit: now even image isnt shown
+[33m7b144fd[m HEAD@{182}: commit: still same even scrolling above doesnt show that cutted part
+[33m803b62e[m HEAD@{183}: commit: look
+[33m5ed8d2a[m HEAD@{184}: commit: now it became worse the image is too small
+[33m0a2b11c[m HEAD@{185}: commit: nope can revert the changes u did for it now even if i try to open the i
+[33md16b61b[m HEAD@{186}: commit: nope the functionality isnt changed make the screenshot one default
+[33m8e96f25[m HEAD@{187}: commit: The default is still cover i want contain
+[33mce78c19[m HEAD@{188}: commit: make the default fit contain for them
+[33mf5addac[m HEAD@{189}: commit: do one in options make a button for either keeping the current screen or
+[33m7b8e490[m HEAD@{190}: commit: what are those borders?
+[33maf3e20d[m HEAD@{191}: commit: The two buttons for uploading and AI are overlapping each otherr when re
+[33m8e09d61[m HEAD@{192}: commit: Change the title of the app to CertIntel
+[33m6c87103[m HEAD@{193}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m0879e59[m HEAD@{194}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m55b2cbe[m HEAD@{195}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m98e4632[m HEAD@{196}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m3b7f854[m HEAD@{197}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33mff4dc0a[m HEAD@{198}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m7e98e79[m HEAD@{199}: commit: when i click on Profile i can see both profile &settings, i dont want th
+[33m4567079[m HEAD@{200}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m6ec80f7[m HEAD@{201}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m51ee137[m HEAD@{202}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33mceda82f[m HEAD@{203}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m5b9ec10[m HEAD@{204}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m8e7c68b[m HEAD@{205}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m5392339[m HEAD@{206}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33mb365609[m HEAD@{207}: commit: In home screen i want an option for downloading the loaded images also
+[33m5ab00fb[m HEAD@{208}: commit: still same
+[33m4d60bea[m HEAD@{209}: commit: same error
+[33m2b21b1b[m HEAD@{210}: commit: Ok now when i refresh the page and click on Proceed with AI suggestions
+[33m5d3921b[m HEAD@{211}: commit: There is a UI improvement to be done in the ai-feature page when the und
+[33m2c96d5a[m HEAD@{212}: commit: No it doesnt align with what i expect, i wanted the user to provide the
+[33me6502c0[m HEAD@{213}: commit: OCR_MODE): Fetching file: ID=68443b74842c21a206bcadcc, Name=img_cert_js.
+[33md44be61[m HEAD@{214}: commit: in certificate_processor.py it seems u have inclued typescript code also
+[33m4125231[m HEAD@{215}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m5d5107b[m HEAD@{216}: commit: i havent got what i wanted, look in the processing result section i can
+[33mf573ba6[m HEAD@{217}: commit: i dont see any changes,where is that
+[33m62599c1[m HEAD@{218}: commit: where is the pop up for failed course extraction, i said when the extrac
+[33mc3d7b88[m HEAD@{219}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m035c735[m HEAD@{220}: commit: ok do that
+[33mefa36f0[m HEAD@{221}: commit: i am not able to scroll through the processed result
+[33macb01b1[m HEAD@{222}: commit: There are some significant changes i want u to do the first thing is the
+[33mdbfbf3e[m HEAD@{223}: commit: Processing Result:
+[33m732726a[m HEAD@{224}: commit: I think there is something wrong:
+[33mf00f7e3[m HEAD@{225}: commit: modify the prompt with this:
+[33m5d1166b[m HEAD@{226}: commit: i want the url links for the suggested courses not the extracted course
+[33m061420a[m HEAD@{227}: commit: i noticed something, the URLS should be for any of the suggested next co
+[33m6faa513[m HEAD@{228}: commit: still no suggested next course for type llm:
+[33m81877c9[m HEAD@{229}: commit: For type llm why dont i see suggested next field:
+[33m60dfe0c[m HEAD@{230}: commit: in ai-feature i want the user to enter course names in case the ai model
+[33me704893[m HEAD@{231}: commit: after uploading image when i click on Get AI Description which comes up
+[33m42e798e[m HEAD@{232}: commit: GET /api/user-images?userId=HQ4iFczMfCR7FvNufgcwn4cpwOa2 500 in 30269ms
+[33mc69eca6[m HEAD@{233}: commit: why would it stop working which was working fine until earlier and i che
+[33ma004b9b[m HEAD@{234}: commit: GET /login 200 in 562ms
+[33mc5d14bd[m HEAD@{235}: commit: studio-6629810738:~/studio{master}$ next dev --turbopack -p 9005
+[33mfb0a48c[m HEAD@{236}: commit: i dont undertand why cant i load the images why does it show API Error:
+[33m45302d9[m HEAD@{237}: commit: wait i meant to say before the pdf to image feature
+[33mabad8fc[m HEAD@{238}: commit: still same error, revert all the changes u tried till the pdf to img con
+[33m1207788[m HEAD@{239}: commit: it was working fine till u changed something
+[33m40802a3[m HEAD@{240}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33mdc980ec[m HEAD@{241}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33mbac71ba[m HEAD@{242}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m5efddc9[m HEAD@{243}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33ma0b51ac[m HEAD@{244}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m1a128f8[m HEAD@{245}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33mb100f5c[m HEAD@{246}: commit: It doesnt seem to work, do one thing remove the convert pdf to images fr
+[33m1d12ea6[m HEAD@{247}: commit: API /api/upload-image (Req ID: tf5y2yn, parseFormRevised): Processing te
+[33m68618b7[m HEAD@{248}: commit: The flask server is working, cause the for ai model it successfully disp
+[33madc302e[m HEAD@{249}: commit: POST /api/upload-image 200 in 323482ms
+[33m0f1af68[m HEAD@{250}: commit: tudio-6629810738:~/studio{master}$ next dev --turbopack -p 9005
+[33m26667ab[m HEAD@{251}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m1c7b1f3[m HEAD@{252}: commit: try another library this also shows error
+[33mc6281ec[m HEAD@{253}: commit: it doesnt seem to work try another module/library
+[33m3e52b21[m HEAD@{254}: commit: studio-6629810738:~/studio{master}$ next dev --turbopack -p 9005
+[33mee873dd[m HEAD@{255}: commit: unreachable code after return statement node_modules_b4ef4e7a._.js:5576:
+[33ma580bf8[m HEAD@{256}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33mabc802b[m HEAD@{257}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m46dff85[m HEAD@{258}: commit: The `npm install` command failed in my project. Analyze the following er
+[33mdb3cd06[m HEAD@{259}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33me4c25e2[m HEAD@{260}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m3b1f7a4[m HEAD@{261}: commit: still same:
+[33m4edb95d[m HEAD@{262}: commit: ImageUploader: Failed to parse JSON response for Typescript.pdf. Status:
+[33m8073fe4[m HEAD@{263}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33mf015f8f[m HEAD@{264}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m0b99a70[m HEAD@{265}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m6c4bf3f[m HEAD@{266}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m802eeaa[m HEAD@{267}: commit: i want the user to upload pdfs also, the uploaded pdfs should be coverte
+[33mcfb00fd[m HEAD@{268}: commit: why is the cached_cached_llm stored 3 times in DB when clicked on the pr
+[33m5422d60[m HEAD@{269}: commit: another thing is if suppose the user has 3 certificates the first one is
+[33m7f5515d[m HEAD@{270}: commit: i want to use the json data from course_data to be used for all the user
+[33m3b44c91[m HEAD@{271}: commit: now i want to go further, the result i got would be based on the course
+[33mc0e6fac[m HEAD@{272}: commit: WARNING:werkzeug: * Debugger is active!
+[33m57d2ee8[m HEAD@{273}: commit: i want scenario A where Flask pulls from MongoDB and here is my process_
+[33m3105093[m HEAD@{274}: commit: This is my app.py code:
+[33md27cbb7[m HEAD@{275}: commit: include a forgot password mechanism in login page
+[33m546f372[m HEAD@{276}: commit: finally this worked
+[33mdcadc31[m HEAD@{277}: commit: still same, do one thing make a fresh start for displaying images
+[33m0161a0e[m HEAD@{278}: commit: we are repeating the same thing again and again,now the image is not dis
+[33m6b211b2[m HEAD@{279}: commit: look
+[33m25aa51b[m HEAD@{280}: commit: now again the image isnt being shown
+[33m574c72d[m HEAD@{281}: commit: The image is too small again
+[33md4b0fe5[m HEAD@{282}: commit: now the image isnt being shown again
+[33m03008a2[m HEAD@{283}: commit: ok now i got to see the image but the image is to small in size
+[33m39249be[m HEAD@{284}: commit: still same:
+[33m42503c8[m HEAD@{285}: commit: ViewImageModal: Render/Update. isOpen: true Image prop ID: 6844053dbcc29
+[33m34ac77c[m HEAD@{286}: commit: ViewImageModal.tsx:46
+[33m13ceb70[m HEAD@{287}: commit: The status shows 200 and i can see the image in preview
+[33m3a680f2[m HEAD@{288}: commit: Make the following changes:
+[33m23bc1e5[m HEAD@{289}: commit: Still same problem the image isnt shown
+[33m858cac2[m HEAD@{290}: commit: i can see the red box around the close button
+[33m326b55a[m HEAD@{291}: commit: Make the following changes:
+[33m1e36641[m HEAD@{292}: commit: The view option isnt showing the image
+[33m9d0a00d[m HEAD@{293}: commit: No the updates arent still shown until i refresh, and also add an option
+[33m83034dc[m HEAD@{294}: commit: after uploading the image successfully the uploaded images arent being r
+[33me5d7326[m HEAD@{295}: commit: The images still arent being displayed
+[33m1236636[m HEAD@{296}: commit: the images uploaded arent being displayed
+[33me2bb928[m HEAD@{297}: commit: The AI server connection should only be done when clicked on the ai butt
+[33m7da0167[m HEAD@{298}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m09378e9[m HEAD@{299}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33mf368f96[m HEAD@{300}: commit: its still not working should i do any changes in atlas
+[33m429c32b[m HEAD@{301}: commit: Server configuration error: MongoDB connection error: 804CEAA2B97A0000:e
+[33m3ace4d6[m HEAD@{302}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33mcaa5401[m HEAD@{303}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m2161d81[m HEAD@{304}: commit: i cant afford for the firebase storage which requires billing plan, can
+[33m251cda0[m HEAD@{305}: commit: i have something to confirm, in the code are we using firebase cloud for
+[33mdd350b8[m HEAD@{306}: commit: i want the images to be saved into the cloud and also give those images
+[33m82917cd[m HEAD@{307}: commit: Upload timed out after multiple retries. Check your internet connection.
+[33ma866288[m HEAD@{308}: commit: still it is showing uploading indefinitely
+[33m99f21ce[m HEAD@{309}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m8421cba[m HEAD@{310}: commit: The images arent uploading
+[33mb02550d[m HEAD@{311}: commit: change the font family it isnt good
+[33ma05abc7[m HEAD@{312}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33mf712d8a[m HEAD@{313}: commit: i just want to use my gmail to test whether the OTP goes or not
+[33m9e1f94d[m HEAD@{314}: commit: The NextJS app server is having trouble starting. Please identify what c
+[33m7a6b62f[m HEAD@{315}: commit: in register create a Two Step verification, like when user enters his em
+[33m0d85f51[m HEAD@{316}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m80d0edb[m HEAD@{317}: commit: I see this error with the app, reported by NextJS, please fix it. The er
+[33m7d3cda9[m HEAD@{318}: commit (initial): initial scaffold

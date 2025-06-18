@@ -2,13 +2,14 @@
 'use server';
 /**
  * @fileOverview Flow to initiate sending an OTP to a user's email for verification.
- * - initiateEmailOtp: Generates an OTP, stores it with an expiry, and sends it via email.
+ * - initiateEmailOtp: Checks if email exists, generates an OTP, stores it, and sends via email.
  * - InitiateEmailOtpInput: Input type for the initiateEmailOtp function.
  * - InitiateEmailOtpOutput: Output type for the initiateEmailOtp function.
  */
 import { ai } from '@/ai/genkit';
 import { z } from 'zod';
 import { sendEmail } from '@/lib/emailUtils'; // Import the centralized email utility
+import { getAdminAuth } from '@/lib/firebase/adminConfig'; // Import Firebase Admin Auth
 
 // HACK: In-memory store for OTPs. NOT SUITABLE FOR PRODUCTION.
 // In a real app, use a database (e.g., Firestore, Redis) for OTP storage.
@@ -40,12 +41,26 @@ const initiateEmailOtpFlow = ai.defineFlow(
     outputSchema: InitiateEmailOtpOutputSchema,
   },
   async ({ email }) => {
-    // Check if an OTP was recently sent for this email to prevent abuse
-    // const existingEntry = otpStore[email];
-    // if (existingEntry && (Date.now() < (existingEntry.expiresAt - 4 * 60 * 1000))) { 
-    //   // Allow overriding for prototype simplicity. In prod, add rate limiting.
-    // }
+    const adminAuth = getAdminAuth(); // Get the admin auth instance
 
+    try {
+      console.log(`initiateEmailOtpFlow: Checking if email ${email} already exists in Firebase Auth.`);
+      await adminAuth.getUserByEmail(email);
+      // If the above line does not throw, it means the user exists.
+      console.log(`initiateEmailOtpFlow: Email ${email} is already registered.`);
+      return { success: false, message: 'This email is already registered. Please login or use a different email.' };
+    } catch (error: any) {
+      if (error.code === 'auth/user-not-found') {
+        // This is the expected case for a new registration - email is available.
+        console.log(`initiateEmailOtpFlow: Email ${email} is not registered. Proceeding with OTP generation.`);
+      } else {
+        // Some other unexpected error from Firebase Admin SDK during email check
+        console.error(`initiateEmailOtpFlow: Error checking email existence for ${email}:`, error);
+        return { success: false, message: 'An error occurred while checking email availability. Please try again.' };
+      }
+    }
+
+    // Proceed with OTP generation and sending only if email is not found (i.e., available)
     const otp = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit OTP
     const expiresAt = Date.now() + 5 * 60 * 1000; // OTP expires in 5 minutes
 
@@ -79,3 +94,4 @@ const initiateEmailOtpFlow = ai.defineFlow(
     }
   }
 );
+
