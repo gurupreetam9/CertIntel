@@ -6,7 +6,8 @@ import ImageGrid from '@/components/home/ImageGrid';
 import type { UserImage } from '@/components/home/ImageGrid';
 import UploadFAB from '@/components/home/UploadFAB';
 import AiFAB from '@/components/home/AiFAB';
-import { useEffect, useState, useCallback } from 'react';
+import SearchWithSuggestions from '@/components/common/SearchWithSuggestions'; // Added import
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { FileText } from 'lucide-react';
@@ -18,6 +19,7 @@ function HomePageContent() {
   const [refreshKey, setRefreshKey] = useState(0);
   const { user, userId } = useAuth();
   const { toast } = useToast();
+  const [searchTerm, setSearchTerm] = useState(''); // Added for search
 
   const triggerRefresh = useCallback(() => {
     console.log("HomePageContent: Triggering refresh by incrementing refreshKey.");
@@ -50,7 +52,7 @@ function HomePageContent() {
         }
       });
 
-      const responseText = await response.text(); // Get raw text first for logging
+      const responseText = await response.text(); 
       if (!response.ok) {
         let errorData = { message: `Error ${response.status}: Failed to load certificates from API.`, detail: `Status code ${response.status}`, errorKey: 'UNKNOWN_CLIENT_ERROR' };
         let errorPayloadForConsole: any = { rawResponse: responseText.substring(0, 500) };
@@ -73,9 +75,8 @@ function HomePageContent() {
         throw new Error(`API Error: ${displayErrorMessage}`);
       }
 
-      const data: UserImage[] = JSON.parse(responseText); // Parse from text after ensuring response is ok
+      const data: UserImage[] = JSON.parse(responseText); 
       console.log("HomePageContent: Successfully fetched certificate data from API. Count:", data.length);
-      console.log("HomePageContent: Raw data from API (first 5 images stringified):", JSON.stringify(data.slice(0,5), null, 2));
       setImages(data);
     } catch (err: any) {
       console.error("HomePageContent: Error in fetchImages catch block:", err);
@@ -103,6 +104,18 @@ function HomePageContent() {
     }
   }, [userId, user, fetchImages, refreshKey]);
 
+  const handleSearch = (query: string) => {
+    setSearchTerm(query.toLowerCase());
+  };
+
+  const filteredImages = useMemo(() => {
+    if (!searchTerm) return images;
+    return images.filter(image => 
+      (image.originalName?.toLowerCase() || '').includes(searchTerm) ||
+      (image.filename?.toLowerCase() || '').includes(searchTerm)
+    );
+  }, [images, searchTerm]);
+
   return (
     <div className="container mx-auto px-4 py-8 md:px-6 lg:px-8">
       <div className="mb-8 flex flex-col md:flex-row justify-between items-center gap-4">
@@ -111,8 +124,14 @@ function HomePageContent() {
             <p className="text-muted-foreground text-lg">Browse, upload, and manage your certificates.</p>
         </div>
       </div>
+      <div className="mb-6">
+        <SearchWithSuggestions 
+          onSearch={handleSearch} 
+          placeholder="Search certificates by name or filename..."
+        />
+      </div>
       <ImageGrid
-        images={images}
+        images={filteredImages}
         isLoading={isLoading}
         error={error}
         onImageDeleted={triggerRefresh}

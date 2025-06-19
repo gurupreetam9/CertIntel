@@ -6,10 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info, CheckCircle, ListChecks, Wand2, BrainCircuit, HelpCircle } from 'lucide-react';
+import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info, CheckCircle, ListChecks, Wand2, BrainCircuit, HelpCircle, Search as SearchIcon } from 'lucide-react';
 import NextImage from 'next/image';
 import Link from 'next/link';
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -19,6 +19,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import SearchWithSuggestions from '@/components/common/SearchWithSuggestions'; // Added import
 
 
 // --- TypeScript Interfaces ---
@@ -80,7 +81,7 @@ function AiFeaturePageContent() {
   const [manualNamesForFailedImages, setManualNamesForFailedImages] = useState<{ [key: string]: string }>({});
   
   const [finalResult, setFinalResult] = useState<SuggestionsPhaseResult | null>(null);
-
+  const [searchTerm, setSearchTerm] = useState(''); // Added for search
 
   const handleManualNameChange = (fileId: string, name: string) => {
     setManualNamesForFailedImages(prev => ({ ...prev, [fileId]: name }));
@@ -95,6 +96,7 @@ function AiFeaturePageContent() {
     setManualNamesForFailedImages({});
     setFinalResult(null);
     setAssociatedImageFileIdsForResults([]);
+    setSearchTerm(''); // Reset search term
     // setGeneralManualCoursesInput(''); // Optionally reset this too
   };
 
@@ -205,7 +207,6 @@ function AiFeaturePageContent() {
     }
   };
 
-
   const handlePrimaryButtonClick = useCallback(async () => {
     if (!userId) {
       toast({ title: 'Authentication Required', variant: 'destructive' });
@@ -299,6 +300,39 @@ function AiFeaturePageContent() {
     buttonText = "Start New Processing";
     ButtonIconComponent = ListChecks;
   }
+  
+  const handleSearch = (query: string) => {
+    setSearchTerm(query.toLowerCase());
+  };
+
+  const filteredOcrSuccessfullyExtracted = useMemo(() => {
+    if (!searchTerm) return ocrSuccessfullyExtracted;
+    return ocrSuccessfullyExtracted.filter(course => course.toLowerCase().includes(searchTerm));
+  }, [ocrSuccessfullyExtracted, searchTerm]);
+
+  const filteredOcrFailedImages = useMemo(() => {
+    if (!searchTerm) return ocrFailedImages;
+    return ocrFailedImages.filter(img => 
+      img.original_filename.toLowerCase().includes(searchTerm) ||
+      (manualNamesForFailedImages[img.file_id] || '').toLowerCase().includes(searchTerm)
+    );
+  }, [ocrFailedImages, manualNamesForFailedImages, searchTerm]);
+
+  const filteredFinalResults = useMemo(() => {
+    if (!searchTerm || !finalResult || !finalResult.user_processed_data) return finalResult;
+    const filteredData = finalResult.user_processed_data.filter(courseData => {
+      const nameMatch = courseData.identified_course_name.toLowerCase().includes(searchTerm);
+      const descMatch = (courseData.ai_description || '').toLowerCase().includes(searchTerm) || 
+                        (courseData.description_from_graph || '').toLowerCase().includes(searchTerm);
+      const suggestionMatch = courseData.llm_suggestions.some(sug => 
+        sug.name.toLowerCase().includes(searchTerm) || 
+        sug.description.toLowerCase().includes(searchTerm)
+      );
+      return nameMatch || descMatch || suggestionMatch;
+    });
+    return { ...finalResult, user_processed_data: filteredData };
+  }, [finalResult, searchTerm]);
+
 
   return (
     <TooltipProvider>
@@ -317,6 +351,13 @@ function AiFeaturePageContent() {
           If some names can't be read, you can provide them. Then, AI generates descriptions and next-step suggestions (Suggestions phase).
           Manually entered names for specific certificates are saved for future runs.
         </p>
+        
+        <div className="mb-6">
+            <SearchWithSuggestions
+                onSearch={handleSearch}
+                placeholder="Search results or extracted courses..."
+            />
+        </div>
 
         { (phase === 'initial' || phase === 'manualNaming' || phase === 'readyForSuggestions' ) && (
           <div className="space-y-2 mb-6">
@@ -352,20 +393,20 @@ function AiFeaturePageContent() {
           </Card>
         )}
 
-        {phase === 'manualNaming' && ocrFailedImages.length > 0 && (
+        {phase === 'manualNaming' && filteredOcrFailedImages.length > 0 && (
           <Card className="my-6 border-amber-500 bg-amber-500/10">
             <CardHeader>
               <CardTitle className="text-xl font-headline text-amber-700 flex items-center">
                 <AlertTriangle className="mr-2 h-5 w-5" /> Name Unidentified Certificates
               </CardTitle>
               <CardDescription>
-                OCR couldn't identify course names for {ocrFailedImages.length} image(s). 
+                OCR couldn't identify course names for {filteredOcrFailedImages.length} image(s) matching your search (or all if no search). 
                 If you know the course name, please provide it below. These names will be saved for future use.
                 Click "{buttonText}" above or below when done.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 max-h-96 overflow-y-auto pr-2">
-              {ocrFailedImages.map(img => (
+              {filteredOcrFailedImages.map(img => (
                 <div key={img.file_id} className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-3 border rounded-md bg-background/50 shadow-sm">
                   <div className="relative w-full sm:w-24 h-32 sm:h-24 rounded-md overflow-hidden shrink-0 border">
                     {img.file_id !== 'N/A' ? (
@@ -407,7 +448,7 @@ function AiFeaturePageContent() {
           </Card>
         )}
         
-        {phase === 'manualNaming' && ocrSuccessfullyExtracted.length > 0 && (
+        {phase === 'manualNaming' && filteredOcrSuccessfullyExtracted.length > 0 && (
           <Card className="mb-6 border-green-500 bg-green-500/10">
               <CardHeader>
                   <CardTitle className="text-lg font-headline text-green-700 flex items-center">
@@ -415,17 +456,17 @@ function AiFeaturePageContent() {
                   </CardTitle>
                   <CardDescription>
                       These courses were identified by OCR or from your previously saved manual entries. 
-                      They will be included when you proceed to get AI suggestions.
+                      They will be included when you proceed to get AI suggestions. Displaying {filteredOcrSuccessfullyExtracted.length} matching search.
                   </CardDescription>
               </CardHeader>
               <CardContent>
                   <ul className="list-disc pl-5 text-sm text-green-700">
-                      {ocrSuccessfullyExtracted.map(course => <li key={course}>{course}</li>)}
+                      {filteredOcrSuccessfullyExtracted.map(course => <li key={course}>{course}</li>)}
                   </ul>
               </CardContent>
           </Card>
         )}
-        {(phase === 'readyForSuggestions' && ocrSuccessfullyExtracted.length === 0 && generalManualCoursesInput.trim() === '') && (
+        {(phase === 'readyForSuggestions' && filteredOcrSuccessfullyExtracted.length === 0 && generalManualCoursesInput.trim() === '' && !searchTerm) && (
           <Card className="my-6 border-blue-500 bg-blue-500/10">
             <CardHeader>
               <CardTitle className="text-lg font-headline text-blue-700 flex items-center">
@@ -441,7 +482,7 @@ function AiFeaturePageContent() {
           </Card>
         )}
 
-        {phase === 'results' && finalResult && (
+        {phase === 'results' && filteredFinalResults && (
           <div className="flex-grow border border-border rounded-lg shadow-md overflow-y-auto p-4 bg-card space-y-6">
             <h2 className="text-2xl font-headline mb-4 border-b pb-2">Processed Result & AI Suggestions:</h2>
             
@@ -465,24 +506,24 @@ function AiFeaturePageContent() {
               </div>
             )}
 
-            {finalResult.message && !finalResult.user_processed_data?.length && (
+            {filteredFinalResults.message && !filteredFinalResults.user_processed_data?.length && (
               <Card className="bg-blue-500/10 border-blue-500">
                 <CardHeader className="flex-row items-center gap-2"><Info className="w-5 h-5 text-blue-700" /><CardTitle className="text-blue-700 text-lg">Information</CardTitle></CardHeader>
-                <CardContent><p className="text-blue-700">{finalResult.message}</p></CardContent>
+                <CardContent><p className="text-blue-700">{filteredFinalResults.message}</p></CardContent>
               </Card>
             )}
             
-            {finalResult.llm_error_summary && (
+            {filteredFinalResults.llm_error_summary && (
               <Card className="border-amber-500 bg-amber-500/10">
                 <CardHeader className="flex-row items-center gap-2"><AlertTriangle className="w-5 h-5 text-amber-700" /><CardTitle className="text-amber-700 text-lg">LLM Warning</CardTitle></CardHeader>
-                <CardContent><p className="text-amber-700">{finalResult.llm_error_summary}</p></CardContent>
+                <CardContent><p className="text-amber-700">{filteredFinalResults.llm_error_summary}</p></CardContent>
               </Card>
             )}
 
-            {finalResult.user_processed_data && finalResult.user_processed_data.length > 0 ? (
+            {filteredFinalResults.user_processed_data && filteredFinalResults.user_processed_data.length > 0 ? (
               <div className="space-y-6">
-                <h3 className="text-lg font-semibold font-headline">Identified Courses & AI Suggestions:</h3>
-                {finalResult.user_processed_data.map((identifiedCourseData, index) => {
+                <h3 className="text-lg font-semibold font-headline">Identified Courses & AI Suggestions (Displaying {filteredFinalResults.user_processed_data.length} matching search):</h3>
+                {filteredFinalResults.user_processed_data.map((identifiedCourseData, index) => {
                   const originalName = identifiedCourseData.identified_course_name;
                   const isUnverified = originalName.endsWith(" [UNVERIFIED]");
                   const displayName = isUnverified ? originalName.replace(" [UNVERIFIED]", "") : originalName;
@@ -546,7 +587,9 @@ function AiFeaturePageContent() {
                 })}
               </div>
             ) : (
-              phase === 'results' && <p className="text-muted-foreground italic">No comprehensive suggestions were generated in this run.</p>
+              phase === 'results' && searchTerm && <p className="text-muted-foreground italic">No results match your search term "{searchTerm}".</p>
+            )
+             : ( phase === 'results' && !searchTerm && <p className="text-muted-foreground italic">No comprehensive suggestions were generated in this run.</p>
             )}
           </div>
         )}
