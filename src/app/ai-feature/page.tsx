@@ -1,4 +1,3 @@
-
 'use client';
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
@@ -79,11 +78,12 @@ function AiFeaturePageContent() {
   const [ocrFailedImages, setOcrFailedImages] = useState<FailedExtractionImage[]>([]);
   
   const [allUserImageMetas, setAllUserImageMetas] = useState<UserImage[]>([]);
-  const [potentiallyNewImageFileIds, setPotentiallyNewImageFileIds] = useState<string[]>([]);
+  const [ocrConsideredFileIds, setOcrConsideredFileIds] = useState<string[]>([]); // Tracks all IDs considered by OCR this session or from load
+  const [potentiallyNewImageFileIds, setPotentiallyNewImageFileIds] = useState<string[]>([]); // IDs not in ocrConsideredFileIds
 
   const [manualNamesForFailedImages, setManualNamesForFailedImages] = useState<{ [key: string]: string }>({});
 
-  const [finalResult, setFinalResult] = useState<SuggestionsPhaseResult | null>(null);
+  const [finalResult, setFinalResult] = useState<SuggestionsPhaseResult | null>(null); // This holds the AI suggestion results
   const [resultsSearchTerm, setResultsSearchTerm] = useState<string>('');
   const [isRefreshingCourse, setIsRefreshingCourse] = useState<string | null>(null);
 
@@ -135,6 +135,7 @@ function AiFeaturePageContent() {
           console.warn(`AI Feature: Failed to fetch latest results. Status: ${latestResultsResponse.status}. Message: ${errorMessage}. Raw text (first 200): ${responseText.substring(0,200)}`);
           setError(errorMessage);
           setFinalResult(null);
+          setOcrConsideredFileIds([]); // Reset considered IDs if initial load fails
           setPhase('initial');
           toast({ title: 'Could Not Load Previous Data', description: errorMessage, variant: 'destructive', duration: 10000 });
         } else { 
@@ -142,32 +143,18 @@ function AiFeaturePageContent() {
                 const latestResultsData: SuggestionsPhaseResult = JSON.parse(responseText);
                 if (latestResultsData && latestResultsData.user_processed_data && latestResultsData.user_processed_data.length > 0) {
                     setFinalResult(latestResultsData);
+                    setOcrConsideredFileIds(latestResultsData.associated_image_file_ids || []); // Initialize from loaded results
                     setPhase('results');
                     setError(null); 
                     console.log("AI Feature: Loaded latest processed results:", latestResultsData);
                     toast({ title: "Previous Results Loaded", description: `Showing your last processed certificate insights from ${latestResultsData.processedAt ? new Date(latestResultsData.processedAt).toLocaleString() : 'a previous session'}.`});
-                    
-                    // Calculate potentially new images after loading results
-                    const allIds = imagesData.map(img => img.fileId);
-                    const associatedIds = latestResultsData?.associated_image_file_ids || [];
-                    const newIds = allIds.filter(id => !associatedIds.includes(id));
-                    setPotentiallyNewImageFileIds(newIds);
-                    if (newIds.length > 0) {
-                        toast({ title: "New Certificates Detected", description: `You have ${newIds.length} certificate(s) that haven't been included in your last AI insights run. You can process them now.`, duration: 7000 });
-                    }
-
                 } else {
                      console.log("AI Feature: No substantive previous results found from valid JSON response.");
                      setFinalResult(null); 
+                     setOcrConsideredFileIds([]); // No previous results, so no previously considered IDs
                      if(phase === 'results' && (!latestResultsData || !latestResultsData.user_processed_data || latestResultsData.user_processed_data.length === 0)) {
                         setPhase('initial');
                      }
-                     // Calculate potentially new images even if no previous results
-                    const allIds = imagesData.map(img => img.fileId);
-                    setPotentiallyNewImageFileIds(allIds); // All are potentially new if no previous run
-                    if (allIds.length > 0) {
-                         toast({ title: "Certificates Ready", description: `You have ${allIds.length} certificate(s) ready for initial processing.`, duration: 7000 });
-                    }
                 }
             } catch (jsonParseError: any) {
                  let detailedError = 'Received an unexpected data format from the server when fetching latest results.';
@@ -178,7 +165,8 @@ function AiFeaturePageContent() {
                     console.error("AI Feature: Successfully fetched from Flask (status OK), but failed to parse response as JSON. Response text (first 500 chars):", responseText.substring(0, 500), "Error:", jsonParseError);
                  }
                  setError(detailedError); 
-                 setFinalResult(null);    
+                 setFinalResult(null);
+                 setOcrConsideredFileIds([]);    
                  setPhase('initial');     
                  toast({ title: 'Error Loading Previous Data', description: detailedError, variant: 'destructive', duration: 10000 });
             }
@@ -193,6 +181,7 @@ function AiFeaturePageContent() {
         }
         setError(genericMessage); 
         setFinalResult(null);
+        setOcrConsideredFileIds([]);
         setPhase('initial');
         toast({ title: 'Error Loading Initial Data', description: genericMessage, variant: 'destructive', duration: 10000 });
       } finally {
@@ -200,7 +189,30 @@ function AiFeaturePageContent() {
       }
     };
     fetchInitialData();
-  }, [userId, user, flaskServerBaseUrl, toast]); // Removed phase from dependency array to avoid re-triggering on phase change
+  }, [userId, user, flaskServerBaseUrl, toast]);
+
+
+  // Calculate potentially new images after initial load or OCR runs
+  useEffect(() => {
+    if (allUserImageMetas.length > 0) {
+      const allCurrentIds = allUserImageMetas.map(img => img.fileId);
+      const newPotentiallyNew = allCurrentIds.filter(id => !ocrConsideredFileIds.includes(id));
+      setPotentiallyNewImageFileIds(newPotentiallyNew);
+
+      if (newPotentiallyNew.length > 0 && !isFetchingInitialData && phase !== 'ocrProcessing' && phase !== 'suggestionsProcessing') {
+          const prevNewCount = potentiallyNewImageFileIds.length; // Capture previous count before update
+          if (newPotentiallyNew.length > 0 && newPotentiallyNew.length !== prevNewCount) { // Only toast if count changes or is new
+             toast({
+                title: "New Certificates Detected",
+                description: `You have ${newPotentiallyNew.length} certificate(s) that haven't been processed for AI insights. You can process them now.`,
+                duration: 7000
+             });
+          }
+      }
+    } else {
+      setPotentiallyNewImageFileIds([]);
+    }
+  }, [allUserImageMetas, ocrConsideredFileIds, isFetchingInitialData, phase]); // Added phase to dependencies
 
 
   const handleManualNameChange = (fileId: string, name: string) => {
@@ -257,20 +269,13 @@ function AiFeaturePageContent() {
         payload.forceRefreshForCourses = forceRefreshList;
       }
       
-      // Use the associated_image_file_ids from the finalResult, which should be accurate for the current OCR run
-      const associatedImageFileIdsToSend = (finalResult?.associated_image_file_ids && finalResult.associated_image_file_ids.length > 0)
-        ? finalResult.associated_image_file_ids
-        : []; // If no prior run, send empty, backend can fallback or this might indicate an issue
-      
-      if (associatedImageFileIdsToSend.length > 0) {
-         payload.associated_image_file_ids_from_previous_run = associatedImageFileIdsToSend;
+      // Use ocrConsideredFileIds for the suggestions run
+      // This reflects all files that contributed to the current set of known courses
+      if (ocrConsideredFileIds.length > 0) {
+         payload.associated_image_file_ids_from_previous_run = ocrConsideredFileIds;
       } else {
-         // If there are no associated IDs from a previous OCR run (e.g., first time, or OCR only processed general manual courses)
-         // It might be appropriate to send all user image IDs if suggestions are expected to consider them generally,
-         // or the backend handles this scenario appropriately. For now, we send what was processed.
-         console.warn("fetchSuggestions: No associated_image_file_ids from previous run available in finalResult. Sending empty to backend.");
+         console.warn("fetchSuggestions: No ocrConsideredFileIds available. Sending empty to backend for association.");
       }
-
 
       const response = await fetch(endpoint, {
         method: 'POST', 
@@ -289,11 +294,11 @@ function AiFeaturePageContent() {
             setFinalResult(prevResult => {
                 if (!prevResult || !prevResult.user_processed_data) {
                     return { 
-                        ...data, // Use the new data structure largely
-                        user_processed_data: [refreshedCourseData], // Ensure only the refreshed one is here if prevResult was null
+                        ...data, 
+                        user_processed_data: [refreshedCourseData], 
                         processedAt: new Date().toISOString(),
                         llm_error_summary: data.llm_error_summary || prevResult?.llm_error_summary,
-                        associated_image_file_ids: data.associated_image_file_ids || prevResult?.associated_image_file_ids || [],
+                        associated_image_file_ids: data.associated_image_file_ids || ocrConsideredFileIds, 
                     };
                 }
                 const updatedUserProcessedData = prevResult.user_processed_data.map(existingCourse =>
@@ -301,40 +306,36 @@ function AiFeaturePageContent() {
                         ? { ...refreshedCourseData, processed_by: refreshedCourseData.processed_by || "Cohere (refreshed)" }
                         : existingCourse
                 );
-                // Ensure the refreshed course is in the list if it wasn't before (shouldn't happen if refreshing existing)
                 if (!updatedUserProcessedData.find(c => c.identified_course_name === refreshedCourseData.identified_course_name)) {
                     updatedUserProcessedData.push({ ...refreshedCourseData, processed_by: refreshedCourseData.processed_by || "Cohere (refreshed)" });
                 }
                 return {
-                    ...prevResult, // Keep other parts of prevResult like associated_image_file_ids if not updated by 'data'
+                    ...prevResult, 
                     user_processed_data: updatedUserProcessedData,
                     processedAt: new Date().toISOString(),
                     llm_error_summary: data.llm_error_summary !== undefined ? data.llm_error_summary : prevResult.llm_error_summary,
-                    // Ensure associated_image_file_ids is updated if 'data' provides it, otherwise keep from prevResult
-                    associated_image_file_ids: data.associated_image_file_ids && data.associated_image_file_ids.length > 0 ? data.associated_image_file_ids : prevResult.associated_image_file_ids,
+                    associated_image_file_ids: data.associated_image_file_ids && data.associated_image_file_ids.length > 0 ? data.associated_image_file_ids : (prevResult.associated_image_file_ids || ocrConsideredFileIds),
                 };
             });
         } else {
              console.warn("Refresh suggestions: LLM response for single course did not contain the expected course name.", data);
-             // Potentially update finalResult with any error messages from data
               setFinalResult(prev => ({
                 ...(prev || {}),
                 llm_error_summary: data.llm_error_summary || prev?.llm_error_summary || "Failed to refresh specific course.",
                 processedAt: new Date().toISOString(),
+                // Ensure associated_image_file_ids is preserved or defaults to ocrConsideredFileIds
+                associated_image_file_ids: prev?.associated_image_file_ids || ocrConsideredFileIds,
               }));
         }
       } else {
-          setFinalResult(data); 
+          // Full suggestion run, update finalResult with new data and current ocrConsideredFileIds
+          setFinalResult({
+            ...data,
+            associated_image_file_ids: data.associated_image_file_ids && data.associated_image_file_ids.length > 0 ? data.associated_image_file_ids : ocrConsideredFileIds,
+            processedAt: new Date().toISOString(),
+          });
       }
       setPhase('results');
-
-      // Update potentially new images list based on the new finalResult
-      if (data.associated_image_file_ids) {
-        const allIds = allUserImageMetas.map(img => img.fileId);
-        const newPotentiallyNew = allIds.filter(id => !data.associated_image_file_ids!.includes(id));
-        setPotentiallyNewImageFileIds(newPotentiallyNew);
-      }
-
 
       if (data.user_processed_data && data.user_processed_data.length > 0) {
         toast({ title: 'Suggestions Generated/Updated', description: `AI suggestions and descriptions ready for ${coursesToGetSuggestionsFor.length} course(s).` });
@@ -413,17 +414,14 @@ function AiFeaturePageContent() {
       setOcrSuccessfullyExtracted(data.successfully_extracted_courses || []);
       setOcrFailedImages(data.failed_extraction_images || []);
       
-      // This is crucial: update finalResult.associated_image_file_ids to reflect what was *just* processed
-      // This ensures that the next "Get Suggestions" step is based on this current OCR run.
-      setFinalResult(prev => ({ 
-          // Keep previous suggestions if they exist and we're just doing OCR, 
-          // they will be replaced if user proceeds to "Get Suggestions".
-          user_processed_data: prev?.user_processed_data, 
-          llm_error_summary: prev?.llm_error_summary,
-          processedAt: prev?.processedAt,
-          // CRITICAL: Update associated_image_file_ids to those processed in THIS run.
-          associated_image_file_ids: data.processed_image_file_ids || [], 
-      }));
+      const newlyProcessedInThisRun = data.processed_image_file_ids || [];
+      if (ocrMode === 'new') {
+          setOcrConsideredFileIds(prev => [...new Set([...prev, ...newlyProcessedInThisRun])]);
+      } else { // ocrMode === 'all'
+          setOcrConsideredFileIds(newlyProcessedInThisRun);
+      }
+      // Note: finalResult.associated_image_file_ids is NOT updated here.
+      // It updates only when suggestions are fetched.
 
       if (data.failed_extraction_images && data.failed_extraction_images.length > 0) {
         setPhase('manualNaming');
@@ -478,7 +476,6 @@ function AiFeaturePageContent() {
   let showMainButton = true;
 
   if (phase === 'initial' || phase === 'results') {
-     // "Re-scan All" button will always be primary if no "new" are available or if user wants to override.
      mainButtonAction = () => handleInitiateOcrProcessing('all');
      mainButtonContent = (
         <>
@@ -598,7 +595,7 @@ function AiFeaturePageContent() {
                         size="lg"
                         variant="default"
                     >
-                        <FilePlus className={`mr-2 h-5 w-5 ${isLoadingOcr ? 'animate-spin' : ''}`} />
+                        <FilePlus className={`mr-2 h-5 w-5 ${(isLoadingOcr && phase === 'ocrProcessing') ? 'animate-spin' : ''}`} />
                         Process {potentiallyNewImageFileIds.length} New Certificate(s)
                     </Button>
                 )}
@@ -805,4 +802,3 @@ export default function AiFeaturePage() {
 
     
     
-
