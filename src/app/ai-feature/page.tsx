@@ -13,9 +13,9 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-// Tooltip imports are intentionally REMOVED
-// SearchWithSuggestions import is intentionally REMOVED
-// SearchableItem import is intentionally REMOVED
+import SearchWithSuggestions from '@/components/common/SearchWithSuggestions';
+import type { SearchableItem } from '@/components/common/SearchWithSuggestions';
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 
 // --- TypeScript Interfaces ---
@@ -77,6 +77,8 @@ function AiFeaturePageContent() {
   const [manualNamesForFailedImages, setManualNamesForFailedImages] = useState<{ [key: string]: string }>({});
 
   const [finalResult, setFinalResult] = useState<SuggestionsPhaseResult | null>(null);
+  const [resultsSearchTerm, setResultsSearchTerm] = useState<string>('');
+
 
   const handleManualNameChange = (fileId: string, name: string) => {
     setManualNamesForFailedImages(prev => ({ ...prev, [fileId]: name }));
@@ -91,6 +93,7 @@ function AiFeaturePageContent() {
     setManualNamesForFailedImages({});
     setFinalResult(null);
     setAssociatedImageFileIdsForResults([]);
+    setResultsSearchTerm('');
     // setGeneralManualCoursesInput(''); // Optionally reset this too
   };
 
@@ -295,258 +298,290 @@ function AiFeaturePageContent() {
     ButtonIconComponent = ListChecks;
   }
 
+  const handleResultsSearch = (query: string) => {
+    setResultsSearchTerm(query.toLowerCase());
+  };
+
+  const aiFeatureSearchableResults: SearchableItem[] = useMemo(() => {
+    if (!finalResult?.user_processed_data) return [];
+    return finalResult.user_processed_data.map(courseData => ({
+      id: courseData.identified_course_name, 
+      value: courseData.identified_course_name,
+    }));
+  }, [finalResult?.user_processed_data]);
+
+  const filteredFinalResults = useMemo(() => {
+    if (!finalResult?.user_processed_data) return [];
+    if (!resultsSearchTerm.trim()) return finalResult.user_processed_data;
+    return finalResult.user_processed_data.filter(courseData =>
+      courseData.identified_course_name.toLowerCase().includes(resultsSearchTerm)
+    );
+  }, [finalResult?.user_processed_data, resultsSearchTerm]);
+
 
   return (
-    // TooltipProvider is REMOVED from here
-    <div className="container mx-auto px-4 py-8 md:px-6 lg:px-8 flex flex-col h-[calc(100vh-var(--header-height,4rem)-1px)]">
-      <div className="mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button asChild variant="outline" size="icon" aria-label="Go back to Home">
-            <Link href="/"><ArrowLeft className="h-5 w-5" /></Link>
-          </Button>
-          <h1 className="text-3xl font-bold font-headline">Certificate Insights & Recommendations</h1>
+    <TooltipProvider>
+      <div className="container mx-auto px-4 py-8 md:px-6 lg:px-8 flex flex-col h-[calc(100vh-var(--header-height,4rem)-1px)]">
+        <div className="mb-6 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Button asChild variant="outline" size="icon" aria-label="Go back to Home">
+              <Link href="/"><ArrowLeft className="h-5 w-5" /></Link>
+            </Button>
+            <h1 className="text-3xl font-bold font-headline">Certificate Insights & Recommendations</h1>
+          </div>
         </div>
-      </div>
 
-      <p className="mb-4 text-muted-foreground">
-        Upload certificates on the home page. This tool processes them to extract course names (OCR phase).
-        If some names can't be read, you can provide them. Then, AI generates descriptions and next-step suggestions (Suggestions phase).
-        Manually entered names for specific certificates are saved for future runs.
-      </p>
+        <p className="mb-4 text-muted-foreground">
+          Upload certificates on the home page. This tool processes them to extract course names (OCR phase).
+          If some names can't be read, you can provide them. Then, AI generates descriptions and next-step suggestions (Suggestions phase).
+          Manually entered names for specific certificates are saved for future runs.
+        </p>
 
-      {/* SearchWithSuggestions component is REMOVED from here */}
+        { (phase === 'initial' || phase === 'manualNaming' || phase === 'readyForSuggestions' ) && (
+          <div className="space-y-2 mb-6">
+            <Label htmlFor="generalManualCourses">Manually Add General Courses (comma-separated, processed with others)</Label>
+            <Textarea
+              id="generalManualCourses"
+              placeholder="e.g., Advanced Python, Introduction to Docker"
+              value={generalManualCoursesInput}
+              onChange={(e) => setGeneralManualCoursesInput(e.target.value)}
+              className="min-h-[80px]"
+              disabled={isLoading || phase === 'ocrProcessing' || phase === 'suggestionsProcessing' || phase === 'results'}
+            />
+          </div>
+        )}
 
-      { (phase === 'initial' || phase === 'manualNaming' || phase === 'readyForSuggestions' ) && (
-        <div className="space-y-2 mb-6">
-          <Label htmlFor="generalManualCourses">Manually Add General Courses (comma-separated, processed with others)</Label>
-          <Textarea
-            id="generalManualCourses"
-            placeholder="e.g., Advanced Python, Introduction to Docker"
-            value={generalManualCoursesInput}
-            onChange={(e) => setGeneralManualCoursesInput(e.target.value)}
-            className="min-h-[80px]"
-            disabled={isLoading || phase === 'ocrProcessing' || phase === 'suggestionsProcessing' || phase === 'results'}
-          />
-        </div>
-      )}
-
-      { (phase !== 'results' || (phase === 'results' && finalResult)) && (
-          <Button
-            onClick={handlePrimaryButtonClick}
-            disabled={isLoading || !user }
-            className="w-full sm:w-auto mb-6"
-            size="lg"
-          >
-            <ButtonIconComponent className={`mr-2 h-5 w-5 ${(isLoading && (phase === 'ocrProcessing' || phase === 'suggestionsProcessing')) ? 'animate-spin' : ''}`} />
-            {buttonText}
-          </Button>
-        )
-      }
-      {!user && <p className="text-sm text-destructive mb-6">Please log in to process certificates.</p>}
-      {error && (
-        <Card className="mb-6 border-destructive bg-destructive/10">
-          <CardHeader><CardTitle className="text-destructive flex items-center"><AlertTriangle className="mr-2"/>Error</CardTitle></CardHeader>
-          <CardContent><p>{error}</p></CardContent>
-        </Card>
-      )}
-
-      {phase === 'manualNaming' && ocrFailedImages.length > 0 && (
-        <Card className="my-6 border-amber-500 bg-amber-500/10">
-          <CardHeader>
-            <CardTitle className="text-xl font-headline text-amber-700 flex items-center">
-              <AlertTriangle className="mr-2 h-5 w-5" /> Name Unidentified Certificates
-            </CardTitle>
-            <CardDescription>
-              OCR couldn't identify course names for {ocrFailedImages.length} image(s).
-              If you know the course name, please provide it below. These names will be saved for future use.
-              Click "{buttonText}" above or below when done.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4 max-h-96 overflow-y-auto pr-2">
-            {ocrFailedImages.map(img => (
-              <div key={img.file_id} className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-3 border rounded-md bg-background/50 shadow-sm">
-                <div className="relative w-full sm:w-24 h-32 sm:h-24 rounded-md overflow-hidden shrink-0 border">
-                  {img.file_id !== 'N/A' ? (
-                    <NextImage
-                      src={`/api/images/${img.file_id}`}
-                      alt={`Certificate: ${img.original_filename}`}
-                      fill sizes="(max-width: 640px) 100vw, 96px" className="object-contain" data-ai-hint="certificate needs naming"
-                    />
-                  ) : (
-                    <div className="w-full h-full bg-muted flex items-center justify-center text-xs text-muted-foreground">No Preview (ID missing)</div>
-                  )}
-                </div>
-                <div className="flex-grow space-y-1 w-full sm:w-auto">
-                  <p className="text-xs font-semibold text-muted-foreground truncate" title={img.original_filename}>{img.original_filename}</p>
-                  {img.reason && <p className="text-xs text-amber-600 italic">Reason: {img.reason}</p>}
-                  <Input
-                    type="text"
-                    placeholder="Enter course name for this image"
-                    value={manualNamesForFailedImages[img.file_id] || ''}
-                    onChange={(e) => handleManualNameChange(img.file_id, e.target.value)}
-                    className="w-full mt-1"
-                    aria-label={`Manual course name for ${img.original_filename}`}
-                    disabled={isLoading}
-                  />
-                </div>
-              </div>
-            ))}
-          </CardContent>
-          <CardFooter className="pt-4">
+        { (phase !== 'results' || (phase === 'results' && finalResult)) && (
             <Button
               onClick={handlePrimaryButtonClick}
-              disabled={isLoading || !user}
-              className="w-full"
+              disabled={isLoading || !user }
+              className="w-full sm:w-auto mb-6"
+              size="lg"
             >
-              <ButtonIconComponent className={`mr-2 h-5 w-5 ${isLoading ? 'animate-spin' : ''}`} />
+              <ButtonIconComponent className={`mr-2 h-5 w-5 ${(isLoading && (phase === 'ocrProcessing' || phase === 'suggestionsProcessing')) ? 'animate-spin' : ''}`} />
               {buttonText}
             </Button>
-          </CardFooter>
-        </Card>
-      )}
+          )
+        }
+        {!user && <p className="text-sm text-destructive mb-6">Please log in to process certificates.</p>}
+        {error && (
+          <Card className="mb-6 border-destructive bg-destructive/10">
+            <CardHeader><CardTitle className="text-destructive flex items-center"><AlertTriangle className="mr-2"/>Error</CardTitle></CardHeader>
+            <CardContent><p>{error}</p></CardContent>
+          </Card>
+        )}
 
-      {phase === 'manualNaming' && ocrSuccessfullyExtracted.length > 0 && (
-        <Card className="mb-6 border-green-500 bg-green-500/10">
+        {phase === 'manualNaming' && ocrFailedImages.length > 0 && (
+          <Card className="my-6 border-amber-500 bg-amber-500/10">
             <CardHeader>
-                <CardTitle className="text-lg font-headline text-green-700 flex items-center">
-                    <CheckCircle className="mr-2 h-5 w-5" /> Successfully Identified Courses (OCR & Saved Manual)
-                </CardTitle>
-                <CardDescription>
-                    These courses were identified by OCR or from your previously saved manual entries.
-                    They will be included when you proceed to get AI suggestions. Displaying {ocrSuccessfullyExtracted.length}.
-                </CardDescription>
+              <CardTitle className="text-xl font-headline text-amber-700 flex items-center">
+                <AlertTriangle className="mr-2 h-5 w-5" /> Name Unidentified Certificates
+              </CardTitle>
+              <CardDescription>
+                OCR couldn't identify course names for {ocrFailedImages.length} image(s).
+                If you know the course name, please provide it below. These names will be saved for future use.
+                Click "{buttonText}" above or below when done.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 max-h-96 overflow-y-auto pr-2">
+              {ocrFailedImages.map(img => (
+                <div key={img.file_id} className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-3 border rounded-md bg-background/50 shadow-sm">
+                  <div className="relative w-full sm:w-24 h-32 sm:h-24 rounded-md overflow-hidden shrink-0 border">
+                    {img.file_id !== 'N/A' ? (
+                      <NextImage
+                        src={`/api/images/${img.file_id}`}
+                        alt={`Certificate: ${img.original_filename}`}
+                        fill sizes="(max-width: 640px) 100vw, 96px" className="object-contain" data-ai-hint="certificate needs naming"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-muted flex items-center justify-center text-xs text-muted-foreground">No Preview (ID missing)</div>
+                    )}
+                  </div>
+                  <div className="flex-grow space-y-1 w-full sm:w-auto">
+                    <p className="text-xs font-semibold text-muted-foreground truncate" title={img.original_filename}>{img.original_filename}</p>
+                    {img.reason && <p className="text-xs text-amber-600 italic">Reason: {img.reason}</p>}
+                    <Input
+                      type="text"
+                      placeholder="Enter course name for this image"
+                      value={manualNamesForFailedImages[img.file_id] || ''}
+                      onChange={(e) => handleManualNameChange(img.file_id, e.target.value)}
+                      className="w-full mt-1"
+                      aria-label={`Manual course name for ${img.original_filename}`}
+                      disabled={isLoading}
+                    />
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+            <CardFooter className="pt-4">
+              <Button
+                onClick={handlePrimaryButtonClick}
+                disabled={isLoading || !user}
+                className="w-full"
+              >
+                <ButtonIconComponent className={`mr-2 h-5 w-5 ${isLoading ? 'animate-spin' : ''}`} />
+                {buttonText}
+              </Button>
+            </CardFooter>
+          </Card>
+        )}
+
+        {phase === 'manualNaming' && ocrSuccessfullyExtracted.length > 0 && (
+          <Card className="mb-6 border-green-500 bg-green-500/10">
+              <CardHeader>
+                  <CardTitle className="text-lg font-headline text-green-700 flex items-center">
+                      <CheckCircle className="mr-2 h-5 w-5" /> Successfully Identified Courses (OCR & Saved Manual)
+                  </CardTitle>
+                  <CardDescription>
+                      These courses were identified by OCR or from your previously saved manual entries.
+                      They will be included when you proceed to get AI suggestions. Displaying {ocrSuccessfullyExtracted.length}.
+                  </CardDescription>
+              </CardHeader>
+              <CardContent>
+                  <ul className="list-disc pl-5 text-sm text-green-700">
+                      {ocrSuccessfullyExtracted.map(course => <li key={course}>{course}</li>)}
+                  </ul>
+              </CardContent>
+          </Card>
+        )}
+        {(phase === 'readyForSuggestions' && ocrSuccessfullyExtracted.length === 0 && generalManualCoursesInput.trim() === '') && (
+          <Card className="my-6 border-blue-500 bg-blue-500/10">
+            <CardHeader>
+              <CardTitle className="text-lg font-headline text-blue-700 flex items-center">
+                <Info className="mr-2 h-5 w-5" /> No Courses Identified
+              </CardTitle>
             </CardHeader>
             <CardContent>
-                <ul className="list-disc pl-5 text-sm text-green-700">
-                    {ocrSuccessfullyExtracted.map(course => <li key={course}>{course}</li>)}
-                </ul>
+              <p className="text-blue-700">
+                No courses were identified from your certificates, and no general manual courses were provided.
+                Please upload certificates or add courses manually to get AI suggestions.
+              </p>
             </CardContent>
-        </Card>
-      )}
-      {(phase === 'readyForSuggestions' && ocrSuccessfullyExtracted.length === 0 && generalManualCoursesInput.trim() === '') && (
-        <Card className="my-6 border-blue-500 bg-blue-500/10">
-          <CardHeader>
-            <CardTitle className="text-lg font-headline text-blue-700 flex items-center">
-              <Info className="mr-2 h-5 w-5" /> No Courses Identified
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-blue-700">
-              No courses were identified from your certificates, and no general manual courses were provided.
-              Please upload certificates or add courses manually to get AI suggestions.
-            </p>
-          </CardContent>
-        </Card>
-      )}
+          </Card>
+        )}
 
-      {phase === 'results' && finalResult && (
-        <div className="flex-grow border border-border rounded-lg shadow-md overflow-y-auto p-4 bg-card space-y-6">
-          <h2 className="text-2xl font-headline mb-4 border-b pb-2">Processed Result & AI Suggestions:</h2>
+        {phase === 'results' && finalResult && (
+          <>
+            <div className="my-4">
+                <Label htmlFor="resultsSearch" className="sr-only">Search Processed Courses</Label>
+                <SearchWithSuggestions
+                    onSearch={handleResultsSearch}
+                    placeholder="Search your processed courses..."
+                    searchableData={aiFeatureSearchableResults}
+                />
+            </div>
+            <div className="flex-grow border border-border rounded-lg shadow-md overflow-y-auto p-4 bg-card space-y-6">
+              <h2 className="text-2xl font-headline mb-4 border-b pb-2">Processed Result & AI Suggestions:</h2>
 
-          {associatedImageFileIdsForResults.length > 0 && (
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-3 font-headline">Certificate Images Considered in this Run:</h3>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                {associatedImageFileIdsForResults.map(fileId => (
-                  <div key={`processed-${fileId}`} className="aspect-[4/3] relative rounded-md overflow-hidden border shadow-sm">
-                    <NextImage
-                      src={`/api/images/${fileId}`} alt={`Processed certificate image ${fileId}`}
-                      fill sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 20vw"
-                      className="object-contain" data-ai-hint="certificate image"
-                    />
-                    <a href={`/api/images/${fileId}`} target="_blank" rel="noopener noreferrer" className="absolute top-1 right-1 bg-black/50 text-white p-1 rounded-full hover:bg-black/70 transition-colors" title="Open image in new tab">
-                      <ExternalLink className="w-3 h-3"/>
-                    </a>
+              {associatedImageFileIdsForResults.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold mb-3 font-headline">Certificate Images Considered in this Run:</h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                    {associatedImageFileIdsForResults.map(fileId => (
+                      <div key={`processed-${fileId}`} className="aspect-[4/3] relative rounded-md overflow-hidden border shadow-sm">
+                        <NextImage
+                          src={`/api/images/${fileId}`} alt={`Processed certificate image ${fileId}`}
+                          fill sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 20vw"
+                          className="object-contain" data-ai-hint="certificate image"
+                        />
+                        <a href={`/api/images/${fileId}`} target="_blank" rel="noopener noreferrer" className="absolute top-1 right-1 bg-black/50 text-white p-1 rounded-full hover:bg-black/70 transition-colors" title="Open image in new tab">
+                          <ExternalLink className="w-3 h-3"/>
+                        </a>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                </div>
+              )}
+
+              {finalResult.message && !filteredFinalResults?.length && (
+                <Card className="bg-blue-500/10 border-blue-500">
+                  <CardHeader className="flex-row items-center gap-2"><Info className="w-5 h-5 text-blue-700" /><CardTitle className="text-blue-700 text-lg">Information</CardTitle></CardHeader>
+                  <CardContent><p className="text-blue-700">{finalResult.message}</p></CardContent>
+                </Card>
+              )}
+
+              {finalResult.llm_error_summary && (
+                <Card className="border-amber-500 bg-amber-500/10">
+                  <CardHeader className="flex-row items-center gap-2"><AlertTriangle className="w-5 h-5 text-amber-700" /><CardTitle className="text-amber-700 text-lg">LLM Warning</CardTitle></CardHeader>
+                  <CardContent><p className="text-amber-700">{finalResult.llm_error_summary}</p></CardContent>
+                </Card>
+              )}
+
+              {filteredFinalResults && filteredFinalResults.length > 0 ? (
+                <div className="space-y-6">
+                  <h3 className="text-lg font-semibold font-headline">
+                    Identified Courses & AI Suggestions
+                    {filteredFinalResults[0]?.processed_by && <span className="text-sm text-muted-foreground"> (via {filteredFinalResults[0].processed_by})</span>}
+                    :
+                  </h3>
+                  {filteredFinalResults.map((identifiedCourseData, index) => {
+                    const originalName = identifiedCourseData.identified_course_name;
+                    const isUnverified = originalName.endsWith(" [UNVERIFIED]");
+                    const displayName = isUnverified ? originalName.replace(" [UNVERIFIED]", "") : originalName;
+
+                    return (
+                      <Card key={`identified-${index}-${identifiedCourseData.identified_course_name}`} className="bg-background/50 shadow-inner">
+                        <CardHeader>
+                          <CardTitle className="text-xl font-headline text-primary flex items-center">
+                            {displayName}
+                            {isUnverified && (
+                              // Tooltip removed as per previous context, just using title attribute for now
+                              <HelpCircle className="ml-2 h-4 w-4 text-muted-foreground cursor-help" title="This course was auto-identified by the system and is not from a pre-defined list." />
+                            )}
+                          </CardTitle>
+                          {identifiedCourseData.ai_description && (
+                            <CardDescription className="pt-1 text-sm">AI Description: {identifiedCourseData.ai_description}</CardDescription>
+                          )}
+                          {identifiedCourseData.description_from_graph && !identifiedCourseData.ai_description && (
+                            <CardDescription className="pt-1 text-sm italic">Graph Description: {identifiedCourseData.description_from_graph}</CardDescription>
+                          )}
+                          {!identifiedCourseData.ai_description && !identifiedCourseData.description_from_graph && (
+                              <CardDescription className="pt-1 text-sm italic">No description available for this course.</CardDescription>
+                          )}
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                          <h4 className="font-semibold text-md">
+                            AI Suggested Next Steps
+                            {identifiedCourseData.processed_by && <span className="text-xs text-muted-foreground"> (via {identifiedCourseData.processed_by})</span>}
+                            :
+                          </h4>
+                          {identifiedCourseData.llm_suggestions && identifiedCourseData.llm_suggestions.length > 0 ? (
+                            <ul className="space-y-3 list-none pl-0">
+                              {identifiedCourseData.llm_suggestions.map((suggestion, sugIndex) => (
+                                <li key={`sug-${index}-${sugIndex}-${suggestion.name}`} className="border p-3 rounded-md bg-card shadow-sm">
+                                  <p className="font-medium text-base">{suggestion.name}</p>
+                                  <p className="text-xs text-muted-foreground mt-0.5 mb-1.5">{suggestion.description}</p>
+                                  {suggestion.url && (
+                                    <Button variant="link" size="sm" asChild className="px-0 h-auto text-primary hover:text-primary/80">
+                                      <a href={suggestion.url} target="_blank" rel="noopener noreferrer">
+                                        Learn more <ExternalLink className="ml-1 h-3 w-3" />
+                                      </a>
+                                    </Button>
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : identifiedCourseData.llm_error ? (
+                            <p className="text-sm text-amber-700 italic">Note: {identifiedCourseData.llm_error}</p>
+                          ) : (
+                            <p className="text-sm text-muted-foreground italic">No specific AI suggestions available for this item.</p>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              ) : (
+                phase === 'results' && resultsSearchTerm.trim() && <p className="text-muted-foreground italic">No courses match your search term "{resultsSearchTerm}".</p>
+              )}
+              {phase === 'results' && !resultsSearchTerm.trim() && !filteredFinalResults?.length && (
+                 <p className="text-muted-foreground italic">No comprehensive suggestions were generated in this run.</p>
+              )}
             </div>
-          )}
-
-          {finalResult.message && !finalResult.user_processed_data?.length && (
-            <Card className="bg-blue-500/10 border-blue-500">
-              <CardHeader className="flex-row items-center gap-2"><Info className="w-5 h-5 text-blue-700" /><CardTitle className="text-blue-700 text-lg">Information</CardTitle></CardHeader>
-              <CardContent><p className="text-blue-700">{finalResult.message}</p></CardContent>
-            </Card>
-          )}
-
-          {finalResult.llm_error_summary && (
-            <Card className="border-amber-500 bg-amber-500/10">
-              <CardHeader className="flex-row items-center gap-2"><AlertTriangle className="w-5 h-5 text-amber-700" /><CardTitle className="text-amber-700 text-lg">LLM Warning</CardTitle></CardHeader>
-              <CardContent><p className="text-amber-700">{finalResult.llm_error_summary}</p></CardContent>
-            </Card>
-          )}
-
-          {finalResult.user_processed_data && finalResult.user_processed_data.length > 0 ? (
-            <div className="space-y-6">
-              <h3 className="text-lg font-semibold font-headline">
-                Identified Courses & AI Suggestions
-                {finalResult.user_processed_data[0]?.processed_by && <span className="text-sm text-muted-foreground"> (via {finalResult.user_processed_data[0].processed_by})</span>}
-                :
-              </h3>
-              {finalResult.user_processed_data.map((identifiedCourseData, index) => {
-                const originalName = identifiedCourseData.identified_course_name;
-                const isUnverified = originalName.endsWith(" [UNVERIFIED]");
-                const displayName = isUnverified ? originalName.replace(" [UNVERIFIED]", "") : originalName;
-
-                return (
-                  <Card key={`identified-${index}`} className="bg-background/50 shadow-inner">
-                    <CardHeader>
-                      <CardTitle className="text-xl font-headline text-primary flex items-center">
-                        {displayName}
-                        {isUnverified && (
-                          <HelpCircle className="ml-2 h-4 w-4 text-muted-foreground cursor-help" title="This course was auto-identified by the system and is not from a pre-defined list." />
-                        )}
-                      </CardTitle>
-                      {identifiedCourseData.ai_description && (
-                        <CardDescription className="pt-1 text-sm">AI Description: {identifiedCourseData.ai_description}</CardDescription>
-                      )}
-                      {identifiedCourseData.description_from_graph && !identifiedCourseData.ai_description && (
-                        <CardDescription className="pt-1 text-sm italic">Graph Description: {identifiedCourseData.description_from_graph}</CardDescription>
-                      )}
-                      {!identifiedCourseData.ai_description && !identifiedCourseData.description_from_graph && (
-                          <CardDescription className="pt-1 text-sm italic">No description available for this course.</CardDescription>
-                      )}
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <h4 className="font-semibold text-md">
-                        AI Suggested Next Steps
-                        {identifiedCourseData.processed_by && <span className="text-xs text-muted-foreground"> (via {identifiedCourseData.processed_by})</span>}
-                        :
-                      </h4>
-                      {identifiedCourseData.llm_suggestions && identifiedCourseData.llm_suggestions.length > 0 ? (
-                        <ul className="space-y-3 list-none pl-0">
-                          {identifiedCourseData.llm_suggestions.map((suggestion, sugIndex) => (
-                            <li key={`sug-${index}-${sugIndex}`} className="border p-3 rounded-md bg-card shadow-sm">
-                              <p className="font-medium text-base">{suggestion.name}</p>
-                              <p className="text-xs text-muted-foreground mt-0.5 mb-1.5">{suggestion.description}</p>
-                              {suggestion.url && (
-                                <Button variant="link" size="sm" asChild className="px-0 h-auto text-primary hover:text-primary/80">
-                                  <a href={suggestion.url} target="_blank" rel="noopener noreferrer">
-                                    Learn more <ExternalLink className="ml-1 h-3 w-3" />
-                                  </a>
-                                </Button>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : identifiedCourseData.llm_error ? (
-                        <p className="text-sm text-amber-700 italic">Note: {identifiedCourseData.llm_error}</p>
-                      ) : (
-                        <p className="text-sm text-muted-foreground italic">No specific AI suggestions available for this item.</p>
-                      )}
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          ) : (
-            phase === 'results' && <p className="text-muted-foreground italic">No comprehensive suggestions were generated in this run.</p>
-          )}
-        </div>
-      )}
-    </div>
-    // Closing TooltipProvider is REMOVED
+          </>
+        )}
+      </div>
+    </TooltipProvider>
   );
 }
 
