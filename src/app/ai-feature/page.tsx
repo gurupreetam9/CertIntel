@@ -79,7 +79,7 @@ function AiFeaturePageContent() {
   const [ocrFailedImages, setOcrFailedImages] = useState<FailedExtractionImage[]>([]);
   
   const [allUserImageMetas, setAllUserImageMetas] = useState<UserImage[]>([]);
-  // Tracks all file IDs that have been considered for OCR or were part of a previous suggestion set
+  // Tracks all file IDs that have been considered for OCR (current session or from loaded results)
   const [ocrConsideredFileIds, setOcrConsideredFileIds] = useState<string[]>([]); 
   // IDs from allUserImageMetas not yet in ocrConsideredFileIds
   const [potentiallyNewImageFileIds, setPotentiallyNewImageFileIds] = useState<string[]>([]); 
@@ -100,6 +100,7 @@ function AiFeaturePageContent() {
       setIsFetchingInitialData(true);
       setError(null); 
       setFinalResult(null); 
+      setOcrConsideredFileIds([]);
       
       try {
         const idToken = await user.getIdToken();
@@ -300,21 +301,18 @@ function AiFeaturePageContent() {
                 ? { ...refreshedCourse, processed_by: refreshedCourse.processed_by || "Cohere (refreshed)" }
                 : existingCourse
             );
-            // If the refreshed course wasn't in the previous list, add it
             if (!updatedUserProcessedData.find(c => c.identified_course_name === refreshedCourseName)) {
               updatedUserProcessedData.push({ ...refreshedCourse, processed_by: refreshedCourse.processed_by || "Cohere (refreshed)" });
             }
           } else {
-            // If the specific course wasn't returned in `data` (e.g. LLM failed for it), keep previous state for this course or log warning
             updatedUserProcessedData = prevResult?.user_processed_data || [];
             console.warn("Refresh suggestions: LLM response for single course did not contain the expected course name.", data);
           }
         } else {
           // Full suggestion run (not a single course refresh)
-          // Merge new suggestions with previous ones. New ones overwrite old ones for the same course name.
           const prevDataMap = new Map((prevResult?.user_processed_data || []).map(item => [item.identified_course_name, item]));
           newProcessedData.forEach(item => {
-            prevDataMap.set(item.identified_course_name, item); // New data overwrites old for the same course
+            prevDataMap.set(item.identified_course_name, item); 
           });
           updatedUserProcessedData = Array.from(prevDataMap.values());
         }
@@ -322,8 +320,6 @@ function AiFeaturePageContent() {
         return {
           user_processed_data: updatedUserProcessedData,
           llm_error_summary: data.llm_error_summary !== undefined ? data.llm_error_summary : prevResult?.llm_error_summary,
-          // Use the associated_image_file_ids from the current Flask response if available, 
-          // otherwise, stick with the ocrConsideredFileIds that led to this suggestion run.
           associated_image_file_ids: data.associated_image_file_ids && data.associated_image_file_ids.length > 0 
                                       ? data.associated_image_file_ids 
                                       : ocrConsideredFileIds,
@@ -492,7 +488,7 @@ function AiFeaturePageContent() {
     mainButtonContent = (
         <>
             <Wand2 className="mr-2 h-5 w-5" />
-            Save Names & Proceed to Suggestions
+            Save Names &amp; Proceed to Suggestions
         </>
     );
   } else if (phase === 'readyForSuggestions') {
@@ -548,7 +544,7 @@ function AiFeaturePageContent() {
             <Button asChild variant="outline" size="icon" aria-label="Go back to Home">
               <Link href="/"><ArrowLeft className="h-5 w-5" /></Link>
             </Button>
-            <h1 className="text-3xl font-bold font-headline">Certificate Insights & Recommendations</h1>
+            <h1 className="text-3xl font-bold font-headline">Certificate Insights &amp; Recommendations</h1>
           </div>
         </div>
         
@@ -654,7 +650,7 @@ function AiFeaturePageContent() {
                 <CardFooter className="pt-4">
                   <Button onClick={handleProceedToSuggestions} disabled={isLoadingOcr || isLoadingSuggestions || !user} className="w-full">
                     <Wand2 className={`mr-2 h-5 w-5 ${isLoadingSuggestions ? 'animate-spin' : ''}`} />
-                    Save Names & Proceed to Suggestions 
+                    Save Names &amp; Proceed to Suggestions 
                   </Button>
                 </CardFooter>
               </Card>
@@ -664,7 +660,7 @@ function AiFeaturePageContent() {
               <Card className="mb-6 border-green-500 bg-green-500/10">
                   <CardHeader>
                       <CardTitle className="text-lg font-headline text-green-700 flex items-center">
-                          <CheckCircle className="mr-2 h-5 w-5" /> Identified Courses (OCR & Saved Manual)
+                          <CheckCircle className="mr-2 h-5 w-5" /> Identified Courses (OCR &amp; Saved Manual)
                       </CardTitle>
                       <CardDescription>These courses were identified by OCR or from saved manual entries. Displaying {ocrSuccessfullyExtracted.length}.</CardDescription>
                   </CardHeader>
@@ -680,15 +676,15 @@ function AiFeaturePageContent() {
             )}
 
             {phase === 'results' && finalResult && (
-              <>
-                <div className="my-4">
+              <div className="flex flex-col flex-grow min-h-0 mt-4"> {/* MODIFIED: Added flex, flex-col, flex-grow, min-h-0, mt-4 */}
+                <div className="my-4 shrink-0"> {/* Search bar container, shrink-0 so it doesn't grow */}
                     <SearchWithSuggestions
                         onSearch={handleResultsSearch} placeholder="Search your processed courses..."
                         searchableData={aiFeatureSearchableResults}
                     />
                 </div>
-                <div className="flex-grow border border-border rounded-lg shadow-md overflow-y-auto p-4 bg-card space-y-6">
-                  <h2 className="text-2xl font-headline mb-4 border-b pb-2">Processed Result & AI Suggestions:</h2>
+                <div className="flex-grow min-h-0 border border-border rounded-lg shadow-md overflow-y-auto p-4 bg-card space-y-6"> {/* MODIFIED: Added min-h-0 */}
+                  <h2 className="text-2xl font-headline mb-4 border-b pb-2">Processed Result &amp; AI Suggestions:</h2>
                   {finalResult.processedAt && <p className="text-xs text-muted-foreground mb-3">Results from: {new Date(finalResult.processedAt).toLocaleString()}</p>}
 
                   {finalResult.associated_image_file_ids && finalResult.associated_image_file_ids.length > 0 && (
@@ -718,7 +714,7 @@ function AiFeaturePageContent() {
 
                   {filteredFinalResults && filteredFinalResults.length > 0 ? (
                     <div className="space-y-6">
-                      <h3 className="text-lg font-semibold font-headline">Identified Courses & AI Suggestions:</h3>
+                      <h3 className="text-lg font-semibold font-headline">Identified Courses &amp; AI Suggestions:</h3>
                       {filteredFinalResults.map((identifiedCourseData) => {
                         const originalName = identifiedCourseData.identified_course_name;
                         const isUnverified = originalName.endsWith(" [UNVERIFIED]");
@@ -766,7 +762,7 @@ function AiFeaturePageContent() {
                   ) : ( phase === 'results' && resultsSearchTerm.trim() && <p className="text-muted-foreground italic">No courses match your search term "{resultsSearchTerm}".</p> )}
                   {phase === 'results' && !resultsSearchTerm.trim() && !filteredFinalResults?.length && ( <p className="text-muted-foreground italic">No comprehensive suggestions were generated in this run.</p> )}
                 </div>
-              </>
+              </div>
             )}
           </>
         )}
@@ -796,3 +792,4 @@ export default function AiFeaturePage() {
 
     
     
+
