@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger, PopoverAnchor } from '@/components/ui/popover';
 import { Search, X } from 'lucide-react';
+import { cn } from "@/lib/utils"; // Added this import
 
 // Type for searchable data items
 export interface SearchableItem {
