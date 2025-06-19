@@ -94,6 +94,10 @@ function AiFeaturePageContent() {
         return;
       }
       setIsFetchingInitialData(true);
+      setError(null); // Clear previous errors
+      setFinalResult(null); // Clear previous results
+      setPhase('initial'); // Reset phase
+
       try {
         // Fetch all user image metadata
         const idToken = await user.getIdToken();
@@ -105,52 +109,60 @@ function AiFeaturePageContent() {
 
         // Fetch latest processed results
         const latestResultsResponse = await fetch(`${flaskServerBaseUrl}/api/latest-processed-results?userId=${userId}`);
-        
+        const responseText = await latestResultsResponse.text(); // Get text first
+
         if (!latestResultsResponse.ok) {
-          const responseText = await latestResultsResponse.text();
           let errorMessage = `Error fetching latest results: ${latestResultsResponse.status} ${latestResultsResponse.statusText}`;
-          let errorKey = "FETCH_LATEST_FAILED";
           try {
+            // Attempt to parse if it might be a JSON error from Flask, otherwise use text
             const errJson = JSON.parse(responseText); 
             errorMessage = errJson.error || errJson.message || errorMessage;
-            errorKey = errJson.errorKey || errorKey;
           } catch (e) {
-            console.warn('AI Feature: Non-JSON error response from /api/latest-processed-results. Body:', responseText.substring(0, 500));
-            if (responseText.toLowerCase().includes("<!doctype html")) {
+            // Not JSON, likely HTML or plain text error
+             if (responseText.toLowerCase().includes("<!doctype html")) {
                 errorMessage = `Server returned an HTML error page (Status: ${latestResultsResponse.status}). Check Flask server logs or if the server is running at ${flaskServerBaseUrl}.`;
-                errorKey = "FLASK_HTML_ERROR";
             } else if (responseText.length > 0 && responseText.length < 300) { 
-                errorMessage = `Server error: ${responseText}`;
+                errorMessage = `Server error (${latestResultsResponse.status}): ${responseText}`;
+            } else {
+                 errorMessage = `Server error (${latestResultsResponse.status}). Response preview: ${responseText.substring(0, 200)}...`;
             }
           }
-          console.warn(`AI Feature: No previous results found or error fetching them. Status: ${latestResultsResponse.status}. Message: ${errorMessage}`);
+          console.warn(`AI Feature: Failed to fetch latest results. Status: ${latestResultsResponse.status}. Message: ${errorMessage}. Raw text (first 200): ${responseText.substring(0,200)}`);
           toast({ title: 'Could Not Load Previous Data', description: errorMessage, variant: 'destructive', duration: 7000 });
-          setFinalResult(null);
-          setPhase('initial');
-        } else {
-            const latestResultsData: SuggestionsPhaseResult = await latestResultsResponse.json();
-            if (latestResultsData && latestResultsData.user_processed_data && latestResultsData.user_processed_data.length > 0) {
-                setFinalResult(latestResultsData);
-                setPhase('results');
-                console.log("AI Feature: Loaded latest processed results:", latestResultsData);
-                toast({ title: "Previous Results Loaded", description: `Showing your last processed certificate insights from ${latestResultsData.processedAt ? new Date(latestResultsData.processedAt).toLocaleString() : 'a previous session'}.`});
-            } else {
-                 setFinalResult(null); 
-                 setPhase('initial');
-                 console.log("AI Feature: No substantive previous results found.");
+          // No setFinalResult(null) or setPhase('initial') here as they are set at the start of try
+        } else { // Response OK
+            try {
+                const latestResultsData: SuggestionsPhaseResult = JSON.parse(responseText);
+                if (latestResultsData && latestResultsData.user_processed_data && latestResultsData.user_processed_data.length > 0) {
+                    setFinalResult(latestResultsData);
+                    setPhase('results');
+                    console.log("AI Feature: Loaded latest processed results:", latestResultsData);
+                    toast({ title: "Previous Results Loaded", description: `Showing your last processed certificate insights from ${latestResultsData.processedAt ? new Date(latestResultsData.processedAt).toLocaleString() : 'a previous session'}.`});
+                } else {
+                     // setFinalResult(null); // Already null from start of try
+                     // setPhase('initial'); // Already initial from start of try
+                     console.log("AI Feature: No substantive previous results found from valid JSON response.");
+                }
+            } catch (jsonParseError: any) {
+                 console.error("AI Feature: Successfully fetched from Flask (status OK), but failed to parse response as JSON. Response text (first 500 chars):", responseText.substring(0, 500), "Error:", jsonParseError);
+                 toast({ title: 'Data Format Error', description: 'Received an unexpected data format from the server. Check console for details.', variant: 'destructive', duration: 7000 });
+                 // setFinalResult(null); // Already null
+                 // setPhase('initial'); // Already initial
             }
         }
-      } catch (err: any) {
+      } catch (err: any) { // Catches errors from fetch for images or the whole latest results block
         console.error("AI Feature: Error fetching initial data:", err);
-        toast({ title: 'Error Loading Initial Data', description: err.message, variant: 'destructive' });
-        setPhase('initial');
-        setFinalResult(null);
+        const genericMessage = "An error occurred while loading your initial data. Check Flask server connectivity.";
+        setError(err.message || genericMessage); // Set general error state
+        toast({ title: 'Error Loading Initial Data', description: err.message || genericMessage, variant: 'destructive' });
+        // setFinalResult(null); // Already null
+        // setPhase('initial'); // Already initial
       } finally {
         setIsFetchingInitialData(false);
       }
     };
     fetchInitialData();
-  }, [userId, user, flaskServerBaseUrl, toast]);
+  }, [userId, user, flaskServerBaseUrl, toast]); // Dependencies for re-fetching initial data
 
 
   const handleManualNameChange = (fileId: string, name: string) => {
@@ -164,7 +176,7 @@ function AiFeaturePageContent() {
     setOcrSuccessfullyExtracted([]);
     setOcrFailedImages([]);
     setManualNamesForFailedImages({});
-    setFinalResult(null);
+    // setFinalResult(null); // Will be re-fetched or kept if already there
     setResultsSearchTerm('');
     if (userId && user) {
         fetchInitialDataForReset(); 
@@ -173,21 +185,36 @@ function AiFeaturePageContent() {
 
   const fetchInitialDataForReset = async () => {
      if (!userId || !user) return;
-      setIsFetchingInitialData(true);
+      setIsFetchingInitialData(true); // Show loader while re-fetching previous results
       try {
         const latestResultsResponse = await fetch(`${flaskServerBaseUrl}/api/latest-processed-results?userId=${userId}`);
         if (latestResultsResponse.ok) {
-            const latestResultsData: SuggestionsPhaseResult = await latestResultsResponse.json();
-             if (latestResultsData && latestResultsData.user_processed_data && latestResultsData.user_processed_data.length > 0) {
-                setFinalResult(latestResultsData);
-            } else {
+            const responseText = await latestResultsResponse.text();
+            try {
+                const latestResultsData: SuggestionsPhaseResult = JSON.parse(responseText);
+                if (latestResultsData && latestResultsData.user_processed_data && latestResultsData.user_processed_data.length > 0) {
+                    setFinalResult(latestResultsData);
+                    // If resetting TO results, explicitly set phase to results.
+                    // Otherwise, if resetting from results to initial, phase is already handled by resetToInitialState.
+                    if(phase !== 'results') setPhase('results');
+                } else {
+                    setFinalResult(null);
+                    if(phase === 'results') setPhase('initial'); // If we were showing results but now there are none
+                }
+            } catch (e) {
                 setFinalResult(null);
+                if(phase === 'results') setPhase('initial');
+                console.error("AI Feature (Reset): Failed to parse JSON for latest results after reset. Raw text:", responseText.substring(0,500));
             }
         } else {
              setFinalResult(null);
+             if(phase === 'results') setPhase('initial');
+             console.warn("AI Feature (Reset): Failed to fetch latest results after reset. Status:", latestResultsResponse.status);
         }
       } catch (err) {
         setFinalResult(null);
+        if(phase === 'results') setPhase('initial');
+        console.error("AI Feature (Reset): Network error fetching latest results after reset.", err);
       } finally {
         setIsFetchingInitialData(false);
       }
@@ -222,7 +249,7 @@ function AiFeaturePageContent() {
     if (coursesToGetSuggestionsFor.length === 0) {
       toast({ title: 'No Courses', description: 'No courses available to get suggestions for.', variant: 'destructive' });
       setIsLoading(false);
-      setPhase(ocrFailedImages.length > 0 ? 'manualNaming' : (ocrSuccessfullyExtracted.length > 0 ? 'readyForSuggestions' : 'initial'));
+      setPhase(ocrFailedImages.length > 0 ? 'manualNaming' : (ocrSuccessfullyExtracted.length > 0 || generalManualCoursesInput.trim().length > 0 ? 'readyForSuggestions' : 'initial'));
       return;
     }
 
@@ -236,8 +263,14 @@ function AiFeaturePageContent() {
       if (forceRefreshList.length > 0) {
         payload.forceRefreshForCourses = forceRefreshList;
       }
-      if (finalResult?.associated_image_file_ids && finalResult.associated_image_file_ids.length > 0) {
-          payload.associated_image_file_ids_from_previous_run = finalResult.associated_image_file_ids;
+      // Use allUserImageMetas (all current images) if finalResult.associated_image_file_ids is not available or empty
+      // This ensures that if suggestions are generated from scratch, they are associated with all current images.
+      const associatedImageFileIdsToSend = (finalResult?.associated_image_file_ids && finalResult.associated_image_file_ids.length > 0)
+        ? finalResult.associated_image_file_ids
+        : allUserImageMetas.map(img => img.fileId);
+      
+      if (associatedImageFileIdsToSend.length > 0) {
+         payload.associated_image_file_ids_from_previous_run = associatedImageFileIdsToSend;
       }
 
 
@@ -263,7 +296,7 @@ function AiFeaturePageContent() {
     } catch (err: any) {
       setError(err.message || 'Failed suggestions phase.');
       toast({ title: 'Suggestions Phase Failed', description: err.message, variant: 'destructive' });
-      setPhase(ocrFailedImages.length > 0 ? 'manualNaming' : (ocrSuccessfullyExtracted.length > 0 ? 'readyForSuggestions' : 'initial'));
+      setPhase(ocrFailedImages.length > 0 ? 'manualNaming' : (ocrSuccessfullyExtracted.length > 0 || generalManualCoursesInput.trim().length > 0 ? 'readyForSuggestions' : 'initial'));
     } finally {
       setIsLoading(false);
       setIsRefreshingCourse(null);
@@ -278,7 +311,16 @@ function AiFeaturePageContent() {
     const endpoint = `${flaskServerBaseUrl}/api/process-certificates`;
 
     if (phase === 'initial' || phase === 'results') {
-      if (phase === 'results') resetToInitialState(); 
+      // When starting new processing (either from initial or after viewing results)
+      // reset OCR-specific states and set associated IDs for suggestions to current image set.
+      setOcrSuccessfullyExtracted([]);
+      setOcrFailedImages([]);
+      setManualNamesForFailedImages({});
+      // Do NOT setFinalResult(null) here if phase is 'results', as it might hold valid data
+      // if user wants to process NEW things in addition to old. Flask will handle merging.
+      // However, for the "associated_image_file_ids" that will be stored WITH the suggestions run,
+      // we want to ensure it reflects the CURRENT set of images that are being considered as context for the suggestions.
+      
       setPhase('ocrProcessing');
       setIsLoading(true);
 
@@ -288,7 +330,7 @@ function AiFeaturePageContent() {
       if (currentImageFileIds.length === 0 && generalManualCourses.length === 0) {
           toast({ title: "Nothing to Process", description: "Please upload some certificates or add general courses manually.", variant: "destructive"});
           setIsLoading(false);
-          setPhase('initial');
+          setPhase('initial'); // Revert to initial if nothing to process
           return;
       }
 
@@ -300,7 +342,7 @@ function AiFeaturePageContent() {
             userId,
             mode: 'ocr_only',
             additionalManualCourses: generalManualCourses,
-            allImageFileIds: currentImageFileIds
+            allImageFileIds: currentImageFileIds // Send all current image IDs
           }),
         });
         const data: OcrPhaseResult = await response.json();
@@ -310,7 +352,15 @@ function AiFeaturePageContent() {
         setOcrSuccessfullyExtracted(data.successfully_extracted_courses || []);
         setOcrFailedImages(data.failed_extraction_images || []);
         
-        setFinalResult(prev => ({ ...prev, associated_image_file_ids: data.processed_image_file_ids || [] }));
+        // This is critical: When OCR runs, the `processed_image_file_ids` from its result
+        // should become the `associated_image_file_ids` for the *subsequent* suggestions run.
+        // Store this in a way that `fetchSuggestions` can pick it up.
+        // We can update `finalResult` partially or use a temporary state. Let's update finalResult.
+        setFinalResult(prev => ({ 
+            ...(prev || {}), // Keep existing suggestions if any, though they might become stale
+            associated_image_file_ids: data.processed_image_file_ids || [],
+            user_processed_data: (prev?.user_processed_data && phase === 'results') ? prev.user_processed_data : undefined // Clear old suggestions if starting from 'initial'
+        }));
 
 
         if (data.failed_extraction_images && data.failed_extraction_images.length > 0) {
@@ -342,7 +392,7 @@ function AiFeaturePageContent() {
       if (ocrSuccessfullyExtracted.length > 0 || userProvidedNamesForFailures.length > 0 || generalManualCourses.length > 0) {
         setPhase('readyForSuggestions');
       } else {
-        setPhase('manualNaming');
+        setPhase('manualNaming'); // Stay here if still nothing to suggest
         toast({title: "No Courses Identified", description: "Even after manual naming, no courses are ready for suggestions."})
       }
 
@@ -352,34 +402,44 @@ function AiFeaturePageContent() {
       const allKnownCourses = [...new Set([...ocrSuccessfullyExtracted, ...userProvidedNamesForFailures, ...generalManualCourses])].filter(name => name && name.length > 0);
       await fetchSuggestions(allKnownCourses);
     }
-  }, [userId, user, flaskServerBaseUrl, phase, generalManualCoursesInput, ocrSuccessfullyExtracted, ocrFailedImages, manualNamesForFailedImages, toast, isLoading, allUserImageMetas, finalResult?.associated_image_file_ids]);
+  }, [userId, user, flaskServerBaseUrl, phase, generalManualCoursesInput, ocrSuccessfullyExtracted, ocrFailedImages, manualNamesForFailedImages, toast, isLoading, allUserImageMetas, finalResult]);
 
   const handleRefreshSingleCourseSuggestions = async (courseName: string) => {
     if (!userId) return;
     setIsRefreshingCourse(courseName); 
+    // Ensure the `associated_image_file_ids` sent are relevant.
+    // If `finalResult` exists and has them, use those. Otherwise, use all current images.
+    const associatedImageFileIdsToSend = (finalResult?.associated_image_file_ids && finalResult.associated_image_file_ids.length > 0)
+        ? finalResult.associated_image_file_ids
+        : allUserImageMetas.map(img => img.fileId);
+
     await fetchSuggestions([courseName], [courseName]); 
+    // fetchSuggestions now internally handles associated_image_file_ids_from_previous_run using finalResult or allUserImageMetas
   };
 
 
   let buttonText = "Process New/Unnamed Certificates (OCR)";
   let ButtonIconComponent = ListChecks;
   if (phase === 'initial' && finalResult?.user_processed_data && finalResult.user_processed_data.length > 0) {
-    buttonText = "Start New Processing / Re-scan All";
+    buttonText = "Re-scan All / Add New Certificates for OCR";
   } else if (phase === 'initial') {
-    buttonText = "Process Certificates for OCR";
+    buttonText = "Analyze My Certificates (OCR)";
   }
 
   if (phase === 'ocrProcessing' || phase === 'suggestionsProcessing') {
     buttonText = phase === 'ocrProcessing' ? "Processing OCR..." : "Generating Suggestions...";
     ButtonIconComponent = Loader2;
   } else if (phase === 'manualNaming') {
-    buttonText = "Save Names & Proceed";
+    buttonText = "Save Names & Proceed to Suggestions";
     ButtonIconComponent = Wand2;
   } else if (phase === 'readyForSuggestions') {
-    buttonText = "Get AI Suggestions for All Identified Courses";
+    const userProvidedNamesForFailures = Object.values(manualNamesForFailedImages).map(name => name.trim()).filter(name => name.length > 0);
+    const generalManualCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
+    const allKnownCourses = [...new Set([...ocrSuccessfullyExtracted, ...userProvidedNamesForFailures, ...generalManualCourses])].filter(name => name && name.length > 0);
+    buttonText = `Get AI Suggestions for ${allKnownCourses.length} Course(s)`;
     ButtonIconComponent = BrainCircuit;
   } else if (phase === 'results') {
-    buttonText = "Start New Processing / Re-scan All";
+    buttonText = "Re-scan All / Add New Certificates for OCR";
     ButtonIconComponent = ListChecks;
   }
 
@@ -519,7 +579,7 @@ function AiFeaturePageContent() {
                   <CardContent><ul className="list-disc pl-5 text-sm text-green-700">{ocrSuccessfullyExtracted.map(course => <li key={course}>{course}</li>)}</ul></CardContent>
               </Card>
             )}
-             {(phase === 'readyForSuggestions' && ocrSuccessfullyExtracted.length === 0 && generalManualCoursesInput.trim() === '') && (
+             {(phase === 'readyForSuggestions' && ocrSuccessfullyExtracted.length === 0 && Object.values(manualNamesForFailedImages).filter(name => name.trim().length > 0).length === 0 && generalManualCoursesInput.trim() === '') && (
               <Card className="my-6 border-blue-500 bg-blue-500/10">
                 <CardHeader><CardTitle className="text-lg font-headline text-blue-700 flex items-center"><Info className="mr-2 h-5 w-5" /> No Courses Identified</CardTitle></CardHeader>
                 <CardContent><p className="text-blue-700">No courses identified from certificates or manual input. Add courses to get AI suggestions.</p></CardContent>
@@ -571,7 +631,7 @@ function AiFeaturePageContent() {
                         const isUnverified = originalName.endsWith(" [UNVERIFIED]");
                         const displayName = isUnverified ? originalName.replace(" [UNVERIFIED]", "") : originalName;
                         const currentProcessedBy = identifiedCourseData.processed_by || "LLM";
-                        const key = `identified-${index}-${originalName}-${currentProcessedBy}`; 
+                        const key = `identified-${index}-${originalName.replace(/\s+/g, '-')}-${currentProcessedBy}`; 
 
                         return (
                           <Card key={key} className="bg-background/50 shadow-inner">
@@ -597,7 +657,7 @@ function AiFeaturePageContent() {
                               {identifiedCourseData.llm_suggestions && identifiedCourseData.llm_suggestions.length > 0 ? (
                                 <ul className="space-y-3 list-none pl-0">
                                   {identifiedCourseData.llm_suggestions.map((suggestion, sugIndex) => (
-                                    <li key={`sug-${index}-${sugIndex}-${suggestion.name}`} className="border p-3 rounded-md bg-card shadow-sm">
+                                    <li key={`sug-${index}-${sugIndex}-${suggestion.name.replace(/\s+/g, '-')}`} className="border p-3 rounded-md bg-card shadow-sm">
                                       <p className="font-medium text-base">{suggestion.name}</p>
                                       <p className="text-xs text-muted-foreground mt-0.5 mb-1.5">{suggestion.description}</p>
                                       {suggestion.url && ( <Button variant="link" size="sm" asChild className="px-0 h-auto text-primary hover:text-primary/80"><a href={suggestion.url} target="_blank" rel="noopener noreferrer">Learn more <ExternalLink className="ml-1 h-3 w-3" /></a></Button> )}
@@ -629,4 +689,6 @@ export default function AiFeaturePage() {
     </ProtectedPage>
   );
 }
+    
+
     
