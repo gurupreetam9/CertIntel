@@ -96,11 +96,8 @@ function AiFeaturePageContent() {
       setIsFetchingInitialData(true);
       setError(null); 
       setFinalResult(null); 
-      // Do not reset phase here if we want to preserve it across HMR or minor refreshes unless explicitly intended
-      // If results are successfully loaded, phase will be set to 'results' anyway.
-
+      
       try {
-        // Fetch all user image metadata
         const idToken = await user.getIdToken();
         const imagesResponse = await fetch(`/api/user-images?userId=${userId}`, { headers: { 'Authorization': `Bearer ${idToken}` }});
         if (!imagesResponse.ok) throw new Error('Failed to fetch user images metadata.');
@@ -108,8 +105,9 @@ function AiFeaturePageContent() {
         setAllUserImageMetas(imagesData);
         console.log("AI Feature: Fetched all user image metas:", imagesData.length);
 
-        // Fetch latest processed results
-        const latestResultsResponse = await fetch(`${flaskServerBaseUrl}/api/latest-processed-results?userId=${userId}`);
+        const latestResultsResponse = await fetch(`${flaskServerBaseUrl}/api/latest-processed-results?userId=${userId}`, {
+          headers: { 'ngrok-skip-browser-warning': 'true' }
+        });
         const responseText = await latestResultsResponse.text(); 
 
         if (!latestResultsResponse.ok) {
@@ -133,7 +131,7 @@ function AiFeaturePageContent() {
           console.warn(`AI Feature: Failed to fetch latest results. Status: ${latestResultsResponse.status}. Message: ${errorMessage}. Raw text (first 200): ${responseText.substring(0,200)}`);
           setError(errorMessage);
           setFinalResult(null);
-          setPhase('initial'); // Or an error phase
+          setPhase('initial');
           toast({ title: 'Could Not Load Previous Data', description: errorMessage, variant: 'destructive', duration: 10000 });
         } else { 
             try {
@@ -151,7 +149,7 @@ function AiFeaturePageContent() {
             } catch (jsonParseError: any) {
                  let detailedError = 'Received an unexpected data format from the server when fetching latest results.';
                  if (responseText.toLowerCase().includes("<!doctype html") && responseText.toLowerCase().includes("ngrok.com")) {
-                    detailedError = `Unable to load previous results. It seems the backend server (Flask via ngrok) is returning an HTML setup page instead of data. Please visit your ngrok URL (${flaskServerBaseUrl}) in a browser to pass the interstitial page, or check your ngrok tunnel configuration.`;
+                    detailedError = `Received ngrok interstitial page instead of JSON. Ensure your ngrok tunnel for Flask (${flaskServerBaseUrl}) is active, you've visited it in your browser, or configured it to skip warnings.`;
                     console.error("AI Feature: Flask server returned ngrok interstitial page. Response text (first 500 chars):", responseText.substring(0, 500), "Error:", jsonParseError);
                  } else {
                     console.error("AI Feature: Successfully fetched from Flask (status OK), but failed to parse response as JSON. Response text (first 500 chars):", responseText.substring(0, 500), "Error:", jsonParseError);
@@ -174,7 +172,7 @@ function AiFeaturePageContent() {
       }
     };
     fetchInitialData();
-  }, [userId, user, flaskServerBaseUrl, toast]); // Removed phase from dependencies
+  }, [userId, user, flaskServerBaseUrl, toast]); 
 
 
   const handleManualNameChange = (fileId: string, name: string) => {
@@ -189,29 +187,30 @@ function AiFeaturePageContent() {
     setOcrFailedImages([]);
     setManualNamesForFailedImages({});
     setResultsSearchTerm('');
-    // Instead of full finalResult=null, we fetch if user exists to show prev data
     if (userId && user) {
         fetchInitialDataForReset(); 
     } else {
-        setFinalResult(null); // If no user, clear results
+        setFinalResult(null); 
     }
   };
 
   const fetchInitialDataForReset = async () => {
      if (!userId || !user) return;
-      setIsFetchingInitialData(true); // Show loading indicator during this specific refresh
+      setIsFetchingInitialData(true); 
       try {
-        const latestResultsResponse = await fetch(`${flaskServerBaseUrl}/api/latest-processed-results?userId=${userId}`);
+        const latestResultsResponse = await fetch(`${flaskServerBaseUrl}/api/latest-processed-results?userId=${userId}`, {
+          headers: { 'ngrok-skip-browser-warning': 'true' }
+        });
         if (latestResultsResponse.ok) {
             const responseText = await latestResultsResponse.text();
             try {
                 const latestResultsData: SuggestionsPhaseResult = JSON.parse(responseText);
                 if (latestResultsData && latestResultsData.user_processed_data && latestResultsData.user_processed_data.length > 0) {
                     setFinalResult(latestResultsData);
-                    if(phase !== 'results') setPhase('results'); // Only change phase if not already results
+                    if(phase !== 'results') setPhase('results');
                 } else {
                     setFinalResult(null);
-                    if(phase === 'results') setPhase('initial'); // If was results but now empty, go to initial
+                    if(phase === 'results') setPhase('initial');
                 }
             } catch (e) {
                 setFinalResult(null);
@@ -243,7 +242,9 @@ function AiFeaturePageContent() {
     toast({ title: 'Saving Manual Names...', description: `Attempting to save ${namesToSave.length} manual names.`});
     const savePromises = namesToSave.map(item =>
       fetch(`${flaskServerBaseUrl}/api/manual-course-name`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(item),
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' }, 
+        body: JSON.stringify(item),
       }).then(async res => {
         if (!res.ok) { /* Handle error silently or with specific toast */ }
       }).catch(err => { /* Handle error */})
@@ -275,8 +276,6 @@ function AiFeaturePageContent() {
       if (forceRefreshList.length > 0) {
         payload.forceRefreshForCourses = forceRefreshList;
       }
-      // Prefer associated IDs from the current finalResult (if it's from a previous successful run)
-      // Otherwise, fallback to all known user image metas.
       const associatedImageFileIdsToSend = (finalResult?.associated_image_file_ids && finalResult.associated_image_file_ids.length > 0)
         ? finalResult.associated_image_file_ids
         : allUserImageMetas.map(img => img.fileId);
@@ -287,7 +286,9 @@ function AiFeaturePageContent() {
 
 
       const response = await fetch(endpoint, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' }, 
+        body: JSON.stringify(payload),
       });
       const data: SuggestionsPhaseResult = await response.json();
 
@@ -323,12 +324,9 @@ function AiFeaturePageContent() {
     const endpoint = `${flaskServerBaseUrl}/api/process-certificates`;
 
     if (phase === 'initial' || phase === 'results') {
-      // Clear previous OCR results if starting a new OCR scan
       setOcrSuccessfullyExtracted([]);
       setOcrFailedImages([]);
       setManualNamesForFailedImages({});
-      // Do not nullify finalResult here if coming from 'results' phase, 
-      // as it holds the associated_image_file_ids that might be relevant for the next suggestion run
       
       setPhase('ocrProcessing');
       setIsLoading(true);
@@ -339,19 +337,23 @@ function AiFeaturePageContent() {
       if (currentImageFileIds.length === 0 && generalManualCourses.length === 0) {
           toast({ title: "Nothing to Process", description: "Please upload some certificates or add general courses manually.", variant: "destructive"});
           setIsLoading(false);
-          setPhase('initial'); // Revert to initial if truly nothing to process
+          setPhase('initial');
           return;
       }
 
       try {
         const response = await fetch(endpoint, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${await user.getIdToken()}` },
+          headers: { 
+            'Content-Type': 'application/json', 
+            'Authorization': `Bearer ${await user.getIdToken()}`,
+            'ngrok-skip-browser-warning': 'true'
+          },
           body: JSON.stringify({
             userId,
             mode: 'ocr_only',
             additionalManualCourses: generalManualCourses,
-            allImageFileIds: currentImageFileIds // Send all known image IDs
+            allImageFileIds: currentImageFileIds 
           }),
         });
         const data: OcrPhaseResult = await response.json();
@@ -361,13 +363,10 @@ function AiFeaturePageContent() {
         setOcrSuccessfullyExtracted(data.successfully_extracted_courses || []);
         setOcrFailedImages(data.failed_extraction_images || []);
         
-        // Update finalResult with new processed_image_file_ids from this OCR run
-        // Keep existing user_processed_data if coming from 'results' phase, to preserve prior suggestions
-        // that might not be re-queried if only OCR was run.
         setFinalResult(prev => ({ 
             ...(prev || {}), 
             associated_image_file_ids: data.processed_image_file_ids || [],
-            user_processed_data: (prev?.user_processed_data && phase === 'results') ? prev.user_processed_data : undefined // Preserve if previously in results
+            user_processed_data: (prev?.user_processed_data && phase === 'results') ? prev.user_processed_data : undefined 
         }));
 
 
@@ -382,7 +381,7 @@ function AiFeaturePageContent() {
           setPhase('readyForSuggestions');
         } else {
           toast({ title: 'Nothing New to Process by OCR', description: data.message || 'No new courses extracted by OCR and no general manual courses provided.' });
-          setPhase('initial'); // Or 'results' if finalResult exists
+          setPhase('initial'); 
         }
 
       } catch (err: any) {
@@ -400,7 +399,7 @@ function AiFeaturePageContent() {
       if (ocrSuccessfullyExtracted.length > 0 || userProvidedNamesForFailures.length > 0 || generalManualCourses.length > 0) {
         setPhase('readyForSuggestions');
       } else {
-        setPhase('manualNaming'); // Stay in manual naming if still no courses
+        setPhase('manualNaming'); 
         toast({title: "No Courses Identified", description: "Even after manual naming, no courses are ready for suggestions."})
       }
 
@@ -410,22 +409,20 @@ function AiFeaturePageContent() {
       const allKnownCourses = [...new Set([...ocrSuccessfullyExtracted, ...userProvidedNamesForFailures, ...generalManualCourses])].filter(name => name && name.length > 0);
       await fetchSuggestions(allKnownCourses);
     }
-  }, [userId, user, flaskServerBaseUrl, phase, generalManualCoursesInput, ocrSuccessfullyExtracted, ocrFailedImages, manualNamesForFailedImages, toast, isLoading, allUserImageMetas, finalResult]); // Added finalResult to deps for associated_image_file_ids access
+  }, [userId, user, flaskServerBaseUrl, phase, generalManualCoursesInput, ocrSuccessfullyExtracted, ocrFailedImages, manualNamesForFailedImages, toast, isLoading, allUserImageMetas, finalResult]); 
 
   const handleRefreshSingleCourseSuggestions = async (courseName: string) => {
     if (!userId) return;
-    setIsRefreshingCourse(courseName); // Indicate which course is refreshing
+    setIsRefreshingCourse(courseName); 
     
-    // Pass the original full name to fetchSuggestions, and also use it for forceRefreshList
     const associatedImageFileIdsToSend = (finalResult?.associated_image_file_ids && finalResult.associated_image_file_ids.length > 0)
         ? finalResult.associated_image_file_ids
         : allUserImageMetas.map(img => img.fileId);
 
-    await fetchSuggestions([courseName], [courseName]); // Send original name
+    await fetchSuggestions([courseName], [courseName]); 
   };
 
 
-  // Determine button text and icon based on phase
   let buttonText = "Process New/Unnamed Certificates (OCR)";
   let ButtonIconComponent = ListChecks;
   if (phase === 'initial' && finalResult?.user_processed_data && finalResult.user_processed_data.length > 0) {
@@ -447,7 +444,7 @@ function AiFeaturePageContent() {
     buttonText = `Get AI Suggestions for ${allKnownCourses.length} Course(s)`;
     ButtonIconComponent = BrainCircuit;
   } else if (phase === 'results') {
-    buttonText = "Re-scan All / Add New Certificates for OCR"; // Or "Start New Analysis"
+    buttonText = "Re-scan All / Add New Certificates for OCR"; 
     ButtonIconComponent = ListChecks;
   }
 
@@ -458,7 +455,7 @@ function AiFeaturePageContent() {
   const aiFeatureSearchableResults: SearchableItem[] = useMemo(() => {
     if (!finalResult?.user_processed_data) return [];
     return finalResult.user_processed_data.map(courseData => ({
-      id: courseData.identified_course_name, // Use the full name as ID
+      id: courseData.identified_course_name, 
       value: courseData.identified_course_name,
     }));
   }, [finalResult?.user_processed_data]);
@@ -513,8 +510,7 @@ function AiFeaturePageContent() {
               </div>
             )}
 
-            {/* Main action button */}
-             {(phase !== 'results' || (phase === 'results' && finalResult)) && ( // Show even if results exist, text changes to "Rescan"
+             {(phase !== 'results' || (phase === 'results' && finalResult)) && ( 
                 <Button
                 onClick={handlePrimaryButtonClick}
                 disabled={isLoading || !user || (phase === 'initial' && allUserImageMetas.length === 0 && generalManualCoursesInput.trim() === '')}
@@ -526,14 +522,13 @@ function AiFeaturePageContent() {
                 </Button>
             )}
             {!user && <p className="text-sm text-destructive mb-6">Please log in to process certificates.</p>}
-            {error && ( // Display component-level error
+            {error && ( 
               <Card className="mb-6 border-destructive bg-destructive/10">
                 <CardHeader><CardTitle className="text-destructive flex items-center"><AlertTriangle className="mr-2"/>Error Loading Data</CardTitle></CardHeader>
                 <CardContent><p>{error}</p></CardContent>
               </Card>
             )}
 
-            {/* Phase: Manual Naming */}
             {phase === 'manualNaming' && ocrFailedImages.length > 0 && (
               <Card className="my-6 border-amber-500 bg-amber-500/10">
                 <CardHeader>
@@ -573,13 +568,12 @@ function AiFeaturePageContent() {
                 <CardFooter className="pt-4">
                   <Button onClick={handlePrimaryButtonClick} disabled={isLoading || !user} className="w-full">
                     <ButtonIconComponent className={`mr-2 h-5 w-5 ${isLoading ? 'animate-spin' : ''}`} />
-                    {buttonText} {/* Button text updates based on phase */}
+                    {buttonText} 
                   </Button>
                 </CardFooter>
               </Card>
             )}
 
-            {/* Info for already extracted courses during manual naming */}
             {phase === 'manualNaming' && ocrSuccessfullyExtracted.length > 0 && (
               <Card className="mb-6 border-green-500 bg-green-500/10">
                   <CardHeader>
@@ -592,7 +586,6 @@ function AiFeaturePageContent() {
               </Card>
             )}
 
-            {/* Message if no courses are available for suggestions */}
              {(phase === 'readyForSuggestions' && ocrSuccessfullyExtracted.length === 0 && Object.values(manualNamesForFailedImages).filter(name => name.trim().length > 0).length === 0 && generalManualCoursesInput.trim() === '') && (
               <Card className="my-6 border-blue-500 bg-blue-500/10">
                 <CardHeader><CardTitle className="text-lg font-headline text-blue-700 flex items-center"><Info className="mr-2 h-5 w-5" /> No Courses Identified</CardTitle></CardHeader>
@@ -600,7 +593,6 @@ function AiFeaturePageContent() {
               </Card>
             )}
 
-            {/* Phase: Results Display */}
             {phase === 'results' && finalResult && (
               <>
                 <div className="my-4">
@@ -645,7 +637,7 @@ function AiFeaturePageContent() {
                         const originalName = identifiedCourseData.identified_course_name;
                         const isUnverified = originalName.endsWith(" [UNVERIFIED]");
                         const displayName = isUnverified ? originalName.replace(" [UNVERIFIED]", "") : originalName;
-                        const currentProcessedBy = identifiedCourseData.processed_by || "LLM"; // Default to LLM if not specified
+                        const currentProcessedBy = identifiedCourseData.processed_by || "LLM"; 
                         const key = `identified-${index}-${originalName.replace(/\s+/g, '-')}-${currentProcessedBy}`; 
 
                         return (
@@ -704,6 +696,8 @@ export default function AiFeaturePage() {
     </ProtectedPage>
   );
 }
+    
+
     
 
     
