@@ -14,11 +14,11 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import {
+  TooltipProvider,
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip"; // Ensured this import is present
+} from "@/components/ui/tooltip"; // Added this import
 import SearchWithSuggestions from '@/components/common/SearchWithSuggestions';
 import type { SearchableItem } from '@/components/common/SearchWithSuggestions';
 
@@ -650,5 +650,6 @@ export default function AiFeaturePage() {
   );
 }
 
+    
 
     
