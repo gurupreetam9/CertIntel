@@ -115,7 +115,9 @@ function AiFeaturePageContent() {
 
         if (!latestResultsResponse.ok) {
           let errorMessage = `Error fetching latest results: ${latestResultsResponse.status} ${latestResultsResponse.statusText}`;
-           if (responseText.toLowerCase().includes("<!doctype html") && responseText.toLowerCase().includes("ngrok.com")) {
+          if (latestResultsResponse.status === 404) {
+            errorMessage = "No processed results found for this user.";
+          } else if (responseText.toLowerCase().includes("<!doctype html") && responseText.toLowerCase().includes("ngrok.com")) {
             errorMessage = `Received ngrok interstitial page. Ensure your ngrok tunnel for Flask (${flaskServerBaseUrl}) is active and you've visited it in your browser, or configured it to skip warnings.`;
           } else {
             try {
@@ -135,11 +137,13 @@ function AiFeaturePageContent() {
             }
           }
           console.warn(`AI Feature: Failed to fetch latest results. Status: ${latestResultsResponse.status}. Message: ${errorMessage}. Raw text (first 200): ${responseText.substring(0,200)}`);
-          setError(errorMessage);
+          setError(errorMessage); // Set error here
           setFinalResult(null);
           setOcrConsideredFileIds([]); 
           setPhase('initial');
-          toast({ title: 'Could Not Load Previous Data', description: errorMessage, variant: 'destructive', duration: 10000 });
+          if (errorMessage !== "No processed results found for this user.") {
+            toast({ title: 'Could Not Load Previous Data', description: errorMessage, variant: 'destructive', duration: 10000 });
+          }
         } else { 
             try {
                 const latestResultsData: SuggestionsPhaseResult = JSON.parse(responseText);
@@ -154,6 +158,7 @@ function AiFeaturePageContent() {
                      console.log("AI Feature: No substantive previous results found from valid JSON response.");
                      setFinalResult(null); 
                      setOcrConsideredFileIds([]); 
+                     setError("No processed results found for this user.");
                      if(phase === 'results' && (!latestResultsData || !latestResultsData.user_processed_data || latestResultsData.user_processed_data.length === 0)) {
                         setPhase('initial');
                      }
@@ -252,7 +257,7 @@ function AiFeaturePageContent() {
 
   const fetchSuggestions = useCallback(async (coursesToGetSuggestionsFor: string[], forceRefreshList: string[] = []) => {
     if (!userId) return;
-    setIsLoadingSuggestions(true); // Ensure loading state is set before async operations
+    setIsLoadingSuggestions(true); 
     setError(null);
 
     if (coursesToGetSuggestionsFor.length === 0) {
@@ -273,6 +278,7 @@ function AiFeaturePageContent() {
         payload.forceRefreshForCourses = forceRefreshList;
       }
       
+      // Use ocrConsideredFileIds as the basis for associated IDs for this suggestion run
       if (ocrConsideredFileIds.length > 0) {
          payload.associated_image_file_ids_from_previous_run = ocrConsideredFileIds;
       }
@@ -290,18 +296,19 @@ function AiFeaturePageContent() {
         const newProcessedData = data.user_processed_data || [];
         let updatedUserProcessedDataMap = new Map<string, UserProcessedCourseData>();
 
-        // If it's not a specific course refresh, start with previous results
-        if (!forceRefreshList || forceRefreshList.length === 0) {
-          (prevResult?.user_processed_data || []).forEach(item => {
-            updatedUserProcessedDataMap.set(item.identified_course_name, item);
-          });
-        } else {
-           // For single refresh, keep only NON-REFRESHED items from previous results to be merged with the new one.
+        // If it's a specific course refresh, start with previous results BUT allow new data to overwrite
+        if (forceRefreshList && forceRefreshList.length > 0) {
            (prevResult?.user_processed_data || []).forEach(item => {
+             // If item is not the one being refreshed, keep it.
+             // If it IS the one being refreshed, it will be overwritten by new data below.
              if (!forceRefreshList.includes(item.identified_course_name)) {
                 updatedUserProcessedDataMap.set(item.identified_course_name, item);
              }
            });
+        } else { // Full suggestion run (not a single refresh), so merge intelligently
+            (prevResult?.user_processed_data || []).forEach(item => {
+              updatedUserProcessedDataMap.set(item.identified_course_name, item);
+            });
         }
         
         // Merge or add new/refreshed data
@@ -315,9 +322,8 @@ function AiFeaturePageContent() {
         return {
           user_processed_data: finalUserProcessedData,
           llm_error_summary: data.llm_error_summary !== undefined ? data.llm_error_summary : prevResult?.llm_error_summary,
-          associated_image_file_ids: data.associated_image_file_ids && data.associated_image_file_ids.length > 0 
-                                      ? data.associated_image_file_ids 
-                                      : ocrConsideredFileIds,
+          // Update associated_image_file_ids with those that formed the basis of THIS suggestion run
+          associated_image_file_ids: ocrConsideredFileIds, 
           processedAt: new Date().toISOString(),
         };
       });
@@ -341,7 +347,7 @@ function AiFeaturePageContent() {
       setIsLoadingSuggestions(false);
       setIsRefreshingCourse(null);
     }
-  }, [userId, flaskServerBaseUrl, toast, ocrConsideredFileIds, generalManualCoursesInput, ocrSuccessfullyExtracted, ocrFailedImages]);
+  }, [userId, flaskServerBaseUrl, toast, ocrConsideredFileIds, ocrFailedImages.length, ocrSuccessfullyExtracted.length, generalManualCoursesInput]);
 
   const handleInitiateOcrProcessing = useCallback(async (ocrMode: OcrMode) => {
     if (!userId || !user) { toast({ title: 'Authentication Required', variant: 'destructive' }); return; }
@@ -357,9 +363,11 @@ function AiFeaturePageContent() {
       
     const generalManualCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
     let idsToProcessForOcr: string[];
+    let currentOcrFileIdConsiderationSet: string[] = [];
 
     if (ocrMode === 'new') {
         idsToProcessForOcr = potentiallyNewImageFileIds;
+        currentOcrFileIdConsiderationSet = [...new Set([...ocrConsideredFileIds, ...potentiallyNewImageFileIds])];
         if (idsToProcessForOcr.length === 0 && generalManualCourses.length === 0) {
             toast({ title: "Nothing New to Process", description: "No new certificates detected and no general courses entered.", variant: "default"});
             setIsLoadingOcr(false);
@@ -369,6 +377,7 @@ function AiFeaturePageContent() {
         toast({ title: "Processing New Certificates...", description: `Scanning ${idsToProcessForOcr.length} new certificate(s) and any general courses.`});
     } else { // 'all'
         idsToProcessForOcr = allUserImageMetas.map(img => img.fileId);
+        currentOcrFileIdConsiderationSet = idsToProcessForOcr;
         if (idsToProcessForOcr.length === 0 && generalManualCourses.length === 0) {
             toast({ title: "Nothing to Process", description: "Please upload some certificates or add general courses manually.", variant: "default"});
             setIsLoadingOcr(false);
@@ -401,12 +410,8 @@ function AiFeaturePageContent() {
       setOcrSuccessfullyExtracted(data.successfully_extracted_courses || []);
       setOcrFailedImages(data.failed_extraction_images || []);
       
-      const newlyProcessedInThisRun = data.processed_image_file_ids || [];
-      if (ocrMode === 'new') {
-          setOcrConsideredFileIds(prev => [...new Set([...prev, ...newlyProcessedInThisRun])]);
-      } else { // ocrMode === 'all'
-          setOcrConsideredFileIds(newlyProcessedInThisRun);
-      }
+      // Update ocrConsideredFileIds with the set that formed the basis of this OCR run
+      setOcrConsideredFileIds(currentOcrFileIdConsiderationSet);
 
       if (data.failed_extraction_images && data.failed_extraction_images.length > 0) {
         setPhase('manualNaming');
@@ -429,7 +434,7 @@ function AiFeaturePageContent() {
     } finally {
       setIsLoadingOcr(false);
     }
-  }, [userId, user, flaskServerBaseUrl, generalManualCoursesInput, toast, isLoadingOcr, allUserImageMetas, potentiallyNewImageFileIds, finalResult]);
+  }, [userId, user, flaskServerBaseUrl, generalManualCoursesInput, toast, isLoadingOcr, allUserImageMetas, potentiallyNewImageFileIds, finalResult, ocrConsideredFileIds]);
 
   const handleGetSuggestionsForManualCoursesOnly = useCallback(async () => {
       if (!userId || generalManualCoursesInput.trim().length === 0) return;
@@ -439,6 +444,11 @@ function AiFeaturePageContent() {
           return;
       }
       setPhase('suggestionsProcessing'); 
+      // When getting suggestions for manual courses only, we don't really have "associated image file IDs" from an OCR run
+      // But we should still record the courses we're getting suggestions for.
+      // For now, we will set ocrConsideredFileIds to empty if it's just manual courses.
+      // Or, we could retain the previous ocrConsideredFileIds if we want to merge results. Let's try merging.
+      // setOcrConsideredFileIds([]); // Or some logic to define associated IDs for manual-only
       await fetchSuggestions(generalManualCourses);
   }, [userId, generalManualCoursesInput, fetchSuggestions, toast, setPhase]);
 
@@ -462,7 +472,7 @@ function AiFeaturePageContent() {
   const handleRefreshSingleCourseSuggestions = async (courseName: string) => {
     if (!userId) return;
     setIsRefreshingCourse(courseName); 
-    setPhase('suggestionsProcessing'); // To show global loading state if desired
+    setPhase('suggestionsProcessing'); 
     await fetchSuggestions([courseName], [courseName]); 
   };
 
@@ -523,7 +533,6 @@ function AiFeaturePageContent() {
               Use OCR to extract course names from certificates, or add names manually. Then, get AI-powered descriptions and next-step suggestions.
             </p>
 
-            {/* Textarea for General Manual Courses */}
              <div className="space-y-2 mb-6">
                 <Label htmlFor="generalManualCourses">Manually Add General Course Names (comma-separated)</Label>
                 <Textarea
@@ -536,9 +545,7 @@ function AiFeaturePageContent() {
                 />
               </div>
             
-            {/* Action Buttons Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                {/* OCR Processing Buttons */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
                 {canProcessNew && (
                     <Button
                         onClick={() => handleInitiateOcrProcessing('new')}
@@ -548,7 +555,7 @@ function AiFeaturePageContent() {
                         className="w-full"
                     >
                         <FilePlus className="mr-2 h-5 w-5" />
-                        Process {potentiallyNewImageFileIds.length} New Certificate(s) &amp; Manual Courses
+                        Process {potentiallyNewImageFileIds.length} New Certificate(s)
                     </Button>
                 )}
                  <Button
@@ -562,17 +569,16 @@ function AiFeaturePageContent() {
                     Process All Certificates &amp; Manual Courses
                 </Button>
 
-                {/* Suggestion Buttons */}
                 {canGetManualSuggestions && (
                      <Button
                         onClick={handleGetSuggestionsForManualCoursesOnly}
                         disabled={isLoadingOcr || isLoadingSuggestions || !user}
                         size="lg"
-                        variant="outline" // Or default if it's a primary path
-                        className="w-full"
+                        variant="outline"
+                        className="w-full md:col-span-1 lg:col-auto" 
                     >
                         <Sparkles className="mr-2 h-5 w-5" />
-                        Get Suggestions for Manual Courses Only
+                        Get Suggestions for Manual Courses
                     </Button>
                 )}
                 {(phase === 'readyForSuggestions' || phase === 'manualNaming') && (
@@ -581,7 +587,7 @@ function AiFeaturePageContent() {
                         disabled={isLoadingOcr || isLoadingSuggestions || !user || !canProceedToSuggestionsAfterOcr}
                         size="lg"
                         variant="default"
-                        className="w-full"
+                        className="w-full md:col-span-2 lg:col-span-1" 
                     >
                         <BrainCircuit className="mr-2 h-5 w-5" />
                         Get AI Suggestions ({allKnownCoursesForProceedButton.length} Course(s))
@@ -589,7 +595,6 @@ function AiFeaturePageContent() {
                 )}
             </div>
             
-            {/* Loading States */}
             {(isLoadingOcr || isLoadingSuggestions) && (
                 <div className="flex items-center justify-center my-4 p-4 bg-muted/50 rounded-md">
                     <Loader2 className="mr-3 h-6 w-6 animate-spin text-primary" />
@@ -600,14 +605,35 @@ function AiFeaturePageContent() {
                 </div>
             )}
 
-
             {!user && <p className="text-sm text-destructive mb-6">Please log in to process certificates.</p>}
-            {error && ( 
+            
+            {error && error === "No processed results found for this user." && (
+              <Card className="mb-6 border-blue-500 bg-blue-500/10">
+                <CardHeader>
+                  <CardTitle className="text-blue-700 flex items-center">
+                    <Info className="mr-2 h-5 w-5" />
+                    Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-blue-700">{error}</p>
+                  <p className="text-blue-600 text-sm mt-2">Upload some certificates or add course names manually to get started!</p>
+                </CardContent>
+              </Card>
+            )}
+
+            {error && error !== "No processed results found for this user." && (
               <Card className="mb-6 border-destructive bg-destructive/10">
-                <CardHeader><CardTitle className="text-destructive flex items-center"><AlertTriangle className="mr-2"/>Error Encountered</CardTitle></CardHeader>
+                <CardHeader>
+                  <CardTitle className="text-destructive flex items-center">
+                    <AlertTriangle className="mr-2 h-5 w-5" />
+                    Error Encountered
+                  </CardTitle>
+                </CardHeader>
                 <CardContent><p>{error}</p></CardContent>
               </Card>
             )}
+
 
             {phase === 'manualNaming' && ocrFailedImages.length > 0 && (
               <Card className="my-6 border-amber-500 bg-amber-500/10">
@@ -674,14 +700,14 @@ function AiFeaturePageContent() {
             )}
 
             {phase === 'results' && finalResult && (
-              <div className="flex flex-col min-h-0"> {/* Allow results to grow and scroll */}
-                <div className="my-4 shrink-0"> {/* Search bar does not grow */}
+              <div className="flex flex-col min-h-0 mt-4"> 
+                <div className="shrink-0 mb-4"> 
                     <SearchWithSuggestions
                         onSearch={handleResultsSearch} placeholder="Search your processed courses..."
                         searchableData={aiFeatureSearchableResults}
                     />
                 </div>
-                <div className="flex-grow min-h-0 overflow-y-auto border border-border rounded-lg shadow-md p-4 bg-card space-y-6"> {/* Results list scrolls */}
+                <div className="flex-grow min-h-0 overflow-y-auto border border-border rounded-lg shadow-md p-4 bg-card space-y-6">
                   <h2 className="text-2xl font-headline mb-4 border-b pb-2">Processed Result &amp; AI Suggestions:</h2>
                   {finalResult.processedAt && <p className="text-xs text-muted-foreground mb-3">Results from: {new Date(finalResult.processedAt).toLocaleString()}</p>}
 
@@ -790,6 +816,7 @@ export default function AiFeaturePage() {
 
     
     
+
 
 
 
