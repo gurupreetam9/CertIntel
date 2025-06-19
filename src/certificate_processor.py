@@ -573,7 +573,8 @@ def process_images_for_ocr(image_data_list):
 def generate_suggestions_from_known_courses(
     all_known_course_names_cleaned: List[str], 
     cleaned_to_original_map: Dict[str, str],    
-    previous_user_data_list: Optional[List[Dict]] = None 
+    previous_user_data_list: Optional[List[Dict]] = None,
+    force_refresh_for_courses: Optional[List[str]] = None
 ):
     user_processed_data_output: List[Dict[str, any]] = []
     llm_error_summary_for_output: Optional[str] = None
@@ -589,15 +590,18 @@ def generate_suggestions_from_known_courses(
     
     for cleaned_course_name in all_known_course_names_cleaned:
         original_full_name = cleaned_to_original_map.get(cleaned_course_name)
+        is_forced_refresh = force_refresh_for_courses and cleaned_course_name in force_refresh_for_courses
+
         if not original_full_name:
             logging.warning(f"Suggestions Phase: Could not find original name for cleaned name '{cleaned_course_name}' during cache check. Will proceed to query LLM for cleaned name.")
             courses_to_query_cohere_for_batch_cleaned.append(cleaned_course_name)
             continue
 
-        if original_full_name in cached_data_map:
+        if original_full_name in cached_data_map and not is_forced_refresh:
             logging.info(f"Suggestions Phase: Cache hit for original name '{original_full_name}' (via cleaned '{cleaned_course_name}'). Using cached data.")
             user_processed_data_output.append({**cached_data_map[original_full_name], "processed_by": "Cache"})
         else:
+            if is_forced_refresh: logging.info(f"Suggestions Phase: Force refresh requested for '{cleaned_course_name}' (original: '{original_full_name}'). Will query LLM.")
             courses_to_query_cohere_for_batch_cleaned.append(cleaned_course_name) 
     
     parsed_cohere_batch_items_map: Dict[str, Dict[str, any]] = {}
@@ -739,7 +743,8 @@ def extract_and_recommend_courses_from_image_data(
     mode: str = 'ocr_only', 
     known_course_names: Optional[List[str]] = None, 
     previous_user_data_list: Optional[List[Dict[str, any]]] = None,
-    additional_manual_courses: Optional[List[str]] = None 
+    additional_manual_courses: Optional[List[str]] = None,
+    force_refresh_for_courses: Optional[List[str]] = None
 ):
     if mode == 'ocr_only':
         current_additional_manual_courses = additional_manual_courses if isinstance(additional_manual_courses, list) else []
@@ -789,23 +794,23 @@ def extract_and_recommend_courses_from_image_data(
             elif raw_name: 
                  logging.warning(f"Suggestions Phase Init: Raw course name '{raw_name}' became empty after cleaning. It will be skipped for LLM suggestions.")
         
-        final_cleaned_names_for_llm = sorted(list(set(cleaned_names_for_llm_query)))
-
-        if not final_cleaned_names_for_llm:
+        # Use cleaned_for_llm here, which was previously named cleaned_names_for_llm_query
+        if not cleaned_names_for_llm_query:
             logging.warning("Suggestions Phase: No valid course names remaining after cleaning for suggestion generation.")
             return {
                 "user_processed_data": [], 
                 "llm_error_summary": "No course names provided for suggestion generation (after cleaning)."
             }
         
-        logging.info(f"Suggestions Phase: Generating suggestions for {len(final_cleaned_names_for_llm)} cleaned known courses (will map to originals): {final_cleaned_names_for_llm}")
+        logging.info(f"Suggestions Phase: Generating suggestions for {len(cleaned_names_for_llm_query)} cleaned known courses (will map to originals): {cleaned_names_for_llm_query}")
         
         current_previous_user_data_list = previous_user_data_list if isinstance(previous_user_data_list, list) else None
         
         suggestion_results = generate_suggestions_from_known_courses(
-            all_known_course_names_cleaned=final_cleaned_names_for_llm, 
+            all_known_course_names_cleaned=cleaned_names_for_llm_query, # Corrected variable
             cleaned_to_original_map=cleaned_to_original_map, 
-            previous_user_data_list=current_previous_user_data_list
+            previous_user_data_list=current_previous_user_data_list,
+            force_refresh_for_courses=force_refresh_for_courses
         )
         logging.info(f"Suggestions Phase complete. Processed data items: {len(suggestion_results.get('user_processed_data',[]))}, LLM summary: {suggestion_results.get('llm_error_summary')}")
         return suggestion_results
@@ -915,7 +920,8 @@ if __name__ == "__main__":
     suggestion_results = extract_and_recommend_courses_from_image_data(
         mode='suggestions_only',
         known_course_names=known_courses_for_suggestions, 
-        previous_user_data_list=mock_previous_run_data
+        previous_user_data_list=mock_previous_run_data,
+        force_refresh_for_courses=["Python Programming"] # Test force refresh
     )
     print("\nSuggestion Results (Local Test with Cohere individual fallback):")
     print(json.dumps(suggestion_results, indent=2))
@@ -930,3 +936,4 @@ if __name__ == "__main__":
          logging.warning("Local test: Tesseract executable not found. OCR will fail.")
 
     
+
