@@ -1,3 +1,4 @@
+
 'use client';
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
@@ -78,12 +79,14 @@ function AiFeaturePageContent() {
   const [ocrFailedImages, setOcrFailedImages] = useState<FailedExtractionImage[]>([]);
   
   const [allUserImageMetas, setAllUserImageMetas] = useState<UserImage[]>([]);
-  const [ocrConsideredFileIds, setOcrConsideredFileIds] = useState<string[]>([]); // Tracks all IDs considered by OCR this session or from load
-  const [potentiallyNewImageFileIds, setPotentiallyNewImageFileIds] = useState<string[]>([]); // IDs not in ocrConsideredFileIds
+  // Tracks all file IDs that have been considered for OCR or were part of a previous suggestion set
+  const [ocrConsideredFileIds, setOcrConsideredFileIds] = useState<string[]>([]); 
+  // IDs from allUserImageMetas not yet in ocrConsideredFileIds
+  const [potentiallyNewImageFileIds, setPotentiallyNewImageFileIds] = useState<string[]>([]); 
 
   const [manualNamesForFailedImages, setManualNamesForFailedImages] = useState<{ [key: string]: string }>({});
 
-  const [finalResult, setFinalResult] = useState<SuggestionsPhaseResult | null>(null); // This holds the AI suggestion results
+  const [finalResult, setFinalResult] = useState<SuggestionsPhaseResult | null>(null);
   const [resultsSearchTerm, setResultsSearchTerm] = useState<string>('');
   const [isRefreshingCourse, setIsRefreshingCourse] = useState<string | null>(null);
 
@@ -135,7 +138,7 @@ function AiFeaturePageContent() {
           console.warn(`AI Feature: Failed to fetch latest results. Status: ${latestResultsResponse.status}. Message: ${errorMessage}. Raw text (first 200): ${responseText.substring(0,200)}`);
           setError(errorMessage);
           setFinalResult(null);
-          setOcrConsideredFileIds([]); // Reset considered IDs if initial load fails
+          setOcrConsideredFileIds([]); 
           setPhase('initial');
           toast({ title: 'Could Not Load Previous Data', description: errorMessage, variant: 'destructive', duration: 10000 });
         } else { 
@@ -143,7 +146,7 @@ function AiFeaturePageContent() {
                 const latestResultsData: SuggestionsPhaseResult = JSON.parse(responseText);
                 if (latestResultsData && latestResultsData.user_processed_data && latestResultsData.user_processed_data.length > 0) {
                     setFinalResult(latestResultsData);
-                    setOcrConsideredFileIds(latestResultsData.associated_image_file_ids || []); // Initialize from loaded results
+                    setOcrConsideredFileIds(latestResultsData.associated_image_file_ids || []); 
                     setPhase('results');
                     setError(null); 
                     console.log("AI Feature: Loaded latest processed results:", latestResultsData);
@@ -151,7 +154,7 @@ function AiFeaturePageContent() {
                 } else {
                      console.log("AI Feature: No substantive previous results found from valid JSON response.");
                      setFinalResult(null); 
-                     setOcrConsideredFileIds([]); // No previous results, so no previously considered IDs
+                     setOcrConsideredFileIds([]); 
                      if(phase === 'results' && (!latestResultsData || !latestResultsData.user_processed_data || latestResultsData.user_processed_data.length === 0)) {
                         setPhase('initial');
                      }
@@ -192,16 +195,15 @@ function AiFeaturePageContent() {
   }, [userId, user, flaskServerBaseUrl, toast]);
 
 
-  // Calculate potentially new images after initial load or OCR runs
   useEffect(() => {
-    if (allUserImageMetas.length > 0) {
+    if (allUserImageMetas.length > 0 && !isFetchingInitialData) {
       const allCurrentIds = allUserImageMetas.map(img => img.fileId);
       const newPotentiallyNew = allCurrentIds.filter(id => !ocrConsideredFileIds.includes(id));
       setPotentiallyNewImageFileIds(newPotentiallyNew);
 
-      if (newPotentiallyNew.length > 0 && !isFetchingInitialData && phase !== 'ocrProcessing' && phase !== 'suggestionsProcessing') {
-          const prevNewCount = potentiallyNewImageFileIds.length; // Capture previous count before update
-          if (newPotentiallyNew.length > 0 && newPotentiallyNew.length !== prevNewCount) { // Only toast if count changes or is new
+      if (newPotentiallyNew.length > 0 && phase !== 'ocrProcessing' && phase !== 'suggestionsProcessing') {
+          const prevNewCount = potentiallyNewImageFileIds.length; 
+          if (newPotentiallyNew.length > 0 && newPotentiallyNew.length !== prevNewCount) { 
              toast({
                 title: "New Certificates Detected",
                 description: `You have ${newPotentiallyNew.length} certificate(s) that haven't been processed for AI insights. You can process them now.`,
@@ -209,10 +211,10 @@ function AiFeaturePageContent() {
              });
           }
       }
-    } else {
+    } else if (!isFetchingInitialData) {
       setPotentiallyNewImageFileIds([]);
     }
-  }, [allUserImageMetas, ocrConsideredFileIds, isFetchingInitialData, phase]); // Added phase to dependencies
+  }, [allUserImageMetas, ocrConsideredFileIds, isFetchingInitialData, phase, toast]);
 
 
   const handleManualNameChange = (fileId: string, name: string) => {
@@ -269,12 +271,9 @@ function AiFeaturePageContent() {
         payload.forceRefreshForCourses = forceRefreshList;
       }
       
-      // Use ocrConsideredFileIds for the suggestions run
-      // This reflects all files that contributed to the current set of known courses
+      // Use ocrConsideredFileIds for this suggestion run to accurately reflect contributing files
       if (ocrConsideredFileIds.length > 0) {
          payload.associated_image_file_ids_from_previous_run = ocrConsideredFileIds;
-      } else {
-         console.warn("fetchSuggestions: No ocrConsideredFileIds available. Sending empty to backend for association.");
       }
 
       const response = await fetch(endpoint, {
@@ -286,55 +285,52 @@ function AiFeaturePageContent() {
 
       if (!response.ok || data.error) throw new Error(data.error || `Server error: ${response.status}`);
 
-      if (forceRefreshList && forceRefreshList.length > 0 && data.user_processed_data && data.user_processed_data.length > 0) {
-        const refreshedCourseData = data.user_processed_data.find(
-            (course) => forceRefreshList.includes(course.identified_course_name)
-        );
-        if (refreshedCourseData) {
-            setFinalResult(prevResult => {
-                if (!prevResult || !prevResult.user_processed_data) {
-                    return { 
-                        ...data, 
-                        user_processed_data: [refreshedCourseData], 
-                        processedAt: new Date().toISOString(),
-                        llm_error_summary: data.llm_error_summary || prevResult?.llm_error_summary,
-                        associated_image_file_ids: data.associated_image_file_ids || ocrConsideredFileIds, 
-                    };
-                }
-                const updatedUserProcessedData = prevResult.user_processed_data.map(existingCourse =>
-                    existingCourse.identified_course_name === refreshedCourseData.identified_course_name
-                        ? { ...refreshedCourseData, processed_by: refreshedCourseData.processed_by || "Cohere (refreshed)" }
-                        : existingCourse
-                );
-                if (!updatedUserProcessedData.find(c => c.identified_course_name === refreshedCourseData.identified_course_name)) {
-                    updatedUserProcessedData.push({ ...refreshedCourseData, processed_by: refreshedCourseData.processed_by || "Cohere (refreshed)" });
-                }
-                return {
-                    ...prevResult, 
-                    user_processed_data: updatedUserProcessedData,
-                    processedAt: new Date().toISOString(),
-                    llm_error_summary: data.llm_error_summary !== undefined ? data.llm_error_summary : prevResult.llm_error_summary,
-                    associated_image_file_ids: data.associated_image_file_ids && data.associated_image_file_ids.length > 0 ? data.associated_image_file_ids : (prevResult.associated_image_file_ids || ocrConsideredFileIds),
-                };
-            });
+      setFinalResult(prevResult => {
+        const newProcessedData = data.user_processed_data || [];
+        let updatedUserProcessedData: UserProcessedCourseData[];
+
+        if (forceRefreshList && forceRefreshList.length > 0) {
+          // Single course refresh: update or add the refreshed course
+          const refreshedCourseName = forceRefreshList[0];
+          const refreshedCourse = newProcessedData.find(c => c.identified_course_name === refreshedCourseName);
+          
+          if (refreshedCourse) {
+            updatedUserProcessedData = (prevResult?.user_processed_data || []).map(existingCourse =>
+              existingCourse.identified_course_name === refreshedCourseName
+                ? { ...refreshedCourse, processed_by: refreshedCourse.processed_by || "Cohere (refreshed)" }
+                : existingCourse
+            );
+            // If the refreshed course wasn't in the previous list, add it
+            if (!updatedUserProcessedData.find(c => c.identified_course_name === refreshedCourseName)) {
+              updatedUserProcessedData.push({ ...refreshedCourse, processed_by: refreshedCourse.processed_by || "Cohere (refreshed)" });
+            }
+          } else {
+            // If the specific course wasn't returned in `data` (e.g. LLM failed for it), keep previous state for this course or log warning
+            updatedUserProcessedData = prevResult?.user_processed_data || [];
+            console.warn("Refresh suggestions: LLM response for single course did not contain the expected course name.", data);
+          }
         } else {
-             console.warn("Refresh suggestions: LLM response for single course did not contain the expected course name.", data);
-              setFinalResult(prev => ({
-                ...(prev || {}),
-                llm_error_summary: data.llm_error_summary || prev?.llm_error_summary || "Failed to refresh specific course.",
-                processedAt: new Date().toISOString(),
-                // Ensure associated_image_file_ids is preserved or defaults to ocrConsideredFileIds
-                associated_image_file_ids: prev?.associated_image_file_ids || ocrConsideredFileIds,
-              }));
-        }
-      } else {
-          // Full suggestion run, update finalResult with new data and current ocrConsideredFileIds
-          setFinalResult({
-            ...data,
-            associated_image_file_ids: data.associated_image_file_ids && data.associated_image_file_ids.length > 0 ? data.associated_image_file_ids : ocrConsideredFileIds,
-            processedAt: new Date().toISOString(),
+          // Full suggestion run (not a single course refresh)
+          // Merge new suggestions with previous ones. New ones overwrite old ones for the same course name.
+          const prevDataMap = new Map((prevResult?.user_processed_data || []).map(item => [item.identified_course_name, item]));
+          newProcessedData.forEach(item => {
+            prevDataMap.set(item.identified_course_name, item); // New data overwrites old for the same course
           });
-      }
+          updatedUserProcessedData = Array.from(prevDataMap.values());
+        }
+
+        return {
+          user_processed_data: updatedUserProcessedData,
+          llm_error_summary: data.llm_error_summary !== undefined ? data.llm_error_summary : prevResult?.llm_error_summary,
+          // Use the associated_image_file_ids from the current Flask response if available, 
+          // otherwise, stick with the ocrConsideredFileIds that led to this suggestion run.
+          associated_image_file_ids: data.associated_image_file_ids && data.associated_image_file_ids.length > 0 
+                                      ? data.associated_image_file_ids 
+                                      : ocrConsideredFileIds,
+          processedAt: new Date().toISOString(),
+        };
+      });
+      
       setPhase('results');
 
       if (data.user_processed_data && data.user_processed_data.length > 0) {
@@ -420,8 +416,6 @@ function AiFeaturePageContent() {
       } else { // ocrMode === 'all'
           setOcrConsideredFileIds(newlyProcessedInThisRun);
       }
-      // Note: finalResult.associated_image_file_ids is NOT updated here.
-      // It updates only when suggestions are fetched.
 
       if (data.failed_extraction_images && data.failed_extraction_images.length > 0) {
         setPhase('manualNaming');
