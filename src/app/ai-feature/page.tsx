@@ -18,7 +18,7 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@/components/ui/tooltip"; // Corrected import
+} from "@/components/ui/tooltip"; // <<< THE CRITICAL IMPORT
 import SearchWithSuggestions from '@/components/common/SearchWithSuggestions';
 import type { SearchableItem } from '@/components/common/SearchWithSuggestions';
 
@@ -341,8 +341,6 @@ function AiFeaturePageContent() {
       data = finalResult.user_processed_data.map((item, index) => ({
         id: `result-${item.identified_course_name}-${index}`,
         value: item.identified_course_name,
-        // You could add more complex display components here if needed
-        // display: <span>{item.identified_course_name} <Badge>{item.processed_by}</Badge></span>
       }));
     } else if (phase === 'manualNaming' || phase === 'readyForSuggestions') {
       const ocrItems = ocrSuccessfullyExtracted.map(name => ({ id: `ocr-${name}`, value: name }));
@@ -358,7 +356,6 @@ function AiFeaturePageContent() {
       }));
       data = [...ocrItems, ...failedItems.filter(item => item.value)];
     }
-    // Add general manual courses input to searchable data if user is typing there
     if ((phase === 'initial' || phase === 'manualNaming' || phase === 'readyForSuggestions') && generalManualCoursesInput.trim()) {
         const generalCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
         generalCourses.forEach(course => {
@@ -366,7 +363,6 @@ function AiFeaturePageContent() {
         });
     }
 
-    // Remove duplicates by value, preferring items that might have custom display
     const uniqueData = Array.from(new Map(data.map(item => [item.value.toLowerCase(), item])).values());
     return uniqueData;
   }, [phase, finalResult, ocrSuccessfullyExtracted, ocrFailedImages, manualNamesForFailedImages, generalManualCoursesInput]);
@@ -649,5 +645,4 @@ export default function AiFeaturePage() {
     </ProtectedPage>
   );
 }
-
     
