@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info, CheckCircle, ListChecks, Wand2, BrainCircuit, HelpCircle, Search as SearchIcon } from 'lucide-react';
+import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info, CheckCircle, ListChecks, Wand2, BrainCircuit, HelpCircle } from 'lucide-react'; // Removed SearchIcon as it's in SearchWithSuggestions
 import NextImage from 'next/image';
 import Link from 'next/link';
 import { useState, useCallback, useEffect, useMemo } from 'react';
@@ -19,7 +19,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import SearchWithSuggestions from '@/components/common/SearchWithSuggestions'; // Added import
+import SearchWithSuggestions from '@/components/common/SearchWithSuggestions';
+import type { SearchableItem } from '@/components/common/SearchWithSuggestions';
 
 
 // --- TypeScript Interfaces ---
@@ -81,7 +82,7 @@ function AiFeaturePageContent() {
   const [manualNamesForFailedImages, setManualNamesForFailedImages] = useState<{ [key: string]: string }>({});
   
   const [finalResult, setFinalResult] = useState<SuggestionsPhaseResult | null>(null);
-  const [searchTerm, setSearchTerm] = useState(''); // Added for search
+  const [searchTerm, setSearchTerm] = useState(''); 
 
   const handleManualNameChange = (fileId: string, name: string) => {
     setManualNamesForFailedImages(prev => ({ ...prev, [fileId]: name }));
@@ -96,8 +97,8 @@ function AiFeaturePageContent() {
     setManualNamesForFailedImages({});
     setFinalResult(null);
     setAssociatedImageFileIdsForResults([]);
-    setSearchTerm(''); // Reset search term
-    // setGeneralManualCoursesInput(''); // Optionally reset this too
+    setSearchTerm('');
+    // setGeneralManualCoursesInput(''); 
   };
 
   const saveManualCourseNames = async () => {
@@ -334,6 +335,43 @@ function AiFeaturePageContent() {
   }, [finalResult, searchTerm]);
 
 
+  const aiFeatureSearchableData: SearchableItem[] = useMemo(() => {
+    let data: SearchableItem[] = [];
+    if (phase === 'results' && finalResult?.user_processed_data) {
+      data = finalResult.user_processed_data.map((item, index) => ({
+        id: `result-${item.identified_course_name}-${index}`,
+        value: item.identified_course_name,
+        // You could add more complex display components here if needed
+        // display: <span>{item.identified_course_name} <Badge>{item.processed_by}</Badge></span>
+      }));
+    } else if (phase === 'manualNaming' || phase === 'readyForSuggestions') {
+      const ocrItems = ocrSuccessfullyExtracted.map(name => ({ id: `ocr-${name}`, value: name }));
+      const failedItems = ocrFailedImages.map(img => ({
+        id: img.file_id,
+        value: manualNamesForFailedImages[img.file_id] || img.original_filename,
+        display: (
+          <div className="flex items-center">
+            <span>{manualNamesForFailedImages[img.file_id] || img.original_filename}</span>
+            <span className="ml-2 text-xs text-muted-foreground">(Failed OCR)</span>
+          </div>
+        )
+      }));
+      data = [...ocrItems, ...failedItems.filter(item => item.value)];
+    }
+    // Add general manual courses input to searchable data if user is typing there
+    if ((phase === 'initial' || phase === 'manualNaming' || phase === 'readyForSuggestions') && generalManualCoursesInput.trim()) {
+        const generalCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
+        generalCourses.forEach(course => {
+            data.push({ id: `general-${course}`, value: course });
+        });
+    }
+
+    // Remove duplicates by value, preferring items that might have custom display
+    const uniqueData = Array.from(new Map(data.map(item => [item.value.toLowerCase(), item])).values());
+    return uniqueData;
+  }, [phase, finalResult, ocrSuccessfullyExtracted, ocrFailedImages, manualNamesForFailedImages, generalManualCoursesInput]);
+
+
   return (
     <TooltipProvider>
       <div className="container mx-auto px-4 py-8 md:px-6 lg:px-8 flex flex-col h-[calc(100vh-var(--header-height,4rem)-1px)]">
@@ -356,6 +394,7 @@ function AiFeaturePageContent() {
             <SearchWithSuggestions
                 onSearch={handleSearch}
                 placeholder="Search results or extracted courses..."
+                searchableData={aiFeatureSearchableData}
             />
         </div>
 

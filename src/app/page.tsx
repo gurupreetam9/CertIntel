@@ -6,7 +6,8 @@ import ImageGrid from '@/components/home/ImageGrid';
 import type { UserImage } from '@/components/home/ImageGrid';
 import UploadFAB from '@/components/home/UploadFAB';
 import AiFAB from '@/components/home/AiFAB';
-import SearchWithSuggestions from '@/components/common/SearchWithSuggestions'; // Added import
+import SearchWithSuggestions from '@/components/common/SearchWithSuggestions';
+import type { SearchableItem } from '@/components/common/SearchWithSuggestions';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
@@ -19,7 +20,7 @@ function HomePageContent() {
   const [refreshKey, setRefreshKey] = useState(0);
   const { user, userId } = useAuth();
   const { toast } = useToast();
-  const [searchTerm, setSearchTerm] = useState(''); // Added for search
+  const [searchTerm, setSearchTerm] = useState('');
 
   const triggerRefresh = useCallback(() => {
     console.log("HomePageContent: Triggering refresh by incrementing refreshKey.");
@@ -116,6 +117,13 @@ function HomePageContent() {
     );
   }, [images, searchTerm]);
 
+  const searchableImageNames: SearchableItem[] = useMemo(() => {
+    return images.map(img => ({
+      id: img.fileId,
+      value: img.originalName || img.filename,
+    }));
+  }, [images]);
+
   return (
     <div className="container mx-auto px-4 py-8 md:px-6 lg:px-8">
       <div className="mb-8 flex flex-col md:flex-row justify-between items-center gap-4">
@@ -128,6 +136,7 @@ function HomePageContent() {
         <SearchWithSuggestions 
           onSearch={handleSearch} 
           placeholder="Search certificates by name or filename..."
+          searchableData={searchableImageNames}
         />
       </div>
       <ImageGrid
