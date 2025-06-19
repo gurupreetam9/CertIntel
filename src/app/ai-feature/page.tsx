@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info, CheckCircle, ListChecks, Wand2, BrainCircuit, HelpCircle, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info, CheckCircle, ListChecks, Wand2, BrainCircuit, HelpCircle, RefreshCw, FilePlus } from 'lucide-react';
 import NextImage from 'next/image';
 import Link from 'next/link';
 import { useState, useCallback, useEffect, useMemo } from 'react';
@@ -59,6 +59,7 @@ interface SuggestionsPhaseResult {
 }
 
 type ProcessingPhase = 'initial' | 'ocrProcessing' | 'manualNaming' | 'readyForSuggestions' | 'suggestionsProcessing' | 'results';
+type OcrMode = 'new' | 'all';
 
 
 function AiFeaturePageContent() {
@@ -67,7 +68,8 @@ function AiFeaturePageContent() {
   const { userId, user } = useAuth();
 
   const [phase, setPhase] = useState<ProcessingPhase>('initial');
-  const [isLoading, setIsLoading] = useState<boolean>(false); // General loading for primary actions
+  const [isLoadingOcr, setIsLoadingOcr] = useState<boolean>(false);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState<boolean>(false);
   const [isFetchingInitialData, setIsFetchingInitialData] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -77,7 +79,7 @@ function AiFeaturePageContent() {
   const [ocrFailedImages, setOcrFailedImages] = useState<FailedExtractionImage[]>([]);
   
   const [allUserImageMetas, setAllUserImageMetas] = useState<UserImage[]>([]);
-
+  const [potentiallyNewImageFileIds, setPotentiallyNewImageFileIds] = useState<string[]>([]);
 
   const [manualNamesForFailedImages, setManualNamesForFailedImages] = useState<{ [key: string]: string }>({});
 
@@ -86,7 +88,6 @@ function AiFeaturePageContent() {
   const [isRefreshingCourse, setIsRefreshingCourse] = useState<string | null>(null);
 
 
-  // Fetch all user images and latest processed results on mount
   useEffect(() => {
     const fetchInitialData = async () => {
       if (!userId || !user) {
@@ -145,12 +146,28 @@ function AiFeaturePageContent() {
                     setError(null); 
                     console.log("AI Feature: Loaded latest processed results:", latestResultsData);
                     toast({ title: "Previous Results Loaded", description: `Showing your last processed certificate insights from ${latestResultsData.processedAt ? new Date(latestResultsData.processedAt).toLocaleString() : 'a previous session'}.`});
+                    
+                    // Calculate potentially new images after loading results
+                    const allIds = imagesData.map(img => img.fileId);
+                    const associatedIds = latestResultsData?.associated_image_file_ids || [];
+                    const newIds = allIds.filter(id => !associatedIds.includes(id));
+                    setPotentiallyNewImageFileIds(newIds);
+                    if (newIds.length > 0) {
+                        toast({ title: "New Certificates Detected", description: `You have ${newIds.length} certificate(s) that haven't been included in your last AI insights run. You can process them now.`, duration: 7000 });
+                    }
+
                 } else {
                      console.log("AI Feature: No substantive previous results found from valid JSON response.");
                      setFinalResult(null); 
                      if(phase === 'results' && (!latestResultsData || !latestResultsData.user_processed_data || latestResultsData.user_processed_data.length === 0)) {
                         setPhase('initial');
                      }
+                     // Calculate potentially new images even if no previous results
+                    const allIds = imagesData.map(img => img.fileId);
+                    setPotentiallyNewImageFileIds(allIds); // All are potentially new if no previous run
+                    if (allIds.length > 0) {
+                         toast({ title: "Certificates Ready", description: `You have ${allIds.length} certificate(s) ready for initial processing.`, duration: 7000 });
+                    }
                 }
             } catch (jsonParseError: any) {
                  let detailedError = 'Received an unexpected data format from the server when fetching latest results.';
@@ -183,51 +200,13 @@ function AiFeaturePageContent() {
       }
     };
     fetchInitialData();
-  }, [userId, user, flaskServerBaseUrl, toast]);
+  }, [userId, user, flaskServerBaseUrl, toast]); // Removed phase from dependency array to avoid re-triggering on phase change
 
 
   const handleManualNameChange = (fileId: string, name: string) => {
     setManualNamesForFailedImages(prev => ({ ...prev, [fileId]: name }));
   };
   
-  const fetchInitialDataForReset = async () => {
-     if (!userId || !user) return;
-      setIsFetchingInitialData(true); 
-      try {
-        const latestResultsResponse = await fetch(`${flaskServerBaseUrl}/api/latest-processed-results?userId=${userId}`, {
-          headers: { 'ngrok-skip-browser-warning': 'true' }
-        });
-        if (latestResultsResponse.ok) {
-            const responseText = await latestResultsResponse.text();
-            try {
-                const latestResultsData: SuggestionsPhaseResult = JSON.parse(responseText);
-                if (latestResultsData && latestResultsData.user_processed_data && latestResultsData.user_processed_data.length > 0) {
-                    setFinalResult(latestResultsData);
-                    if(phase !== 'results') setPhase('results'); 
-                } else {
-                    setFinalResult(null);
-                    if(phase === 'results') setPhase('initial'); 
-                }
-            } catch (e) {
-                setFinalResult(null);
-                if(phase === 'results') setPhase('initial');
-                console.error("AI Feature (Reset): Failed to parse JSON for latest results after reset. Raw text:", responseText.substring(0,500));
-            }
-        } else {
-             setFinalResult(null);
-             if(phase === 'results') setPhase('initial');
-             console.warn("AI Feature (Reset): Failed to fetch latest results after reset. Status:", latestResultsResponse.status);
-        }
-      } catch (err) {
-        setFinalResult(null);
-        if(phase === 'results') setPhase('initial');
-        console.error("AI Feature (Reset): Network error fetching latest results after reset.", err);
-      } finally {
-        setIsFetchingInitialData(false); 
-      }
-  };
-
-
   const saveManualCourseNames = async () => {
     if (!userId || Object.keys(manualNamesForFailedImages).length === 0) return;
     const namesToSave = Object.entries(manualNamesForFailedImages)
@@ -257,12 +236,12 @@ function AiFeaturePageContent() {
   const fetchSuggestions = async (coursesToGetSuggestionsFor: string[], forceRefreshList: string[] = []) => {
     if (!userId) return;
     setPhase('suggestionsProcessing');
-    setIsLoading(true);
+    setIsLoadingSuggestions(true);
     setError(null);
 
     if (coursesToGetSuggestionsFor.length === 0) {
       toast({ title: 'No Courses', description: 'No courses available to get suggestions for.', variant: 'destructive' });
-      setIsLoading(false);
+      setIsLoadingSuggestions(false);
       setPhase(ocrFailedImages.length > 0 ? 'manualNaming' : (ocrSuccessfullyExtracted.length > 0 || generalManualCoursesInput.trim().length > 0 ? 'readyForSuggestions' : 'initial'));
       return;
     }
@@ -278,13 +257,20 @@ function AiFeaturePageContent() {
         payload.forceRefreshForCourses = forceRefreshList;
       }
       
+      // Use the associated_image_file_ids from the finalResult, which should be accurate for the current OCR run
       const associatedImageFileIdsToSend = (finalResult?.associated_image_file_ids && finalResult.associated_image_file_ids.length > 0)
         ? finalResult.associated_image_file_ids
-        : allUserImageMetas.map(img => img.fileId);
+        : []; // If no prior run, send empty, backend can fallback or this might indicate an issue
       
       if (associatedImageFileIdsToSend.length > 0) {
          payload.associated_image_file_ids_from_previous_run = associatedImageFileIdsToSend;
+      } else {
+         // If there are no associated IDs from a previous OCR run (e.g., first time, or OCR only processed general manual courses)
+         // It might be appropriate to send all user image IDs if suggestions are expected to consider them generally,
+         // or the backend handles this scenario appropriately. For now, we send what was processed.
+         console.warn("fetchSuggestions: No associated_image_file_ids from previous run available in finalResult. Sending empty to backend.");
       }
+
 
       const response = await fetch(endpoint, {
         method: 'POST', 
@@ -295,37 +281,60 @@ function AiFeaturePageContent() {
 
       if (!response.ok || data.error) throw new Error(data.error || `Server error: ${response.status}`);
 
-      if (forceRefreshList && forceRefreshList.length > 0 && data.user_processed_data && data.user_processed_data.length === 1) {
-        const refreshedCourseData = data.user_processed_data[0];
-        setFinalResult(prevResult => {
-            if (!prevResult || !prevResult.user_processed_data) {
-                return { // Fallback if prevResult is somehow lost
-                    ...data,
-                    user_processed_data: [refreshedCourseData],
+      if (forceRefreshList && forceRefreshList.length > 0 && data.user_processed_data && data.user_processed_data.length > 0) {
+        const refreshedCourseData = data.user_processed_data.find(
+            (course) => forceRefreshList.includes(course.identified_course_name)
+        );
+        if (refreshedCourseData) {
+            setFinalResult(prevResult => {
+                if (!prevResult || !prevResult.user_processed_data) {
+                    return { 
+                        ...data, // Use the new data structure largely
+                        user_processed_data: [refreshedCourseData], // Ensure only the refreshed one is here if prevResult was null
+                        processedAt: new Date().toISOString(),
+                        llm_error_summary: data.llm_error_summary || prevResult?.llm_error_summary,
+                        associated_image_file_ids: data.associated_image_file_ids || prevResult?.associated_image_file_ids || [],
+                    };
+                }
+                const updatedUserProcessedData = prevResult.user_processed_data.map(existingCourse =>
+                    existingCourse.identified_course_name === refreshedCourseData.identified_course_name
+                        ? { ...refreshedCourseData, processed_by: refreshedCourseData.processed_by || "Cohere (refreshed)" }
+                        : existingCourse
+                );
+                // Ensure the refreshed course is in the list if it wasn't before (shouldn't happen if refreshing existing)
+                if (!updatedUserProcessedData.find(c => c.identified_course_name === refreshedCourseData.identified_course_name)) {
+                    updatedUserProcessedData.push({ ...refreshedCourseData, processed_by: refreshedCourseData.processed_by || "Cohere (refreshed)" });
+                }
+                return {
+                    ...prevResult, // Keep other parts of prevResult like associated_image_file_ids if not updated by 'data'
+                    user_processed_data: updatedUserProcessedData,
                     processedAt: new Date().toISOString(),
-                    llm_error_summary: data.llm_error_summary || prevResult?.llm_error_summary,
+                    llm_error_summary: data.llm_error_summary !== undefined ? data.llm_error_summary : prevResult.llm_error_summary,
+                    // Ensure associated_image_file_ids is updated if 'data' provides it, otherwise keep from prevResult
+                    associated_image_file_ids: data.associated_image_file_ids && data.associated_image_file_ids.length > 0 ? data.associated_image_file_ids : prevResult.associated_image_file_ids,
                 };
-            }
-            const updatedUserProcessedData = prevResult.user_processed_data.map(existingCourse =>
-                existingCourse.identified_course_name === refreshedCourseData.identified_course_name
-                    ? { ...refreshedCourseData, processed_by: refreshedCourseData.processed_by || "Cohere (refreshed)" }
-                    : existingCourse
-            );
-            if (!updatedUserProcessedData.find(c => c.identified_course_name === refreshedCourseData.identified_course_name)) {
-                updatedUserProcessedData.push({ ...refreshedCourseData, processed_by: refreshedCourseData.processed_by || "Cohere (refreshed)" });
-            }
-            return {
-                ...prevResult,
-                user_processed_data: updatedUserProcessedData,
+            });
+        } else {
+             console.warn("Refresh suggestions: LLM response for single course did not contain the expected course name.", data);
+             // Potentially update finalResult with any error messages from data
+              setFinalResult(prev => ({
+                ...(prev || {}),
+                llm_error_summary: data.llm_error_summary || prev?.llm_error_summary || "Failed to refresh specific course.",
                 processedAt: new Date().toISOString(),
-                llm_error_summary: data.llm_error_summary !== undefined ? data.llm_error_summary : prevResult.llm_error_summary,
-                associated_image_file_ids: data.associated_image_file_ids || prevResult.associated_image_file_ids,
-            };
-        });
+              }));
+        }
       } else {
           setFinalResult(data); 
       }
       setPhase('results');
+
+      // Update potentially new images list based on the new finalResult
+      if (data.associated_image_file_ids) {
+        const allIds = allUserImageMetas.map(img => img.fileId);
+        const newPotentiallyNew = allIds.filter(id => !data.associated_image_file_ids!.includes(id));
+        setPotentiallyNewImageFileIds(newPotentiallyNew);
+      }
+
 
       if (data.user_processed_data && data.user_processed_data.length > 0) {
         toast({ title: 'Suggestions Generated/Updated', description: `AI suggestions and descriptions ready for ${coursesToGetSuggestionsFor.length} course(s).` });
@@ -341,141 +350,183 @@ function AiFeaturePageContent() {
       toast({ title: 'Suggestions Phase Failed', description: err.message, variant: 'destructive' });
       setPhase(ocrFailedImages.length > 0 ? 'manualNaming' : (ocrSuccessfullyExtracted.length > 0 || generalManualCoursesInput.trim().length > 0 ? 'readyForSuggestions' : 'initial'));
     } finally {
-      setIsLoading(false);
+      setIsLoadingSuggestions(false);
       setIsRefreshingCourse(null);
     }
   };
 
-  const handlePrimaryButtonClick = useCallback(async () => {
+  const handleInitiateOcrProcessing = useCallback(async (ocrMode: OcrMode) => {
     if (!userId || !user) { toast({ title: 'Authentication Required', variant: 'destructive' }); return; }
-    if (isLoading) return;
+    if (isLoadingOcr) return;
 
     setError(null);
-    const endpoint = `${flaskServerBaseUrl}/api/process-certificates`;
+    setPhase('ocrProcessing');
+    setIsLoadingOcr(true);
 
-    if (phase === 'initial' || phase === 'results') {
-      setOcrSuccessfullyExtracted([]);
-      setOcrFailedImages([]);
-      setManualNamesForFailedImages({});
+    setOcrSuccessfullyExtracted([]);
+    setOcrFailedImages([]);
+    setManualNamesForFailedImages({});
       
-      setPhase('ocrProcessing');
-      setIsLoading(true);
+    const generalManualCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
+    let idsToProcessForOcr: string[];
 
-      const generalManualCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
-      const currentImageFileIds = allUserImageMetas.map(img => img.fileId);
-
-      if (currentImageFileIds.length === 0 && generalManualCourses.length === 0) {
-          toast({ title: "Nothing to Process", description: "Please upload some certificates or add general courses manually.", variant: "destructive"});
-          setIsLoading(false);
-          setPhase('initial');
-          return;
-      }
-
-      try {
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json', 
-            'Authorization': `Bearer ${await user.getIdToken()}`,
-            'ngrok-skip-browser-warning': 'true'
-          },
-          body: JSON.stringify({
-            userId,
-            mode: 'ocr_only',
-            additionalManualCourses: generalManualCourses,
-            allImageFileIds: currentImageFileIds 
-          }),
-        });
-        const data: OcrPhaseResult = await response.json();
-
-        if (!response.ok || data.error) throw new Error(data.error || `Server error: ${response.status}`);
-
-        setOcrSuccessfullyExtracted(data.successfully_extracted_courses || []);
-        setOcrFailedImages(data.failed_extraction_images || []);
-        
-        setFinalResult(prev => ({ 
-            ...(prev || {}), 
-            associated_image_file_ids: data.processed_image_file_ids || [],
-            user_processed_data: (prev?.user_processed_data && phase === 'results') ? prev.user_processed_data : undefined 
-        }));
-
-        if (data.failed_extraction_images && data.failed_extraction_images.length > 0) {
-          setPhase('manualNaming');
-          toast({
-            title: 'Action Required',
-            description: `${data.failed_extraction_images.length} certificate(s) couldn't be identified by OCR and have no prior manual name. Please name them below if needed.`,
-            duration: 7000
-          });
-        } else if ((data.successfully_extracted_courses && data.successfully_extracted_courses.length > 0) || generalManualCourses.length > 0) {
-          setPhase('readyForSuggestions');
-        } else {
-          toast({ title: 'Nothing New to Process by OCR', description: data.message || 'No new courses extracted by OCR and no general manual courses provided.' });
-          setPhase('initial'); 
+    if (ocrMode === 'new') {
+        idsToProcessForOcr = potentiallyNewImageFileIds;
+        if (idsToProcessForOcr.length === 0 && generalManualCourses.length === 0) {
+            toast({ title: "Nothing New to Process", description: "No new certificates detected and no general courses entered.", variant: "default"});
+            setIsLoadingOcr(false);
+            setPhase(finalResult && finalResult.user_processed_data && finalResult.user_processed_data.length > 0 ? 'results' : 'initial');
+            return;
         }
+        toast({ title: "Processing New Certificates...", description: `Scanning ${idsToProcessForOcr.length} new certificate(s) and any general courses.`});
+    } else { // 'all'
+        idsToProcessForOcr = allUserImageMetas.map(img => img.fileId);
+        if (idsToProcessForOcr.length === 0 && generalManualCourses.length === 0) {
+            toast({ title: "Nothing to Process", description: "Please upload some certificates or add general courses manually.", variant: "default"});
+            setIsLoadingOcr(false);
+            setPhase(finalResult && finalResult.user_processed_data && finalResult.user_processed_data.length > 0 ? 'results' : 'initial');
+            return;
+        }
+        toast({ title: "Processing All Certificates...", description: `Scanning ${idsToProcessForOcr.length} certificate(s) and any general courses.`});
+    }
+    
+    try {
+      const endpoint = `${flaskServerBaseUrl}/api/process-certificates`;
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json', 
+          'Authorization': `Bearer ${await user.getIdToken()}`,
+          'ngrok-skip-browser-warning': 'true'
+        },
+        body: JSON.stringify({
+          userId,
+          mode: 'ocr_only',
+          additionalManualCourses: generalManualCourses,
+          allImageFileIds: idsToProcessForOcr 
+        }),
+      });
+      const data: OcrPhaseResult = await response.json();
 
-      } catch (err: any) {
-        setError(err.message || 'Failed OCR phase.');
-        toast({ title: 'OCR Phase Failed', description: err.message, variant: 'destructive' });
-        setPhase('initial');
-      } finally {
-        setIsLoading(false);
-      }
+      if (!response.ok || data.error) throw new Error(data.error || `Server error: ${response.status}`);
 
-    } else if (phase === 'manualNaming') {
-      await saveManualCourseNames();
-      const generalManualCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
-      const userProvidedNamesForFailures = Object.values(manualNamesForFailedImages).map(name => name.trim()).filter(name => name.length > 0);
-      if (ocrSuccessfullyExtracted.length > 0 || userProvidedNamesForFailures.length > 0 || generalManualCourses.length > 0) {
+      setOcrSuccessfullyExtracted(data.successfully_extracted_courses || []);
+      setOcrFailedImages(data.failed_extraction_images || []);
+      
+      // This is crucial: update finalResult.associated_image_file_ids to reflect what was *just* processed
+      // This ensures that the next "Get Suggestions" step is based on this current OCR run.
+      setFinalResult(prev => ({ 
+          // Keep previous suggestions if they exist and we're just doing OCR, 
+          // they will be replaced if user proceeds to "Get Suggestions".
+          user_processed_data: prev?.user_processed_data, 
+          llm_error_summary: prev?.llm_error_summary,
+          processedAt: prev?.processedAt,
+          // CRITICAL: Update associated_image_file_ids to those processed in THIS run.
+          associated_image_file_ids: data.processed_image_file_ids || [], 
+      }));
+
+      if (data.failed_extraction_images && data.failed_extraction_images.length > 0) {
+        setPhase('manualNaming');
+        toast({
+          title: 'Action Required',
+          description: `${data.failed_extraction_images.length} certificate(s) couldn't be identified by OCR or have no prior manual name. Please name them below if needed.`,
+          duration: 7000
+        });
+      } else if ((data.successfully_extracted_courses && data.successfully_extracted_courses.length > 0) || generalManualCourses.length > 0) {
         setPhase('readyForSuggestions');
       } else {
-        setPhase('manualNaming'); 
-        toast({title: "No Courses Identified", description: "Even after manual naming, no courses are ready for suggestions."})
+        toast({ title: 'Nothing New to Process by OCR', description: data.message || 'No new courses extracted by OCR and no general manual courses provided.' });
+        setPhase(finalResult && finalResult.user_processed_data && finalResult.user_processed_data.length > 0 ? 'results' : 'initial');
       }
 
-    } else if (phase === 'readyForSuggestions') {
-      const userProvidedNamesForFailures = Object.values(manualNamesForFailedImages).map(name => name.trim()).filter(name => name.length > 0);
-      const generalManualCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
-      const allKnownCourses = [...new Set([...ocrSuccessfullyExtracted, ...userProvidedNamesForFailures, ...generalManualCourses])].filter(name => name && name.length > 0);
-      await fetchSuggestions(allKnownCourses);
+    } catch (err: any) {
+      setError(err.message || 'Failed OCR phase.');
+      toast({ title: 'OCR Phase Failed', description: err.message, variant: 'destructive' });
+      setPhase(finalResult && finalResult.user_processed_data && finalResult.user_processed_data.length > 0 ? 'results' : 'initial');
+    } finally {
+      setIsLoadingOcr(false);
     }
-  }, [userId, user, flaskServerBaseUrl, phase, generalManualCoursesInput, ocrSuccessfullyExtracted, ocrFailedImages, manualNamesForFailedImages, toast, isLoading, allUserImageMetas, finalResult]);
+  }, [userId, user, flaskServerBaseUrl, generalManualCoursesInput, toast, isLoadingOcr, allUserImageMetas, potentiallyNewImageFileIds, finalResult]);
+
+
+  const handleProceedToSuggestions = async () => {
+     if (phase === 'manualNaming') {
+        await saveManualCourseNames();
+     }
+    const userProvidedNamesForFailures = Object.values(manualNamesForFailedImages).map(name => name.trim()).filter(name => name.length > 0);
+    const generalManualCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
+    const allKnownCourses = [...new Set([...ocrSuccessfullyExtracted, ...userProvidedNamesForFailures, ...generalManualCourses])].filter(name => name && name.length > 0);
+    
+    if (allKnownCourses.length === 0) {
+        toast({ title: "No Courses Available", description: "No courses identified or entered to get suggestions for."});
+        setPhase(finalResult && finalResult.user_processed_data && finalResult.user_processed_data.length > 0 ? 'results' : 'initial');
+        return;
+    }
+    await fetchSuggestions(allKnownCourses);
+  };
 
   const handleRefreshSingleCourseSuggestions = async (courseName: string) => {
     if (!userId) return;
     setIsRefreshingCourse(courseName); 
-    
-    const associatedImageFileIdsToSend = (finalResult?.associated_image_file_ids && finalResult.associated_image_file_ids.length > 0)
-        ? finalResult.associated_image_file_ids
-        : allUserImageMetas.map(img => img.fileId);
-
     await fetchSuggestions([courseName], [courseName]); 
   };
 
 
-  let buttonText = "Process New/Unnamed Certificates (OCR)";
-  let ButtonIconComponent = ListChecks;
-  if (phase === 'initial' && finalResult?.user_processed_data && finalResult.user_processed_data.length > 0) {
-    buttonText = "Re-scan All / Add New Certificates for OCR";
-  } else if (phase === 'initial') {
-    buttonText = "Analyze My Certificates (OCR)";
-  }
+  let mainButtonContent;
+  let mainButtonAction = () => {};
+  let mainButtonDisabled = isLoadingOcr || isLoadingSuggestions || !user;
+  let showMainButton = true;
 
-  if (phase === 'ocrProcessing' || phase === 'suggestionsProcessing') {
-    buttonText = phase === 'ocrProcessing' ? "Processing OCR..." : "Generating Suggestions...";
-    ButtonIconComponent = Loader2;
+  if (phase === 'initial' || phase === 'results') {
+     // "Re-scan All" button will always be primary if no "new" are available or if user wants to override.
+     mainButtonAction = () => handleInitiateOcrProcessing('all');
+     mainButtonContent = (
+        <>
+            <ListChecks className={`mr-2 h-5 w-5 ${isLoadingOcr ? 'animate-spin' : ''}`} />
+            Re-scan All Certificates / Add General Courses
+        </>
+     );
+     mainButtonDisabled = mainButtonDisabled || (allUserImageMetas.length === 0 && generalManualCoursesInput.trim() === '');
+
+  } else if (phase === 'ocrProcessing') {
+    mainButtonContent = (
+        <>
+            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+            Processing OCR...
+        </>
+    );
+    mainButtonDisabled = true;
   } else if (phase === 'manualNaming') {
-    buttonText = "Save Names & Proceed to Suggestions";
-    ButtonIconComponent = Wand2;
+    mainButtonAction = handleProceedToSuggestions;
+    mainButtonContent = (
+        <>
+            <Wand2 className="mr-2 h-5 w-5" />
+            Save Names & Proceed to Suggestions
+        </>
+    );
   } else if (phase === 'readyForSuggestions') {
     const userProvidedNamesForFailures = Object.values(manualNamesForFailedImages).map(name => name.trim()).filter(name => name.length > 0);
     const generalManualCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
-    const allKnownCourses = [...new Set([...ocrSuccessfullyExtracted, ...userProvidedNamesForFailures, ...generalManualCourses])].filter(name => name && name.length > 0);
-    buttonText = `Get AI Suggestions for ${allKnownCourses.length} Course(s)`;
-    ButtonIconComponent = BrainCircuit;
-  } else if (phase === 'results') {
-    buttonText = "Re-scan All / Add New Certificates for OCR"; 
-    ButtonIconComponent = ListChecks;
+    const allKnownCoursesCount = [...new Set([...ocrSuccessfullyExtracted, ...userProvidedNamesForFailures, ...generalManualCourses])].filter(name => name && name.length > 0).length;
+    
+    mainButtonAction = handleProceedToSuggestions;
+    mainButtonContent = (
+        <>
+            <BrainCircuit className={`mr-2 h-5 w-5 ${isLoadingSuggestions ? 'animate-spin' : ''}`} />
+            Get AI Suggestions for {allKnownCoursesCount} Course(s)
+        </>
+    );
+    mainButtonDisabled = mainButtonDisabled || allKnownCoursesCount === 0;
+  } else if (phase === 'suggestionsProcessing') {
+     mainButtonContent = (
+        <>
+            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+            Generating Suggestions...
+        </>
+    );
+    mainButtonDisabled = true;
   }
+
 
   const handleResultsSearch = (query: string) => {
     setResultsSearchTerm(query.toLowerCase());
@@ -520,12 +571,12 @@ function AiFeaturePageContent() {
         {!isFetchingInitialData && (
           <>
             <p className="mb-4 text-muted-foreground">
-              This tool processes your uploaded certificates (from home page) to extract course names.
+              This tool processes your uploaded certificates to extract course names.
               If names can't be read, you can provide them manually. Then, AI generates descriptions and next-step suggestions.
               Manually entered names are saved for future processing.
             </p>
 
-            { (phase === 'initial' || phase === 'manualNaming' || phase === 'readyForSuggestions' ) && (
+            { (phase === 'initial' || phase === 'manualNaming' || phase === 'readyForSuggestions' || phase === 'results' ) && (
               <div className="space-y-2 mb-6">
                 <Label htmlFor="generalManualCourses">Manually Add General Courses (comma-separated, processed with others)</Label>
                 <Textarea
@@ -534,26 +585,41 @@ function AiFeaturePageContent() {
                   value={generalManualCoursesInput}
                   onChange={(e) => setGeneralManualCoursesInput(e.target.value)}
                   className="min-h-[80px]"
-                  disabled={isLoading || phase === 'ocrProcessing' || phase === 'suggestionsProcessing' || phase === 'results'}
+                  disabled={isLoadingOcr || isLoadingSuggestions || phase === 'ocrProcessing' || phase === 'suggestionsProcessing'}
                 />
               </div>
             )}
+            
+            <div className="flex flex-wrap gap-4 mb-6">
+                {potentiallyNewImageFileIds.length > 0 && (phase === 'initial' || phase === 'results') && (
+                    <Button
+                        onClick={() => handleInitiateOcrProcessing('new')}
+                        disabled={isLoadingOcr || isLoadingSuggestions || !user}
+                        size="lg"
+                        variant="default"
+                    >
+                        <FilePlus className={`mr-2 h-5 w-5 ${isLoadingOcr ? 'animate-spin' : ''}`} />
+                        Process {potentiallyNewImageFileIds.length} New Certificate(s)
+                    </Button>
+                )}
 
-             {(phase !== 'results' || (phase === 'results' && finalResult)) && ( 
-                <Button
-                onClick={handlePrimaryButtonClick}
-                disabled={isLoading || !user || (phase === 'initial' && allUserImageMetas.length === 0 && generalManualCoursesInput.trim() === '')}
-                className="w-full sm:w-auto mb-6"
-                size="lg"
-                >
-                <ButtonIconComponent className={`mr-2 h-5 w-5 ${(isLoading && (phase === 'ocrProcessing' || phase === 'suggestionsProcessing')) ? 'animate-spin' : ''}`} />
-                {buttonText}
-                </Button>
-            )}
+                {showMainButton && (
+                    <Button
+                        onClick={mainButtonAction}
+                        disabled={mainButtonDisabled}
+                        size="lg"
+                        variant={potentiallyNewImageFileIds.length > 0 && (phase === 'initial' || phase === 'results') ? "outline" : "default"}
+                    >
+                        {mainButtonContent}
+                    </Button>
+                )}
+            </div>
+
+
             {!user && <p className="text-sm text-destructive mb-6">Please log in to process certificates.</p>}
             {error && ( 
               <Card className="mb-6 border-destructive bg-destructive/10">
-                <CardHeader><CardTitle className="text-destructive flex items-center"><AlertTriangle className="mr-2"/>Error Loading Data</CardTitle></CardHeader>
+                <CardHeader><CardTitle className="text-destructive flex items-center"><AlertTriangle className="mr-2"/>Error Encountered</CardTitle></CardHeader>
                 <CardContent><p>{error}</p></CardContent>
               </Card>
             )}
@@ -588,16 +654,16 @@ function AiFeaturePageContent() {
                           type="text" placeholder="Enter course name for this image"
                           value={manualNamesForFailedImages[img.file_id] || ''}
                           onChange={(e) => handleManualNameChange(img.file_id, e.target.value)}
-                          className="w-full mt-1" aria-label={`Manual course name for ${img.original_filename}`} disabled={isLoading}
+                          className="w-full mt-1" aria-label={`Manual course name for ${img.original_filename}`} disabled={isLoadingOcr || isLoadingSuggestions}
                         />
                       </div>
                     </div>
                   ))}
                 </CardContent>
                 <CardFooter className="pt-4">
-                  <Button onClick={handlePrimaryButtonClick} disabled={isLoading || !user} className="w-full">
-                    <ButtonIconComponent className={`mr-2 h-5 w-5 ${isLoading ? 'animate-spin' : ''}`} />
-                    {buttonText} 
+                  <Button onClick={handleProceedToSuggestions} disabled={isLoadingOcr || isLoadingSuggestions || !user} className="w-full">
+                    <Wand2 className={`mr-2 h-5 w-5 ${isLoadingSuggestions ? 'animate-spin' : ''}`} />
+                    Save Names & Proceed to Suggestions 
                   </Button>
                 </CardFooter>
               </Card>
@@ -667,7 +733,7 @@ function AiFeaturePageContent() {
                         const isUnverified = originalName.endsWith(" [UNVERIFIED]");
                         const displayName = isUnverified ? originalName.replace(" [UNVERIFIED]", "") : originalName;
                         const currentProcessedBy = identifiedCourseData.processed_by || "LLM"; 
-                        const key = `identified-${originalName.replace(/\s+/g, '-')}-${currentProcessedBy}`; 
+                        const key = `identified-${originalName.replace(/\s+/g, '-')}-${currentProcessedBy}-${Math.random()}`; 
 
                         return (
                           <Card key={key} className="bg-background/50 shadow-inner">
@@ -682,7 +748,7 @@ function AiFeaturePageContent() {
                                   {identifiedCourseData.description_from_graph && !identifiedCourseData.ai_description && ( <CardDescription className="pt-1 text-sm italic">Graph Description: {identifiedCourseData.description_from_graph}</CardDescription> )}
                                   {!identifiedCourseData.ai_description && !identifiedCourseData.description_from_graph && ( <CardDescription className="pt-1 text-sm italic">No description available.</CardDescription> )}
                                 </div>
-                                <Button variant="outline" size="sm" onClick={() => handleRefreshSingleCourseSuggestions(originalName)} disabled={isRefreshingCourse === originalName || isLoading}>
+                                <Button variant="outline" size="sm" onClick={() => handleRefreshSingleCourseSuggestions(originalName)} disabled={isRefreshingCourse === originalName || isLoadingOcr || isLoadingSuggestions}>
                                   {isRefreshingCourse === originalName ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <RefreshCw className="mr-2 h-4 w-4"/>}
                                   Refresh Suggestions
                                 </Button>
@@ -739,3 +805,4 @@ export default function AiFeaturePage() {
 
     
     
+
