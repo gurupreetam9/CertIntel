@@ -18,7 +18,7 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@/components/ui/tooltip"; // Added this import
+} from "@/components/ui/tooltip";
 import SearchWithSuggestions from '@/components/common/SearchWithSuggestions';
 import type { SearchableItem } from '@/components/common/SearchWithSuggestions';
 
@@ -649,6 +649,8 @@ export default function AiFeaturePage() {
     </ProtectedPage>
   );
 }
+
+    
 
     
 
