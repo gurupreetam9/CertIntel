@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info, CheckCircle, ListChecks, Wand2, BrainCircuit, HelpCircle, RefreshCw, FilePlus } from 'lucide-react';
+import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info, CheckCircle, ListChecks, Wand2, BrainCircuit, HelpCircle, RefreshCw, FilePlus, FileSearch } from 'lucide-react';
 import NextImage from 'next/image';
 import Link from 'next/link';
 import { useState, useCallback, useEffect, useMemo } from 'react';
@@ -79,9 +79,7 @@ function AiFeaturePageContent() {
   const [ocrFailedImages, setOcrFailedImages] = useState<FailedExtractionImage[]>([]);
   
   const [allUserImageMetas, setAllUserImageMetas] = useState<UserImage[]>([]);
-  // Tracks all file IDs that have been considered for OCR (current session or from loaded results)
   const [ocrConsideredFileIds, setOcrConsideredFileIds] = useState<string[]>([]); 
-  // IDs from allUserImageMetas not yet in ocrConsideredFileIds
   const [potentiallyNewImageFileIds, setPotentiallyNewImageFileIds] = useState<string[]>([]); 
 
   const [manualNamesForFailedImages, setManualNamesForFailedImages] = useState<{ [key: string]: string }>({});
@@ -200,11 +198,15 @@ function AiFeaturePageContent() {
     if (allUserImageMetas.length > 0 && !isFetchingInitialData) {
       const allCurrentIds = allUserImageMetas.map(img => img.fileId);
       const newPotentiallyNew = allCurrentIds.filter(id => !ocrConsideredFileIds.includes(id));
-      setPotentiallyNewImageFileIds(newPotentiallyNew);
+      
+      if (newPotentiallyNew.length !== potentiallyNewImageFileIds.length || 
+          !newPotentiallyNew.every(id => potentiallyNewImageFileIds.includes(id)) || 
+          !potentiallyNewImageFileIds.every(id => newPotentiallyNew.includes(id))) {
+        setPotentiallyNewImageFileIds(newPotentiallyNew);
+      }
 
       if (newPotentiallyNew.length > 0 && phase !== 'ocrProcessing' && phase !== 'suggestionsProcessing') {
-          const prevNewCount = potentiallyNewImageFileIds.length; 
-          if (newPotentiallyNew.length > 0 && newPotentiallyNew.length !== prevNewCount) { 
+          if (newPotentiallyNew.length > 0) { 
              toast({
                 title: "New Certificates Detected",
                 description: `You have ${newPotentiallyNew.length} certificate(s) that haven't been processed for AI insights. You can process them now.`,
@@ -215,7 +217,7 @@ function AiFeaturePageContent() {
     } else if (!isFetchingInitialData) {
       setPotentiallyNewImageFileIds([]);
     }
-  }, [allUserImageMetas, ocrConsideredFileIds, isFetchingInitialData, phase, toast]);
+  }, [allUserImageMetas, ocrConsideredFileIds, isFetchingInitialData, phase, toast, potentiallyNewImageFileIds.length]);
 
 
   const handleManualNameChange = (fileId: string, name: string) => {
@@ -248,10 +250,9 @@ function AiFeaturePageContent() {
     toast({ title: 'Manual Names Processed', description: 'Attempted to save entered manual names.'});
   };
 
-  const fetchSuggestions = async (coursesToGetSuggestionsFor: string[], forceRefreshList: string[] = []) => {
+  const fetchSuggestions = useCallback(async (coursesToGetSuggestionsFor: string[], forceRefreshList: string[] = []) => {
     if (!userId) return;
-    setPhase('suggestionsProcessing');
-    setIsLoadingSuggestions(true);
+    setIsLoadingSuggestions(true); // Ensure loading state is set before async operations
     setError(null);
 
     if (coursesToGetSuggestionsFor.length === 0) {
@@ -272,7 +273,6 @@ function AiFeaturePageContent() {
         payload.forceRefreshForCourses = forceRefreshList;
       }
       
-      // Use ocrConsideredFileIds for this suggestion run to accurately reflect contributing files
       if (ocrConsideredFileIds.length > 0) {
          payload.associated_image_file_ids_from_previous_run = ocrConsideredFileIds;
       }
@@ -288,22 +288,26 @@ function AiFeaturePageContent() {
 
       setFinalResult(prevResult => {
         const newProcessedData = data.user_processed_data || [];
-        let updatedUserProcessedDataMap = new Map((prevResult?.user_processed_data || []).map(item => [item.identified_course_name, item]));
+        let updatedUserProcessedDataMap = new Map<string, UserProcessedCourseData>();
 
-        if (forceRefreshList && forceRefreshList.length > 0) {
-          // Single course refresh: update or add the refreshed course
-          const refreshedCourse = newProcessedData.find(c => forceRefreshList.includes(c.identified_course_name));
-          if (refreshedCourse) {
-            updatedUserProcessedDataMap.set(refreshedCourse.identified_course_name, { ...refreshedCourse, processed_by: refreshedCourse.processed_by || "Cohere (refreshed)" });
-          } else {
-            console.warn("Refresh suggestions: LLM response for single course did not contain the expected course name.", data);
-          }
-        } else {
-          // Full suggestion run (not a single course refresh), merge new with old
-          newProcessedData.forEach(item => {
-            updatedUserProcessedDataMap.set(item.identified_course_name, item); 
+        // If it's not a specific course refresh, start with previous results
+        if (!forceRefreshList || forceRefreshList.length === 0) {
+          (prevResult?.user_processed_data || []).forEach(item => {
+            updatedUserProcessedDataMap.set(item.identified_course_name, item);
           });
+        } else {
+           // For single refresh, keep only NON-REFRESHED items from previous results to be merged with the new one.
+           (prevResult?.user_processed_data || []).forEach(item => {
+             if (!forceRefreshList.includes(item.identified_course_name)) {
+                updatedUserProcessedDataMap.set(item.identified_course_name, item);
+             }
+           });
         }
+        
+        // Merge or add new/refreshed data
+        newProcessedData.forEach(item => {
+          updatedUserProcessedDataMap.set(item.identified_course_name, { ...item, processed_by: item.processed_by || "Cohere" });
+        });
         
         const finalUserProcessedData = Array.from(updatedUserProcessedDataMap.values())
             .sort((a, b) => a.identified_course_name.localeCompare(b.identified_course_name));
@@ -313,7 +317,7 @@ function AiFeaturePageContent() {
           llm_error_summary: data.llm_error_summary !== undefined ? data.llm_error_summary : prevResult?.llm_error_summary,
           associated_image_file_ids: data.associated_image_file_ids && data.associated_image_file_ids.length > 0 
                                       ? data.associated_image_file_ids 
-                                      : ocrConsideredFileIds, // Fallback to ocrConsideredFileIds if backend doesn't return new set
+                                      : ocrConsideredFileIds,
           processedAt: new Date().toISOString(),
         };
       });
@@ -337,7 +341,7 @@ function AiFeaturePageContent() {
       setIsLoadingSuggestions(false);
       setIsRefreshingCourse(null);
     }
-  };
+  }, [userId, flaskServerBaseUrl, toast, ocrConsideredFileIds, generalManualCoursesInput, ocrSuccessfullyExtracted, ocrFailedImages]);
 
   const handleInitiateOcrProcessing = useCallback(async (ocrMode: OcrMode) => {
     if (!userId || !user) { toast({ title: 'Authentication Required', variant: 'destructive' }); return; }
@@ -425,10 +429,20 @@ function AiFeaturePageContent() {
     } finally {
       setIsLoadingOcr(false);
     }
-  }, [userId, user, flaskServerBaseUrl, generalManualCoursesInput, toast, isLoadingOcr, allUserImageMetas, potentiallyNewImageFileIds, finalResult, ocrConsideredFileIds]);
+  }, [userId, user, flaskServerBaseUrl, generalManualCoursesInput, toast, isLoadingOcr, allUserImageMetas, potentiallyNewImageFileIds, finalResult]);
 
+  const handleGetSuggestionsForManualCoursesOnly = useCallback(async () => {
+      if (!userId || generalManualCoursesInput.trim().length === 0) return;
+      const generalManualCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
+      if (generalManualCourses.length === 0) {
+          toast({ title: "No Manual Courses", description: "Please enter some course names in the textarea first." });
+          return;
+      }
+      setPhase('suggestionsProcessing'); 
+      await fetchSuggestions(generalManualCourses);
+  }, [userId, generalManualCoursesInput, fetchSuggestions, toast, setPhase]);
 
-  const handleProceedToSuggestions = async () => {
+  const handleProceedToSuggestionsAfterOcr = useCallback(async () => {
      if (phase === 'manualNaming') {
         await saveManualCourseNames();
      }
@@ -441,69 +455,16 @@ function AiFeaturePageContent() {
         setPhase(finalResult && finalResult.user_processed_data && finalResult.user_processed_data.length > 0 ? 'results' : 'initial');
         return;
     }
+    setPhase('suggestionsProcessing');
     await fetchSuggestions(allKnownCourses);
-  };
+  }, [phase, manualNamesForFailedImages, generalManualCoursesInput, ocrSuccessfullyExtracted, fetchSuggestions, toast, finalResult, setPhase]);
 
   const handleRefreshSingleCourseSuggestions = async (courseName: string) => {
     if (!userId) return;
     setIsRefreshingCourse(courseName); 
+    setPhase('suggestionsProcessing'); // To show global loading state if desired
     await fetchSuggestions([courseName], [courseName]); 
   };
-
-
-  let mainButtonContent;
-  let mainButtonAction = () => {};
-  let mainButtonDisabled = isLoadingOcr || isLoadingSuggestions || !user;
-  let showMainButton = true;
-
-  if (phase === 'initial' || phase === 'results') {
-     mainButtonAction = () => handleInitiateOcrProcessing('all');
-     mainButtonContent = (
-        <>
-            <ListChecks className={`mr-2 h-5 w-5 ${isLoadingOcr ? 'animate-spin' : ''}`} />
-            Re-scan All Certificates / Add General Courses
-        </>
-     );
-     mainButtonDisabled = mainButtonDisabled || (allUserImageMetas.length === 0 && generalManualCoursesInput.trim() === '');
-
-  } else if (phase === 'ocrProcessing') {
-    mainButtonContent = (
-        <>
-            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-            Processing OCR...
-        </>
-    );
-    mainButtonDisabled = true;
-  } else if (phase === 'manualNaming') {
-    mainButtonAction = handleProceedToSuggestions;
-    mainButtonContent = (
-        <>
-            <Wand2 className="mr-2 h-5 w-5" />
-            Save Names &amp; Proceed to Suggestions
-        </>
-    );
-  } else if (phase === 'readyForSuggestions') {
-    const userProvidedNamesForFailures = Object.values(manualNamesForFailedImages).map(name => name.trim()).filter(name => name.length > 0);
-    const generalManualCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
-    const allKnownCoursesCount = [...new Set([...ocrSuccessfullyExtracted, ...userProvidedNamesForFailures, ...generalManualCourses])].filter(name => name && name.length > 0).length;
-    
-    mainButtonAction = handleProceedToSuggestions;
-    mainButtonContent = (
-        <>
-            <BrainCircuit className={`mr-2 h-5 w-5 ${isLoadingSuggestions ? 'animate-spin' : ''}`} />
-            Get AI Suggestions for {allKnownCoursesCount} Course(s)
-        </>
-    );
-    mainButtonDisabled = mainButtonDisabled || allKnownCoursesCount === 0;
-  } else if (phase === 'suggestionsProcessing') {
-     mainButtonContent = (
-        <>
-            <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-            Generating Suggestions...
-        </>
-    );
-    mainButtonDisabled = true;
-  }
 
 
   const handleResultsSearch = (query: string) => {
@@ -525,6 +486,16 @@ function AiFeaturePageContent() {
       courseData.identified_course_name.toLowerCase().includes(resultsSearchTerm)
     );
   }, [finalResult?.user_processed_data, resultsSearchTerm]);
+
+  const canProcessNew = potentiallyNewImageFileIds.length > 0;
+  const canProcessAll = allUserImageMetas.length > 0 || generalManualCoursesInput.trim().length > 0;
+  const canGetManualSuggestions = generalManualCoursesInput.trim().length > 0;
+  const allKnownCoursesForProceedButton = useMemo(() => {
+      const userProvidedNamesForFailures = Object.values(manualNamesForFailedImages).map(name => name.trim()).filter(name => name.length > 0);
+      const generalManualCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
+      return [...new Set([...ocrSuccessfullyExtracted, ...userProvidedNamesForFailures, ...generalManualCourses])].filter(name => name && name.length > 0);
+  }, [ocrSuccessfullyExtracted, manualNamesForFailedImages, generalManualCoursesInput]);
+  const canProceedToSuggestionsAfterOcr = (phase === 'readyForSuggestions' || phase === 'manualNaming') && allKnownCoursesForProceedButton.length > 0;
 
 
   return (
@@ -549,49 +520,85 @@ function AiFeaturePageContent() {
         {!isFetchingInitialData && (
           <>
             <p className="mb-4 text-muted-foreground">
-              This tool processes your uploaded certificates to extract course names.
-              If names can't be read, you can provide them manually. Then, AI generates descriptions and next-step suggestions.
-              Manually entered names are saved for future processing.
+              Use OCR to extract course names from certificates, or add names manually. Then, get AI-powered descriptions and next-step suggestions.
             </p>
 
-            { (phase === 'initial' || phase === 'manualNaming' || phase === 'readyForSuggestions' || phase === 'results' ) && (
-              <div className="space-y-2 mb-6">
-                <Label htmlFor="generalManualCourses">Manually Add General Courses (comma-separated, processed with others)</Label>
+            {/* Textarea for General Manual Courses */}
+             <div className="space-y-2 mb-6">
+                <Label htmlFor="generalManualCourses">Manually Add General Course Names (comma-separated)</Label>
                 <Textarea
                   id="generalManualCourses"
                   placeholder="e.g., Advanced Python, Introduction to Docker"
                   value={generalManualCoursesInput}
                   onChange={(e) => setGeneralManualCoursesInput(e.target.value)}
                   className="min-h-[80px]"
-                  disabled={isLoadingOcr || isLoadingSuggestions || phase === 'ocrProcessing' || phase === 'suggestionsProcessing'}
+                  disabled={isLoadingOcr || isLoadingSuggestions}
                 />
               </div>
-            )}
             
-            <div className="flex flex-wrap gap-4 mb-6">
-                {potentiallyNewImageFileIds.length > 0 && (phase === 'initial' || phase === 'results') && (
+            {/* Action Buttons Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                {/* OCR Processing Buttons */}
+                {canProcessNew && (
                     <Button
                         onClick={() => handleInitiateOcrProcessing('new')}
                         disabled={isLoadingOcr || isLoadingSuggestions || !user}
                         size="lg"
                         variant="default"
+                        className="w-full"
                     >
-                        <FilePlus className={`mr-2 h-5 w-5 ${(isLoadingOcr && phase === 'ocrProcessing') ? 'animate-spin' : ''}`} />
-                        Process {potentiallyNewImageFileIds.length} New Certificate(s)
+                        <FilePlus className="mr-2 h-5 w-5" />
+                        Process {potentiallyNewImageFileIds.length} New Certificate(s) &amp; Manual Courses
                     </Button>
                 )}
+                 <Button
+                    onClick={() => handleInitiateOcrProcessing('all')}
+                    disabled={isLoadingOcr || isLoadingSuggestions || !user || !canProcessAll}
+                    size="lg"
+                    variant={canProcessNew ? "outline" : "default"}
+                    className="w-full"
+                >
+                    <ListChecks className="mr-2 h-5 w-5" />
+                    Process All Certificates &amp; Manual Courses
+                </Button>
 
-                {showMainButton && (
-                    <Button
-                        onClick={mainButtonAction}
-                        disabled={mainButtonDisabled}
+                {/* Suggestion Buttons */}
+                {canGetManualSuggestions && (
+                     <Button
+                        onClick={handleGetSuggestionsForManualCoursesOnly}
+                        disabled={isLoadingOcr || isLoadingSuggestions || !user}
                         size="lg"
-                        variant={potentiallyNewImageFileIds.length > 0 && (phase === 'initial' || phase === 'results') ? "outline" : "default"}
+                        variant="outline" // Or default if it's a primary path
+                        className="w-full"
                     >
-                        {mainButtonContent}
+                        <Sparkles className="mr-2 h-5 w-5" />
+                        Get Suggestions for Manual Courses Only
+                    </Button>
+                )}
+                {(phase === 'readyForSuggestions' || phase === 'manualNaming') && (
+                     <Button
+                        onClick={handleProceedToSuggestionsAfterOcr}
+                        disabled={isLoadingOcr || isLoadingSuggestions || !user || !canProceedToSuggestionsAfterOcr}
+                        size="lg"
+                        variant="default"
+                        className="w-full"
+                    >
+                        <BrainCircuit className="mr-2 h-5 w-5" />
+                        Get AI Suggestions ({allKnownCoursesForProceedButton.length} Course(s))
                     </Button>
                 )}
             </div>
+            
+            {/* Loading States */}
+            {(isLoadingOcr || isLoadingSuggestions) && (
+                <div className="flex items-center justify-center my-4 p-4 bg-muted/50 rounded-md">
+                    <Loader2 className="mr-3 h-6 w-6 animate-spin text-primary" />
+                    <p className="text-muted-foreground">
+                        {isLoadingOcr && "Processing Certificates (OCR)..."}
+                        {isLoadingSuggestions && "Generating AI Suggestions..."}
+                    </p>
+                </div>
+            )}
 
 
             {!user && <p className="text-sm text-destructive mb-6">Please log in to process certificates.</p>}
@@ -639,9 +646,9 @@ function AiFeaturePageContent() {
                   ))}
                 </CardContent>
                 <CardFooter className="pt-4">
-                  <Button onClick={handleProceedToSuggestions} disabled={isLoadingOcr || isLoadingSuggestions || !user} className="w-full">
-                    <Wand2 className={`mr-2 h-5 w-5 ${isLoadingSuggestions ? 'animate-spin' : ''}`} />
-                    Save Names &amp; Proceed to Suggestions 
+                  <Button onClick={handleProceedToSuggestionsAfterOcr} disabled={isLoadingOcr || isLoadingSuggestions || !user || !canProceedToSuggestionsAfterOcr} className="w-full">
+                    <Wand2 className="mr-2 h-5 w-5" />
+                    Save Names &amp; Proceed to Suggestions ({allKnownCoursesForProceedButton.length} Total)
                   </Button>
                 </CardFooter>
               </Card>
@@ -659,7 +666,7 @@ function AiFeaturePageContent() {
               </Card>
             )}
 
-             {(phase === 'readyForSuggestions' && ocrSuccessfullyExtracted.length === 0 && Object.values(manualNamesForFailedImages).filter(name => name.trim().length > 0).length === 0 && generalManualCoursesInput.trim() === '') && (
+            {(phase === 'readyForSuggestions' && allKnownCoursesForProceedButton.length === 0) && (
               <Card className="my-6 border-blue-500 bg-blue-500/10">
                 <CardHeader><CardTitle className="text-lg font-headline text-blue-700 flex items-center"><Info className="mr-2 h-5 w-5" /> No Courses Identified</CardTitle></CardHeader>
                 <CardContent><p className="text-blue-700">No courses identified from certificates or manual input. Add courses to get AI suggestions.</p></CardContent>
@@ -667,14 +674,14 @@ function AiFeaturePageContent() {
             )}
 
             {phase === 'results' && finalResult && (
-              <div className="mt-4"> 
-                <div className="my-4"> 
+              <div className="flex flex-col min-h-0"> {/* Allow results to grow and scroll */}
+                <div className="my-4 shrink-0"> {/* Search bar does not grow */}
                     <SearchWithSuggestions
                         onSearch={handleResultsSearch} placeholder="Search your processed courses..."
                         searchableData={aiFeatureSearchableResults}
                     />
                 </div>
-                <div className="border border-border rounded-lg shadow-md p-4 bg-card space-y-6"> 
+                <div className="flex-grow min-h-0 overflow-y-auto border border-border rounded-lg shadow-md p-4 bg-card space-y-6"> {/* Results list scrolls */}
                   <h2 className="text-2xl font-headline mb-4 border-b pb-2">Processed Result &amp; AI Suggestions:</h2>
                   {finalResult.processedAt && <p className="text-xs text-muted-foreground mb-3">Results from: {new Date(finalResult.processedAt).toLocaleString()}</p>}
 
@@ -783,5 +790,6 @@ export default function AiFeaturePage() {
 
     
     
+
 
 
