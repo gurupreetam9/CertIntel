@@ -18,7 +18,7 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from "@/components/ui/tooltip"; // Corrected import
 import SearchWithSuggestions from '@/components/common/SearchWithSuggestions';
 import type { SearchableItem } from '@/components/common/SearchWithSuggestions';
 
