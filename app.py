@@ -5,13 +5,14 @@ import os
 import logging
 from pymongo import MongoClient, DESCENDING, UpdateOne
 from gridfs import GridFS
+from bson.objectid import ObjectId # Import ObjectId
 from dotenv import load_dotenv
-from datetime import datetime, timezone 
+from datetime import datetime, timezone
 import json
-import io 
-from werkzeug.utils import secure_filename 
-from pdf2image import convert_from_bytes, pdfinfo_from_bytes 
-from pdf2image.exceptions import ( 
+import io
+from werkzeug.utils import secure_filename
+from pdf2image import convert_from_bytes, pdfinfo_from_bytes
+from pdf2image.exceptions import (
     PDFInfoNotInstalledError,
     PDFPageCountError,
     PDFSyntaxError,
@@ -102,7 +103,7 @@ def get_latest_processed_results():
     app_logger.info(f"Flask /api/latest-processed-results (Req ID: {req_id_latest}): Received GET request.")
     user_id = request.args.get('userId')
     if not user_id: return jsonify({"error": "userId query parameter is required"}), 400
-    
+
     db_components_to_check = {"mongo_client": mongo_client, "db_instance": db, "user_course_processing_collection": user_course_processing_collection}
     missing_components = [name for name, comp in db_components_to_check.items() if comp is None]
     if missing_components: return jsonify({"error": f"DB component(s) not available: {', '.join(missing_components)}.", "errorKey": "DB_COMPONENT_UNAVAILABLE"}), 503
@@ -149,12 +150,12 @@ def process_certificates_from_db():
 
     try:
         processing_result_dict = {}
-        
+
         if processing_mode == 'ocr_only':
             app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): User has {len(all_image_file_ids_from_frontend)} total images from frontend.")
             images_for_ocr_processing = []
             already_named_courses = []
-            
+
             # Get all manually named courses for this user
             manual_names_cursor = manual_course_names_collection.find({"userId": user_id, "fileId": {"$in": all_image_file_ids_from_frontend}})
             manual_names_map = {item["fileId"]: item["courseName"] for item in manual_names_cursor}
@@ -174,11 +175,11 @@ def process_certificates_from_db():
                             effective_content_type = file_doc.get("metadata", {}).get("sourceContentType", file_doc.get("contentType", "application/octet-stream"))
                             if file_doc.get("metadata", {}).get("convertedTo"):
                                 effective_content_type = file_doc.get("metadata", {}).get("convertedTo")
-                            
+
                             images_for_ocr_processing.append({
-                                "bytes": image_bytes, 
+                                "bytes": image_bytes,
                                 "original_filename": file_doc.get("metadata", {}).get("originalName", file_doc["filename"]),
-                                "content_type": effective_content_type, 
+                                "content_type": effective_content_type,
                                 "file_id": file_id_str
                             })
                             app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): FileId {file_id_str} needs OCR. Added to processing list.")
@@ -200,7 +201,7 @@ def process_certificates_from_db():
 
             # Combine results
             final_successful_courses = list(set(already_named_courses + ocr_processor_results.get("successfully_extracted_courses", []) + additional_manual_courses_general))
-            
+
             processing_result_dict = {
                 "successfully_extracted_courses": sorted(final_successful_courses),
                 "failed_extraction_images": ocr_processor_results.get("failed_extraction_images", []), # These are images that genuinely failed OCR and didn't have a manual name
@@ -228,10 +229,10 @@ def process_certificates_from_db():
                 force_refresh_for_courses=force_refresh_for_courses # Pass this to processor
             )
             app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Suggestion processing complete.")
-            
+
             current_processed_data_for_db = processing_result_dict.get("user_processed_data", [])
             should_store_new_result = True
-            
+
             # Determine associated_image_file_ids for storage
             final_associated_ids_for_db = []
             if associated_image_file_ids_from_previous_run is not None: # If client sent it (meaning OCR just ran or loading from cache)
@@ -240,7 +241,7 @@ def process_certificates_from_db():
                  final_associated_ids_for_db = latest_cached_record["associated_image_file_ids"]
             else: # Absolute fallback: all current user images (less accurate for suggestion context)
                  final_associated_ids_for_db = [str(doc["_id"]) for doc in db.images.files.find({"metadata.userId": user_id}, projection={"_id": 1})]
-            
+
             processing_result_dict["associated_image_file_ids"] = final_associated_ids_for_db # Ensure this is in the response
 
 
@@ -282,7 +283,11 @@ def convert_pdf_to_images_route():
     if mongo_client is None or db is None or fs_images is None: return jsonify({"error": "Database connection or GridFS not available."}), 503
     if 'pdf_file' not in request.files: return jsonify({"error": "No PDF file part in the request."}), 400
 
-    pdf_file_storage, user_id, original_pdf_name = request.files['pdf_file'], request.form.get('userId'), request.form.get('originalName', pdf_file_storage.filename)
+    pdf_file_storage = request.files['pdf_file'] # Assign pdf_file_storage first
+    user_id = request.form.get('userId')
+    # Now pdf_file_storage is defined, so pdf_file_storage.filename can be safely used as a default
+    original_pdf_name = request.form.get('originalName', pdf_file_storage.filename)
+
     if not user_id: return jsonify({"error": "Missing 'userId' in form data."}), 400
     if not original_pdf_name: return jsonify({"error": "No filename or originalName provided for PDF."}), 400
     app.logger.info(f"Flask (Req ID: {req_id}): Processing PDF '{original_pdf_name}' for userId '{user_id}'.")
@@ -310,7 +315,7 @@ def convert_pdf_to_images_route():
             file_id_obj = fs_images.put(img_byte_arr_val, filename=gridfs_filename, contentType='image/png', metadata=metadata_for_gridfs)
             converted_files_metadata.append({"originalName": metadata_for_gridfs["originalName"], "fileId": str(file_id_obj), "filename": gridfs_filename, "contentType": 'image/png', "pageNumber": page_number})
             app.logger.info(f"Flask (Req ID: {req_id}): Stored page {page_number} with GridFS ID: {str(file_id_obj)}. Metadata: {json.dumps(metadata_for_gridfs)}")
-        
+
         app.logger.info(f"Flask (Req ID: {req_id}): Successfully processed and stored {len(converted_files_metadata)} pages for PDF '{original_pdf_name}'.")
         return jsonify({"message": "PDF converted and pages stored successfully.", "converted_files": converted_files_metadata}), 200
 
