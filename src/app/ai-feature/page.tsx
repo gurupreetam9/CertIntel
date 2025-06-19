@@ -288,41 +288,32 @@ function AiFeaturePageContent() {
 
       setFinalResult(prevResult => {
         const newProcessedData = data.user_processed_data || [];
-        let updatedUserProcessedData: UserProcessedCourseData[];
+        let updatedUserProcessedDataMap = new Map((prevResult?.user_processed_data || []).map(item => [item.identified_course_name, item]));
 
         if (forceRefreshList && forceRefreshList.length > 0) {
           // Single course refresh: update or add the refreshed course
-          const refreshedCourseName = forceRefreshList[0];
-          const refreshedCourse = newProcessedData.find(c => c.identified_course_name === refreshedCourseName);
-          
+          const refreshedCourse = newProcessedData.find(c => forceRefreshList.includes(c.identified_course_name));
           if (refreshedCourse) {
-            updatedUserProcessedData = (prevResult?.user_processed_data || []).map(existingCourse =>
-              existingCourse.identified_course_name === refreshedCourseName
-                ? { ...refreshedCourse, processed_by: refreshedCourse.processed_by || "Cohere (refreshed)" }
-                : existingCourse
-            );
-            if (!updatedUserProcessedData.find(c => c.identified_course_name === refreshedCourseName)) {
-              updatedUserProcessedData.push({ ...refreshedCourse, processed_by: refreshedCourse.processed_by || "Cohere (refreshed)" });
-            }
+            updatedUserProcessedDataMap.set(refreshedCourse.identified_course_name, { ...refreshedCourse, processed_by: refreshedCourse.processed_by || "Cohere (refreshed)" });
           } else {
-            updatedUserProcessedData = prevResult?.user_processed_data || [];
             console.warn("Refresh suggestions: LLM response for single course did not contain the expected course name.", data);
           }
         } else {
-          // Full suggestion run (not a single course refresh)
-          const prevDataMap = new Map((prevResult?.user_processed_data || []).map(item => [item.identified_course_name, item]));
+          // Full suggestion run (not a single course refresh), merge new with old
           newProcessedData.forEach(item => {
-            prevDataMap.set(item.identified_course_name, item); 
+            updatedUserProcessedDataMap.set(item.identified_course_name, item); 
           });
-          updatedUserProcessedData = Array.from(prevDataMap.values());
         }
+        
+        const finalUserProcessedData = Array.from(updatedUserProcessedDataMap.values())
+            .sort((a, b) => a.identified_course_name.localeCompare(b.identified_course_name));
 
         return {
-          user_processed_data: updatedUserProcessedData,
+          user_processed_data: finalUserProcessedData,
           llm_error_summary: data.llm_error_summary !== undefined ? data.llm_error_summary : prevResult?.llm_error_summary,
           associated_image_file_ids: data.associated_image_file_ids && data.associated_image_file_ids.length > 0 
                                       ? data.associated_image_file_ids 
-                                      : ocrConsideredFileIds,
+                                      : ocrConsideredFileIds, // Fallback to ocrConsideredFileIds if backend doesn't return new set
           processedAt: new Date().toISOString(),
         };
       });
@@ -434,7 +425,7 @@ function AiFeaturePageContent() {
     } finally {
       setIsLoadingOcr(false);
     }
-  }, [userId, user, flaskServerBaseUrl, generalManualCoursesInput, toast, isLoadingOcr, allUserImageMetas, potentiallyNewImageFileIds, finalResult]);
+  }, [userId, user, flaskServerBaseUrl, generalManualCoursesInput, toast, isLoadingOcr, allUserImageMetas, potentiallyNewImageFileIds, finalResult, ocrConsideredFileIds]);
 
 
   const handleProceedToSuggestions = async () => {
@@ -538,7 +529,7 @@ function AiFeaturePageContent() {
 
   return (
     <TooltipProvider>
-      <div className="container mx-auto px-4 py-8 md:px-6 lg:px-8 flex flex-col h-[calc(100vh-var(--header-height,4rem)-1px)]">
+      <div className="container mx-auto px-4 py-8 md:px-6 lg:px-8 flex flex-col">
         <div className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Button asChild variant="outline" size="icon" aria-label="Go back to Home">
@@ -676,14 +667,14 @@ function AiFeaturePageContent() {
             )}
 
             {phase === 'results' && finalResult && (
-              <div className="flex flex-col flex-grow min-h-0 mt-4"> {/* MODIFIED: Added flex, flex-col, flex-grow, min-h-0, mt-4 */}
-                <div className="my-4 shrink-0"> {/* Search bar container, shrink-0 so it doesn't grow */}
+              <div className="mt-4"> 
+                <div className="my-4"> 
                     <SearchWithSuggestions
                         onSearch={handleResultsSearch} placeholder="Search your processed courses..."
                         searchableData={aiFeatureSearchableResults}
                     />
                 </div>
-                <div className="flex-grow min-h-0 border border-border rounded-lg shadow-md overflow-y-auto p-4 bg-card space-y-6"> {/* MODIFIED: Added min-h-0 */}
+                <div className="border border-border rounded-lg shadow-md p-4 bg-card space-y-6"> 
                   <h2 className="text-2xl font-headline mb-4 border-b pb-2">Processed Result &amp; AI Suggestions:</h2>
                   {finalResult.processedAt && <p className="text-xs text-muted-foreground mb-3">Results from: {new Date(finalResult.processedAt).toLocaleString()}</p>}
 
@@ -792,4 +783,5 @@ export default function AiFeaturePage() {
 
     
     
+
 
