@@ -6,12 +6,12 @@ import logging
 from pymongo import MongoClient, DESCENDING, UpdateOne
 from gridfs import GridFS
 from dotenv import load_dotenv
-from datetime import datetime, timezone # Ensure timezone is imported
+from datetime import datetime, timezone 
 import json
-import io # Added import
-from werkzeug.utils import secure_filename # Added import
-from pdf2image import convert_from_bytes, pdfinfo_from_bytes # Added import
-from pdf2image.exceptions import ( # Added import
+import io 
+from werkzeug.utils import secure_filename 
+from pdf2image import convert_from_bytes, pdfinfo_from_bytes 
+from pdf2image.exceptions import ( 
     PDFInfoNotInstalledError,
     PDFPageCountError,
     PDFSyntaxError,
@@ -53,18 +53,13 @@ try:
         fs_images = GridFS(db, collection="images")
         user_course_processing_collection = db["user_course_processing_results"]
         manual_course_names_collection = db["manual_course_names"]
-        # Create unique index for manual_course_names if it doesn't exist
         manual_course_names_collection.create_index([("userId", 1), ("fileId", 1)], unique=True, background=True)
         app.logger.info(f"Successfully connected to MongoDB: {DB_NAME}, GridFS bucket 'images', collection 'user_course_processing_results', and collection 'manual_course_names'.")
     else:
         app.logger.warning("MONGODB_URI not found, MongoDB connection will not be established.")
 except Exception as e:
     app.logger.error(f"Failed to connect to MongoDB or initialize collections: {e}")
-    mongo_client = None
-    db = None
-    fs_images = None
-    user_course_processing_collection = None
-    manual_course_names_collection = None
+    mongo_client = None; db = None; fs_images = None; user_course_processing_collection = None; manual_course_names_collection = None
 
 POPPLER_PATH = os.getenv("POPPLER_PATH", None)
 if POPPLER_PATH: app_logger.info(f"Flask app.py: POPPLER_PATH found: {POPPLER_PATH}")
@@ -80,51 +75,53 @@ def health_check():
 def save_manual_course_name():
     req_id_manual_name = datetime.now().strftime('%Y%m%d%H%M%S%f')
     app_logger.info(f"Flask /api/manual-course-name (Req ID: {req_id_manual_name}): Received request.")
-
-    db_components_to_check = {
-        "mongo_client": mongo_client,
-        "db_instance": db,
-        "manual_course_names_collection": manual_course_names_collection
-    }
-    missing_components = [name for name, comp in db_components_to_check.items() if comp is None]
-    if missing_components:
-        error_message = f"Database component(s) not available for manual name saving: {', '.join(missing_components)}."
-        app_logger.error(f"Flask (Req ID: {req_id_manual_name}): {error_message}")
-        return jsonify({"error": error_message, "errorKey": "DB_COMPONENT_UNAVAILABLE"}), 503
+    missing_components = [name for name, comp in {"mongo_client": mongo_client, "db_instance": db, "manual_course_names_collection": manual_course_names_collection}.items() if comp is None]
+    if missing_components: return jsonify({"error": f"Database component(s) not available: {', '.join(missing_components)}.", "errorKey": "DB_COMPONENT_UNAVAILABLE"}), 503
 
     data = request.get_json()
-    user_id = data.get("userId")
-    file_id = data.get("fileId")
-    course_name = data.get("courseName")
-
-    if not all([user_id, file_id, course_name]):
-        app_logger.warning(f"Flask (Req ID: {req_id_manual_name}): Missing userId, fileId, or courseName.")
-        return jsonify({"error": "Missing userId, fileId, or courseName"}), 400
-
+    user_id, file_id, course_name = data.get("userId"), data.get("fileId"), data.get("courseName")
+    if not all([user_id, file_id, course_name]): return jsonify({"error": "Missing userId, fileId, or courseName"}), 400
     app_logger.info(f"Flask (Req ID: {req_id_manual_name}): Saving manual name for userId: {user_id}, fileId: {file_id}, courseName: '{course_name}'")
-
     try:
         update_result = manual_course_names_collection.update_one(
             {"userId": user_id, "fileId": file_id},
-            {
-                "$set": {
-                    "courseName": course_name,
-                    "updatedAt": datetime.now(timezone.utc)
-                },
-                "$setOnInsert": {"createdAt": datetime.now(timezone.utc)}
-            },
+            {"$set": {"courseName": course_name, "updatedAt": datetime.now(timezone.utc)}, "$setOnInsert": {"createdAt": datetime.now(timezone.utc)}},
             upsert=True
         )
-        if update_result.upserted_id:
-            app_logger.info(f"Flask (Req ID: {req_id_manual_name}): Inserted new manual course name. ID: {update_result.upserted_id}")
-        elif update_result.modified_count > 0:
-            app_logger.info(f"Flask (Req ID: {req_id_manual_name}): Updated existing manual course name.")
-        else:
-             app_logger.info(f"Flask (Req ID: {req_id_manual_name}): Manual course name was already up-to-date (no change). Matched: {update_result.matched_count}")
-
+        if update_result.upserted_id: app_logger.info(f"Flask (Req ID: {req_id_manual_name}): Inserted new manual course name. ID: {update_result.upserted_id}")
+        elif update_result.modified_count > 0: app_logger.info(f"Flask (Req ID: {req_id_manual_name}): Updated existing manual course name.")
+        else: app_logger.info(f"Flask (Req ID: {req_id_manual_name}): Manual course name was already up-to-date. Matched: {update_result.matched_count}")
         return jsonify({"success": True, "message": "Manual course name saved."}), 200
     except Exception as e:
         app_logger.error(f"Flask (Req ID: {req_id_manual_name}): Error saving manual course name for userId {user_id}, fileId {file_id}: {str(e)}", exc_info=True)
+        return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
+
+@app.route('/api/latest-processed-results', methods=['GET'])
+def get_latest_processed_results():
+    req_id_latest = datetime.now().strftime('%Y%m%d%H%M%S%f')
+    app_logger.info(f"Flask /api/latest-processed-results (Req ID: {req_id_latest}): Received GET request.")
+    user_id = request.args.get('userId')
+    if not user_id: return jsonify({"error": "userId query parameter is required"}), 400
+    
+    db_components_to_check = {"mongo_client": mongo_client, "db_instance": db, "user_course_processing_collection": user_course_processing_collection}
+    missing_components = [name for name, comp in db_components_to_check.items() if comp is None]
+    if missing_components: return jsonify({"error": f"DB component(s) not available: {', '.join(missing_components)}.", "errorKey": "DB_COMPONENT_UNAVAILABLE"}), 503
+
+    try:
+        latest_doc = user_course_processing_collection.find_one(
+            {"userId": user_id},
+            sort=[("processedAt", DESCENDING)]
+        )
+        if latest_doc:
+            latest_doc["_id"] = str(latest_doc["_id"]) # Convert ObjectId
+            latest_doc["processedAt"] = latest_doc["processedAt"].isoformat() if isinstance(latest_doc["processedAt"], datetime) else str(latest_doc["processedAt"])
+            app_logger.info(f"Flask (Req ID: {req_id_latest}): Found latest processed document for userId '{user_id}'.")
+            return jsonify(latest_doc), 200
+        else:
+            app_logger.info(f"Flask (Req ID: {req_id_latest}): No processed documents found for userId '{user_id}'.")
+            return jsonify({"message": "No processed results found for this user."}), 404
+    except Exception as e:
+        app_logger.error(f"Flask (Req ID: {req_id_latest}): Error fetching latest processed results for userId {user_id}: {str(e)}", exc_info=True)
         return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
 
 
@@ -132,191 +129,142 @@ def save_manual_course_name():
 def process_certificates_from_db():
     req_id_cert = datetime.now().strftime('%Y%m%d%H%M%S%f')
     app_logger.info(f"Flask /api/process-certificates (Req ID: {req_id_cert}): Received request.")
-
-    db_components_to_check = {
-        "mongo_client": mongo_client,
-        "db_instance": db,
-        "gridfs_images_bucket": fs_images,
-        "user_course_processing_collection": user_course_processing_collection,
-        "manual_course_names_collection": manual_course_names_collection
-    }
+    db_components_to_check = {"mongo_client": mongo_client, "db_instance": db, "gridfs_images_bucket": fs_images, "user_course_processing_collection": user_course_processing_collection, "manual_course_names_collection": manual_course_names_collection}
     missing_components = [name for name, comp in db_components_to_check.items() if comp is None]
-
-    if missing_components:
-        error_message = f"Database component(s) not available for certificate processing: {', '.join(missing_components)}. Check MongoDB connection and initialization."
-        app_logger.error(f"Flask (Req ID: {req_id_cert}): {error_message}")
-        return jsonify({"error": error_message, "errorKey": "DB_COMPONENT_UNAVAILABLE"}), 503
+    if missing_components: return jsonify({"error": f"DB component(s) not available: {', '.join(missing_components)}.", "errorKey": "DB_COMPONENT_UNAVAILABLE"}), 503
 
     data = request.get_json()
     user_id = data.get("userId")
     processing_mode = data.get("mode", "ocr_only")
     additional_manual_courses_general = data.get("additionalManualCourses", [])
     known_course_names_from_frontend = data.get("knownCourseNames", [])
+    all_image_file_ids_from_frontend = data.get("allImageFileIds", []) # New for OCR mode
+    force_refresh_for_courses = data.get("forceRefreshForCourses", []) # New for suggestions mode
+    associated_image_file_ids_from_previous_run = data.get("associated_image_file_ids_from_previous_run", None)
 
-    if not user_id:
-        app_logger.warning(f"Flask (Req ID: {req_id_cert}): User ID not provided.")
-        return jsonify({"error": "User ID (userId) not provided"}), 400
-    
-    app_logger.info(f"Flask (Req ID: {req_id_cert}): Received request for userId: '{user_id}'. Confirming type: {type(user_id)}")
+
+    if not user_id: return jsonify({"error": "User ID (userId) not provided"}), 400
     app_logger.info(f"Flask (Req ID: {req_id_cert}): Processing for userId: '{user_id}', Mode: {processing_mode}.")
-    app_logger.info(f"Flask (Req ID: {req_id_cert}): General Manual Courses: {additional_manual_courses_general}")
-    app_logger.info(f"Flask (Req ID: {req_id_cert}): Known Course Names for Suggestions: {known_course_names_from_frontend}")
-
+    app_logger.info(f"Flask (Req ID: {req_id_cert}): General Manual Courses: {additional_manual_courses_general}, AllImageFileIDs: {all_image_file_ids_from_frontend}, ForceRefresh: {force_refresh_for_courses}")
 
     try:
         processing_result_dict = {}
-        latest_previous_user_data_list = []
-        user_all_image_ids_associated_with_run = []
-
+        
         if processing_mode == 'ocr_only':
-            image_data_for_ocr_processing = []
-            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Finding all images for userId: '{user_id}' in db.images.files")
+            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): User has {len(all_image_file_ids_from_frontend)} total images from frontend.")
+            images_for_ocr_processing = []
+            already_named_courses = []
             
-            try:
-                count_for_user_id = db.images.files.count_documents({"metadata.userId": user_id})
-                app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): MongoDB count_documents for metadata.userId '{user_id}' is: {count_for_user_id}")
-            except Exception as e_count:
-                app_logger.error(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Error counting documents for userId '{user_id}': {e_count}")
+            # Get all manually named courses for this user
+            manual_names_cursor = manual_course_names_collection.find({"userId": user_id, "fileId": {"$in": all_image_file_ids_from_frontend}})
+            manual_names_map = {item["fileId"]: item["courseName"] for item in manual_names_cursor}
+            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Found {len(manual_names_map)} relevant manual names for user {user_id}.")
 
-            user_image_files_cursor = db.images.files.find({"metadata.userId": user_id}) 
-            
-            temp_list_for_cursor = list(user_image_files_cursor) 
-            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Initial count of files from .find() cursor for userId '{user_id}': {len(temp_list_for_cursor)}")
+            for file_id_str in all_image_file_ids_from_frontend:
+                if file_id_str in manual_names_map:
+                    already_named_courses.append(manual_names_map[file_id_str])
+                    app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): FileId {file_id_str} has manual name '{manual_names_map[file_id_str]}'. Skipping OCR, adding to successes.")
+                else:
+                    try:
+                        file_doc = db.images.files.find_one({"_id": ObjectId(file_id_str), "metadata.userId": user_id})
+                        if file_doc:
+                            grid_out = fs_images.get(ObjectId(file_id_str))
+                            image_bytes = grid_out.read()
+                            grid_out.close()
+                            effective_content_type = file_doc.get("metadata", {}).get("sourceContentType", file_doc.get("contentType", "application/octet-stream"))
+                            if file_doc.get("metadata", {}).get("convertedTo"):
+                                effective_content_type = file_doc.get("metadata", {}).get("convertedTo")
+                            
+                            images_for_ocr_processing.append({
+                                "bytes": image_bytes, 
+                                "original_filename": file_doc.get("metadata", {}).get("originalName", file_doc["filename"]),
+                                "content_type": effective_content_type, 
+                                "file_id": file_id_str
+                            })
+                            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): FileId {file_id_str} needs OCR. Added to processing list.")
+                        else:
+                            app_logger.warning(f"Flask (Req ID: {req_id_cert}, OCR_MODE): FileId {file_id_str} not found in GridFS for user or GridFS doc missing metadata. Skipping.")
+                    except Exception as e_gridfs:
+                        app_logger.error(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Error fetching GridFS file {file_id_str}: {e_gridfs}")
 
+            if not images_for_ocr_processing and not already_named_courses and not additional_manual_courses_general:
+                 app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): No images for OCR, no existing manual names, and no general manual courses. Returning empty.")
+                 return jsonify({"successfully_extracted_courses": [], "failed_extraction_images": [], "processed_image_file_ids": all_image_file_ids_from_frontend}), 200
 
-            for file_doc in temp_list_for_cursor: 
-                file_id = file_doc["_id"]
-                original_filename = file_doc.get("metadata", {}).get("originalName", file_doc["filename"])
-                content_type = file_doc.get("contentType", "application/octet-stream")
-                user_all_image_ids_associated_with_run.append(str(file_id))
-                app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Found image for user: ID={file_id}, Name={original_filename}. Adding to processing list and associated_run_ids.")
-
-                app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Fetching file bytes: ID={file_id}, Name={original_filename}")
-                grid_out = fs_images.get(file_id) 
-                image_bytes = grid_out.read()
-                grid_out.close()
-
-                effective_content_type = file_doc.get("metadata", {}).get("sourceContentType", content_type)
-                if file_doc.get("metadata", {}).get("convertedTo"):
-                     effective_content_type = file_doc.get("metadata", {}).get("convertedTo")
-
-                image_data_for_ocr_processing.append({
-                    "bytes": image_bytes, "original_filename": original_filename,
-                    "content_type": effective_content_type, "file_id": str(file_id)
-                })
-            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Total {len(image_data_for_ocr_processing)} images prepared for OCR attempt. Total unique image IDs for this run: {len(set(user_all_image_ids_associated_with_run))}")
-
-            if not image_data_for_ocr_processing and not additional_manual_courses_general:
-                 app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): No images and no general manual courses. Returning empty handed.")
-                 return jsonify({
-                    "successfully_extracted_courses": [],
-                    "failed_extraction_images": [],
-                    "processed_image_file_ids": []
-                 }), 200
-
-            ocr_phase_raw_results = extract_and_recommend_courses_from_image_data(
-                image_data_list=image_data_for_ocr_processing,
+            ocr_processor_results = extract_and_recommend_courses_from_image_data(
+                image_data_list=images_for_ocr_processing, # Only send candidates
                 mode='ocr_only',
-                additional_manual_courses=additional_manual_courses_general
+                additional_manual_courses=[] # General manual courses are handled after processor
             )
-            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Automated OCR/LLM processing by certificate_processor complete.")
+            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): OCR processor returned. Newly extracted: {len(ocr_processor_results.get('successfully_extracted_courses',[]))}, Newly failed: {len(ocr_processor_results.get('failed_extraction_images',[]))}")
 
-            current_successful_courses = ocr_phase_raw_results.get("successfully_extracted_courses", [])
-            initial_failed_images_after_automated_steps = ocr_phase_raw_results.get("failed_extraction_images", [])
-            final_failed_images_for_frontend_prompting = []
-
-            if initial_failed_images_after_automated_steps:
-                app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): {len(initial_failed_images_after_automated_steps)} images failed automated steps. Checking for stored manual names.")
-                stored_manual_names_cursor = manual_course_names_collection.find({"userId": user_id})
-                stored_manual_names_map = {item["fileId"]: item["courseName"] for item in stored_manual_names_cursor}
-                app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Found {len(stored_manual_names_map)} stored manual names for user {user_id}.")
-
-                for failed_img_info in initial_failed_images_after_automated_steps:
-                    file_id_of_failed_img = failed_img_info.get("file_id")
-                    if file_id_of_failed_img in stored_manual_names_map:
-                        stored_name = stored_manual_names_map[file_id_of_failed_img]
-                        app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Found stored manual name '{stored_name}' for failed image fileId {file_id_of_failed_img}. Adding to successful courses.")
-                        if stored_name not in current_successful_courses:
-                            current_successful_courses.append(stored_name)
-                    else:
-                        final_failed_images_for_frontend_prompting.append(failed_img_info)
-
-                ocr_phase_raw_results["successfully_extracted_courses"] = sorted(list(set(current_successful_courses)))
-                ocr_phase_raw_results["failed_extraction_images"] = final_failed_images_for_frontend_prompting
-                app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): After applying stored names - Successful: {len(current_successful_courses)}, Failures to prompt: {len(final_failed_images_for_frontend_prompting)}.")
-            else:
-                 app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): No images failed automated steps. No need to check stored manual names.")
-                 ocr_phase_raw_results["successfully_extracted_courses"] = sorted(list(set(current_successful_courses)))
-
-            final_processing_result_dict = dict(ocr_phase_raw_results) 
-            final_processing_result_dict["processed_image_file_ids"] = list(set(user_all_image_ids_associated_with_run))
-            processing_result_dict = final_processing_result_dict
-            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Final 'processed_image_file_ids' being returned (Count: {len(processing_result_dict.get('processed_image_file_ids', []))}): {processing_result_dict.get('processed_image_file_ids')}")
-
+            # Combine results
+            final_successful_courses = list(set(already_named_courses + ocr_processor_results.get("successfully_extracted_courses", []) + additional_manual_courses_general))
+            
+            processing_result_dict = {
+                "successfully_extracted_courses": sorted(final_successful_courses),
+                "failed_extraction_images": ocr_processor_results.get("failed_extraction_images", []), # These are images that genuinely failed OCR and didn't have a manual name
+                "processed_image_file_ids": all_image_file_ids_from_frontend # Reflects all images client considered
+            }
+            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Final OCR results - Success: {len(final_successful_courses)}, Failures to prompt: {len(processing_result_dict['failed_extraction_images'])}.")
 
         elif processing_mode == 'suggestions_only':
             if not known_course_names_from_frontend:
                 return jsonify({"user_processed_data": [], "llm_error_summary": "No course names provided for suggestion generation."}), 200
 
+            latest_previous_user_data_list = []
+            latest_cached_record = None
             try:
-                latest_doc = user_course_processing_collection.find_one(
-                    {"userId": user_id},
-                    sort=[("processedAt", DESCENDING)],
-                    projection={"user_processed_data": 1, "associated_image_file_ids": 1} 
-                )
-                if latest_doc and "user_processed_data" in latest_doc:
-                    latest_previous_user_data_list = latest_doc["user_processed_data"]
+                latest_cached_record = user_course_processing_collection.find_one({"userId": user_id}, sort=[("processedAt", DESCENDING)])
+                if latest_cached_record and "user_processed_data" in latest_cached_record:
+                    latest_previous_user_data_list = latest_cached_record["user_processed_data"]
                     app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Fetched 'user_processed_data' from latest record for cache.")
-                else:
-                    app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): No previous processed data found for cache.")
-            except Exception as e:
-                app_logger.error(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Error fetching latest processed data: {e}")
+            except Exception as e: app_logger.error(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Error fetching latest processed data: {e}")
 
             processing_result_dict = extract_and_recommend_courses_from_image_data(
                 mode='suggestions_only',
                 known_course_names=known_course_names_from_frontend,
-                previous_user_data_list=latest_previous_user_data_list
+                previous_user_data_list=latest_previous_user_data_list,
+                force_refresh_for_courses=force_refresh_for_courses # Pass this to processor
             )
             app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Suggestion processing complete.")
-
+            
             current_processed_data_for_db = processing_result_dict.get("user_processed_data", [])
             should_store_new_result = True
+            
+            # Determine associated_image_file_ids for storage
+            final_associated_ids_for_db = []
+            if associated_image_file_ids_from_previous_run is not None: # If client sent it (meaning OCR just ran or loading from cache)
+                 final_associated_ids_for_db = associated_image_file_ids_from_previous_run
+            elif latest_cached_record and "associated_image_file_ids" in latest_cached_record: # Fallback to latest db record's IDs
+                 final_associated_ids_for_db = latest_cached_record["associated_image_file_ids"]
+            else: # Absolute fallback: all current user images (less accurate for suggestion context)
+                 final_associated_ids_for_db = [str(doc["_id"]) for doc in db.images.files.find({"metadata.userId": user_id}, projection={"_id": 1})]
+            
+            processing_result_dict["associated_image_file_ids"] = final_associated_ids_for_db # Ensure this is in the response
 
-            if latest_previous_user_data_list:
+
+            if latest_previous_user_data_list and not force_refresh_for_courses: # Only compare if not forcing refresh
                 prev_course_names = set(item['identified_course_name'] for item in latest_previous_user_data_list)
                 curr_course_names = set(item['identified_course_name'] for item in current_processed_data_for_db)
-
                 if prev_course_names == curr_course_names:
                     prev_sug_counts = sum(len(item.get('llm_suggestions', [])) for item in latest_previous_user_data_list)
                     curr_sug_counts = sum(len(item.get('llm_suggestions', [])) for item in current_processed_data_for_db)
-                    if abs(prev_sug_counts - curr_sug_counts) <= len(curr_course_names):
-                        should_store_new_result = False
-                        app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): New processing result seems similar to latest. Skipping storage.")
-
-            current_run_image_ids = [str(doc["_id"]) for doc in db.images.files.find({"metadata.userId": user_id}, projection={"_id": 1})]
+                    if abs(prev_sug_counts - curr_sug_counts) <= len(curr_course_names): should_store_new_result = False
 
             if should_store_new_result and current_processed_data_for_db:
                 try:
                     data_to_store_in_db = {
-                        "userId": user_id,
-                        "processedAt": datetime.now(timezone.utc),
+                        "userId": user_id, "processedAt": datetime.now(timezone.utc),
                         "user_processed_data": current_processed_data_for_db,
-                        "associated_image_file_ids": current_run_image_ids,
+                        "associated_image_file_ids": final_associated_ids_for_db,
                         "llm_error_summary_at_processing": processing_result_dict.get("llm_error_summary")
                     }
                     insert_result = user_course_processing_collection.insert_one(data_to_store_in_db)
-                    app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Stored new structured processing result. Inserted ID: {insert_result.inserted_id}")
-                    processing_result_dict["associated_image_file_ids"] = current_run_image_ids
-                except Exception as e:
-                    app_logger.error(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Error storing new structured result: {e}")
-                    processing_result_dict["associated_image_file_ids"] = current_run_image_ids 
-            elif not current_processed_data_for_db:
-                 app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): No user processed data generated, nothing to store.")
-                 processing_result_dict["associated_image_file_ids"] = current_run_image_ids 
-            else:
-                 app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Result not stored (similar to previous).")
-                 latest_stored_image_ids = latest_doc.get("associated_image_file_ids") if latest_doc else None
-                 processing_result_dict["associated_image_file_ids"] = latest_stored_image_ids if latest_stored_image_ids else current_run_image_ids
+                    app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Stored new structured processing result. ID: {insert_result.inserted_id}")
+                except Exception as e: app_logger.error(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Error storing new structured result: {e}")
+            elif not current_processed_data_for_db: app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): No user processed data generated, nothing to store.")
+            else: app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Result not stored (similar to previous or forced refresh).")
         else:
             app_logger.error(f"Flask (Req ID: {req_id_cert}): Invalid processing_mode '{processing_mode}'.")
             return jsonify({"error": f"Invalid processing mode: {processing_mode}"}), 400
@@ -331,103 +279,47 @@ def process_certificates_from_db():
 def convert_pdf_to_images_route():
     req_id = datetime.now().strftime('%Y%m%d%H%M%S%f')
     app.logger.info(f"Flask /api/convert-pdf-to-images (Req ID: {req_id}): Received request.")
+    if mongo_client is None or db is None or fs_images is None: return jsonify({"error": "Database connection or GridFS not available."}), 503
+    if 'pdf_file' not in request.files: return jsonify({"error": "No PDF file part in the request."}), 400
 
-    if mongo_client is None or db is None or fs_images is None:
-        app.logger.error(f"Flask (Req ID: {req_id}): MongoDB connection or GridFS not available.")
-        return jsonify({"error": "Database connection or GridFS not available. Check server logs."}), 503
-
-    if 'pdf_file' not in request.files:
-        app.logger.warning(f"Flask (Req ID: {req_id}): No 'pdf_file' part in the request.")
-        return jsonify({"error": "No PDF file part in the request."}), 400
-
-    pdf_file_storage = request.files['pdf_file']
-    user_id = request.form.get('userId')
-    original_pdf_name = request.form.get('originalName', pdf_file_storage.filename)
-
-    if not user_id:
-        app.logger.warning(f"Flask (Req ID: {req_id}): Missing 'userId' in form data.")
-        return jsonify({"error": "Missing 'userId' in form data."}), 400
-
-    if not original_pdf_name:
-        app.logger.warning(f"Flask (Req ID: {req_id}): No filename or originalName provided for PDF.")
-        return jsonify({"error": "No filename or originalName provided for PDF."}), 400
-
+    pdf_file_storage, user_id, original_pdf_name = request.files['pdf_file'], request.form.get('userId'), request.form.get('originalName', pdf_file_storage.filename)
+    if not user_id: return jsonify({"error": "Missing 'userId' in form data."}), 400
+    if not original_pdf_name: return jsonify({"error": "No filename or originalName provided for PDF."}), 400
     app.logger.info(f"Flask (Req ID: {req_id}): Processing PDF '{original_pdf_name}' for userId '{user_id}'.")
 
     try:
         pdf_bytes = pdf_file_storage.read()
-
         try:
             app.logger.info(f"Flask (Req ID: {req_id}): Using POPPLER_PATH for pdfinfo: '{POPPLER_PATH if POPPLER_PATH else 'System Default'}'")
             pdfinfo = pdfinfo_from_bytes(pdf_bytes, userpw=None, poppler_path=POPPLER_PATH)
             app.logger.info(f"Flask (Req ID: {req_id}): Poppler self-check (pdfinfo) successful. PDF Info: {pdfinfo}")
-        except PDFInfoNotInstalledError:
-            app.logger.error(f"Flask (Req ID: {req_id}): CRITICAL - Poppler (pdfinfo) utilities not found or not executable (POPPLER_PATH: '{POPPLER_PATH}'). Please ensure 'poppler-utils' is installed and in the system PATH for the Flask server environment or POPPLER_PATH is correctly set in .env.")
-            return jsonify({"error": "PDF processing utilities (Poppler/pdfinfo) are not installed or configured correctly on the server."}), 500
-        except PDFPopplerTimeoutError:
-            app.logger.error(f"Flask (Req ID: {req_id}): Poppler (pdfinfo) timed out processing the PDF. The PDF might be too complex or corrupted.")
-            return jsonify({"error": "Timeout during PDF information retrieval. The PDF may be too complex or corrupted."}), 400
-        except Exception as info_err:
-            app.logger.error(f"Flask (Req ID: {req_id}): Error getting PDF info with Poppler: {str(info_err)}", exc_info=True)
-            return jsonify({"error": f"Failed to retrieve PDF info: {str(info_err)}"}), 500
+        except PDFInfoNotInstalledError: return jsonify({"error": "PDF processing utilities (Poppler/pdfinfo) are not installed or configured correctly on the server."}), 500
+        except PDFPopplerTimeoutError: return jsonify({"error": "Timeout during PDF information retrieval."}), 400
+        except Exception as info_err: return jsonify({"error": f"Failed to retrieve PDF info: {str(info_err)}"}), 500
 
-        app.logger.info(f"Flask (Req ID: {req_id}): Attempting to convert PDF bytes to images using pdf2image (convert_from_bytes). POPPLER_PATH for conversion: '{POPPLER_PATH if POPPLER_PATH else 'System Default'}'")
         images_from_pdf = convert_from_bytes(pdf_bytes, dpi=200, fmt='png', poppler_path=POPPLER_PATH)
         app.logger.info(f"Flask (Req ID: {req_id}): PDF '{original_pdf_name}' converted to {len(images_from_pdf)} image(s).")
-
         converted_files_metadata = []
 
         for i, image_pil in enumerate(images_from_pdf):
             page_number = i + 1
             base_pdf_name_secure = secure_filename(os.path.splitext(original_pdf_name)[0])
             gridfs_filename = f"{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{base_pdf_name_secure}_page_{page_number}.png"
-
-            img_byte_arr = io.BytesIO()
-            image_pil.save(img_byte_arr, format='PNG')
-            img_byte_arr_val = img_byte_arr.getvalue()
-
-            metadata_for_gridfs = {
-                "originalName": f"{original_pdf_name} (Page {page_number})",
-                "userId": user_id,
-                "uploadedAt": datetime.now(timezone.utc).isoformat(), # Updated to timezone-aware UTC
-                "sourceContentType": "application/pdf",
-                "convertedTo": "image/png",
-                "pageNumber": page_number,
-                "reqIdParent": req_id
-            }
-
-            app.logger.info(f"Flask (Req ID: {req_id}): Storing page {page_number} as '{gridfs_filename}' in GridFS with metadata: {json.dumps(metadata_for_gridfs)}")
+            img_byte_arr = io.BytesIO(); image_pil.save(img_byte_arr, format='PNG'); img_byte_arr_val = img_byte_arr.getvalue()
+            metadata_for_gridfs = {"originalName": f"{original_pdf_name} (Page {page_number})", "userId": user_id, "uploadedAt": datetime.now(timezone.utc).isoformat(), "sourceContentType": "application/pdf", "convertedTo": "image/png", "pageNumber": page_number, "reqIdParent": req_id}
             file_id_obj = fs_images.put(img_byte_arr_val, filename=gridfs_filename, contentType='image/png', metadata=metadata_for_gridfs)
-
-            converted_files_metadata.append({
-                "originalName": metadata_for_gridfs["originalName"],
-                "fileId": str(file_id_obj),
-                "filename": gridfs_filename,
-                "contentType": 'image/png',
-                "pageNumber": page_number
-            })
-            app.logger.info(f"Flask (Req ID: {req_id}): Stored page {page_number} with GridFS ID: {str(file_id_obj)}. Metadata written: {json.dumps(metadata_for_gridfs)}")
-
-
+            converted_files_metadata.append({"originalName": metadata_for_gridfs["originalName"], "fileId": str(file_id_obj), "filename": gridfs_filename, "contentType": 'image/png', "pageNumber": page_number})
+            app.logger.info(f"Flask (Req ID: {req_id}): Stored page {page_number} with GridFS ID: {str(file_id_obj)}. Metadata: {json.dumps(metadata_for_gridfs)}")
+        
         app.logger.info(f"Flask (Req ID: {req_id}): Successfully processed and stored {len(converted_files_metadata)} pages for PDF '{original_pdf_name}'.")
         return jsonify({"message": "PDF converted and pages stored successfully.", "converted_files": converted_files_metadata}), 200
 
-    except PDFPageCountError:
-        app.logger.error(f"Flask (Req ID: {req_id}): pdf2image could not get page count for '{original_pdf_name}'. PDF might be corrupted or password-protected.", exc_info=True)
-        return jsonify({"error": "Could not determine page count. The PDF may be corrupted or password-protected."}), 400
-    except PDFSyntaxError:
-        app.logger.error(f"Flask (Req ID: {req_id}): pdf2image encountered syntax error for '{original_pdf_name}'. PDF is likely corrupted.", exc_info=True)
-        return jsonify({"error": "PDF syntax error. The file may be corrupted."}), 400
-    except PDFPopplerTimeoutError:
-        app.logger.error(f"Flask (Req ID: {req_id}): Poppler (conversion) timed out processing PDF '{original_pdf_name}'.")
-        return jsonify({"error": "Timeout during PDF page conversion. The PDF may be too complex."}), 400
+    except PDFPageCountError: return jsonify({"error": "Could not determine page count. PDF may be corrupted or password-protected."}), 400
+    except PDFSyntaxError: return jsonify({"error": "PDF syntax error. File may be corrupted."}), 400
+    except PDFPopplerTimeoutError: return jsonify({"error": "Timeout during PDF page conversion."}), 400
     except Exception as e:
-        app.logger.error(f"Flask (Req ID: {req_id}): Error during PDF conversion or storage for '{original_pdf_name}': {str(e)}", exc_info=True)
-        if "PopplerNotInstalledError" in str(type(e)) or "pdftoppm" in str(e).lower() or "pdfinfo" in str(e).lower():
-             app.logger.error(f"Flask (Req ID: {req_id}): CRITICAL - Poppler utilities (pdftoppm/pdfinfo) not found or not executable (POPPLER_PATH: '{POPPLER_PATH}').")
-             return jsonify({"error": "PDF processing utilities (Poppler) are not installed or configured correctly on the server (conversion stage)."}), 500
+        if "PopplerNotInstalledError" in str(type(e)) or "pdftoppm" in str(e).lower() or "pdfinfo" in str(e).lower(): return jsonify({"error": "PDF processing utilities (Poppler) are not installed/configured correctly (conversion stage)."}), 500
         return jsonify({"error": f"An unexpected error occurred during PDF processing: {str(e)}"}), 500
-
 
 if __name__ == '__main__':
     app.logger.info("Flask application starting with __name__ == '__main__'")
