@@ -283,9 +283,8 @@ def convert_pdf_to_images_route():
     if mongo_client is None or db is None or fs_images is None: return jsonify({"error": "Database connection or GridFS not available."}), 503
     if 'pdf_file' not in request.files: return jsonify({"error": "No PDF file part in the request."}), 400
 
-    pdf_file_storage = request.files['pdf_file'] # Assign pdf_file_storage first
+    pdf_file_storage = request.files['pdf_file']
     user_id = request.form.get('userId')
-    # Now pdf_file_storage is defined, so pdf_file_storage.filename can be safely used as a default
     original_pdf_name = request.form.get('originalName', pdf_file_storage.filename)
 
     if not user_id: return jsonify({"error": "Missing 'userId' in form data."}), 400
