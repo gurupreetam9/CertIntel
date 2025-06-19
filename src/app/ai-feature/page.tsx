@@ -113,7 +113,7 @@ function AiFeaturePageContent() {
         if (!latestResultsResponse.ok) {
           let errorMessage = `Error fetching latest results: ${latestResultsResponse.status} ${latestResultsResponse.statusText}`;
            if (responseText.toLowerCase().includes("<!doctype html") && responseText.toLowerCase().includes("ngrok.com")) {
-            errorMessage = `Unable to load previous results. It seems the backend server (Flask via ngrok) is returning an HTML setup page instead of data. Please visit your ngrok URL (${flaskServerBaseUrl}) in a browser to pass the interstitial page, or check your ngrok tunnel configuration.`;
+            errorMessage = `Received ngrok interstitial page. Ensure your ngrok tunnel for Flask (${flaskServerBaseUrl}) is active and you've visited it in your browser, or configured it to skip warnings.`;
           } else {
             try {
               const errJson = JSON.parse(responseText); 
@@ -145,6 +145,10 @@ function AiFeaturePageContent() {
                 } else {
                      console.log("AI Feature: No substantive previous results found from valid JSON response.");
                      setFinalResult(null); 
+                     // If there are no results but the request was successful, stay in 'initial' unless other logic dictates
+                     if(phase === 'results' && (!latestResultsData || !latestResultsData.user_processed_data || latestResultsData.user_processed_data.length === 0)) {
+                        setPhase('initial');
+                     }
                 }
             } catch (jsonParseError: any) {
                  let detailedError = 'Received an unexpected data format from the server when fetching latest results.';
@@ -162,17 +166,22 @@ function AiFeaturePageContent() {
         }
       } catch (err: any) { 
         console.error("AI Feature: Error fetching initial data:", err);
-        const genericMessage = `An error occurred while loading your initial data. Please check your Flask server connectivity and ngrok tunnel status. Original Error: ${err.message || 'Unknown error'}`;
+        let genericMessage = `An error occurred while loading your initial data. Please check your Flask server connectivity and ngrok tunnel status.`;
+        if (err.message && err.message.includes('Failed to fetch')) {
+            genericMessage = `Network error: Could not connect to the server at ${flaskServerBaseUrl}. Ensure the Flask server and ngrok tunnel are running and accessible.`;
+        } else if (err.message) {
+            genericMessage += ` Original Error: ${err.message}`;
+        }
         setError(genericMessage); 
         setFinalResult(null);
         setPhase('initial');
-        toast({ title: 'Error Loading Initial Data', description: genericMessage, variant: 'destructive', duration: 7000 });
+        toast({ title: 'Error Loading Initial Data', description: genericMessage, variant: 'destructive', duration: 10000 });
       } finally {
         setIsFetchingInitialData(false);
       }
     };
     fetchInitialData();
-  }, [userId, user, flaskServerBaseUrl, toast]); 
+  }, [userId, user, flaskServerBaseUrl, toast]); // Removed phase from dependencies here
 
 
   const handleManualNameChange = (fileId: string, name: string) => {
@@ -187,16 +196,18 @@ function AiFeaturePageContent() {
     setOcrFailedImages([]);
     setManualNamesForFailedImages({});
     setResultsSearchTerm('');
+    // Re-fetch initial data to potentially load cached results if available
     if (userId && user) {
-        fetchInitialDataForReset(); 
+        fetchInitialDataForReset(); // This will re-fetch latest results
     } else {
-        setFinalResult(null); 
+        setFinalResult(null); // Clear results if no user
     }
   };
 
+  // Helper to re-fetch latest results, usually after a full reset or new data becomes available
   const fetchInitialDataForReset = async () => {
      if (!userId || !user) return;
-      setIsFetchingInitialData(true); 
+      setIsFetchingInitialData(true); // Indicate loading
       try {
         const latestResultsResponse = await fetch(`${flaskServerBaseUrl}/api/latest-processed-results?userId=${userId}`, {
           headers: { 'ngrok-skip-browser-warning': 'true' }
@@ -207,10 +218,10 @@ function AiFeaturePageContent() {
                 const latestResultsData: SuggestionsPhaseResult = JSON.parse(responseText);
                 if (latestResultsData && latestResultsData.user_processed_data && latestResultsData.user_processed_data.length > 0) {
                     setFinalResult(latestResultsData);
-                    if(phase !== 'results') setPhase('results');
+                    if(phase !== 'results') setPhase('results'); // If not already in results, switch
                 } else {
                     setFinalResult(null);
-                    if(phase === 'results') setPhase('initial');
+                    if(phase === 'results') setPhase('initial'); // If in results but no data, switch to initial
                 }
             } catch (e) {
                 setFinalResult(null);
@@ -227,7 +238,7 @@ function AiFeaturePageContent() {
         if(phase === 'results') setPhase('initial');
         console.error("AI Feature (Reset): Network error fetching latest results after reset.", err);
       } finally {
-        setIsFetchingInitialData(false);
+        setIsFetchingInitialData(false); // Done loading
       }
   };
 
@@ -246,8 +257,13 @@ function AiFeaturePageContent() {
         headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' }, 
         body: JSON.stringify(item),
       }).then(async res => {
-        if (!res.ok) { /* Handle error silently or with specific toast */ }
-      }).catch(err => { /* Handle error */})
+        if (!res.ok) { 
+            const errorText = await res.text().catch(() => "Failed to read error response");
+            console.warn(`Failed to save manual name for ${item.fileId}. Status: ${res.status}. Response: ${errorText.substring(0,100)}`);
+        }
+      }).catch(err => {
+        console.error(`Error saving manual name for ${item.fileId}: ${err.message}`);
+      })
     );
     await Promise.all(savePromises);
     toast({ title: 'Manual Names Processed', description: 'Attempted to save entered manual names.'});
@@ -276,6 +292,8 @@ function AiFeaturePageContent() {
       if (forceRefreshList.length > 0) {
         payload.forceRefreshForCourses = forceRefreshList;
       }
+      // Send associated file IDs if they exist from a previous result (OCR run or cached result)
+      // Otherwise, send all known image IDs for the user as a fallback for context.
       const associatedImageFileIdsToSend = (finalResult?.associated_image_file_ids && finalResult.associated_image_file_ids.length > 0)
         ? finalResult.associated_image_file_ids
         : allUserImageMetas.map(img => img.fileId);
@@ -363,9 +381,12 @@ function AiFeaturePageContent() {
         setOcrSuccessfullyExtracted(data.successfully_extracted_courses || []);
         setOcrFailedImages(data.failed_extraction_images || []);
         
+        // Preserve previous full result if we are re-scanning from results phase, 
+        // but update associated_image_file_ids
         setFinalResult(prev => ({ 
             ...(prev || {}), 
             associated_image_file_ids: data.processed_image_file_ids || [],
+            // Only clear user_processed_data if we weren't already in results phase
             user_processed_data: (prev?.user_processed_data && phase === 'results') ? prev.user_processed_data : undefined 
         }));
 
@@ -409,12 +430,13 @@ function AiFeaturePageContent() {
       const allKnownCourses = [...new Set([...ocrSuccessfullyExtracted, ...userProvidedNamesForFailures, ...generalManualCourses])].filter(name => name && name.length > 0);
       await fetchSuggestions(allKnownCourses);
     }
-  }, [userId, user, flaskServerBaseUrl, phase, generalManualCoursesInput, ocrSuccessfullyExtracted, ocrFailedImages, manualNamesForFailedImages, toast, isLoading, allUserImageMetas, finalResult]); 
+  }, [userId, user, flaskServerBaseUrl, phase, generalManualCoursesInput, ocrSuccessfullyExtracted, ocrFailedImages, manualNamesForFailedImages, toast, isLoading, allUserImageMetas, finalResult]); // Added finalResult
 
   const handleRefreshSingleCourseSuggestions = async (courseName: string) => {
     if (!userId) return;
     setIsRefreshingCourse(courseName); 
     
+    // Ensure we send the current set of file IDs associated with the overall result for context
     const associatedImageFileIdsToSend = (finalResult?.associated_image_file_ids && finalResult.associated_image_file_ids.length > 0)
         ? finalResult.associated_image_file_ids
         : allUserImageMetas.map(img => img.fileId);
@@ -696,6 +718,8 @@ export default function AiFeaturePage() {
     </ProtectedPage>
   );
 }
+    
+
     
 
     
