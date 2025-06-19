@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info, CheckCircle, ListChecks, Wand2, BrainCircuit, HelpCircle } from 'lucide-react'; // Removed SearchIcon as it's in SearchWithSuggestions
+import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info, CheckCircle, ListChecks, Wand2, BrainCircuit, HelpCircle } from 'lucide-react';
 import NextImage from 'next/image';
 import Link from 'next/link';
 import { useState, useCallback, useEffect, useMemo } from 'react';
@@ -18,7 +18,7 @@ import {
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from "@/components/ui/tooltip"; // Ensured this import is present
 import SearchWithSuggestions from '@/components/common/SearchWithSuggestions';
 import type { SearchableItem } from '@/components/common/SearchWithSuggestions';
 
@@ -561,7 +561,12 @@ function AiFeaturePageContent() {
 
             {filteredFinalResults.user_processed_data && filteredFinalResults.user_processed_data.length > 0 ? (
               <div className="space-y-6">
-                <h3 className="text-lg font-semibold font-headline">Identified Courses & AI Suggestions (Displaying {filteredFinalResults.user_processed_data.length} matching search):</h3>
+                <h3 className="text-lg font-semibold font-headline">
+                  Identified Courses & AI Suggestions 
+                  (Displaying {filteredFinalResults.user_processed_data.length} matching search)
+                  {filteredFinalResults.user_processed_data[0]?.processed_by && <span className="text-sm text-muted-foreground"> (via {filteredFinalResults.user_processed_data[0].processed_by})</span>}
+                  :
+                </h3>
                 {filteredFinalResults.user_processed_data.map((identifiedCourseData, index) => {
                   const originalName = identifiedCourseData.identified_course_name;
                   const isUnverified = originalName.endsWith(" [UNVERIFIED]");
@@ -644,3 +649,6 @@ export default function AiFeaturePage() {
     </ProtectedPage>
   );
 }
+
+
+    
