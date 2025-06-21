@@ -1,4 +1,3 @@
-
 'use client';
 
 import Link from 'next/link';
@@ -25,6 +24,11 @@ export default function ProfileDropdown() {
   const { toast } = useToast();
 
   const handleLogout = async () => {
+    // Clear the session storage flag so the tooltip shows on next login
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('adminDashboardTooltipShown');
+    }
+    
     const error = await signOut();
     if (error) {
       toast({
