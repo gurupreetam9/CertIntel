@@ -432,7 +432,7 @@ export const getStudentsForAdminRealtime = (
   return unsubscribe;
 };
 
-// CLIENT-SIDE: Admin action to remove a linked student
+// CLIENT-SIDE: Admin action to remove a linked student by calling the secure API endpoint
 export const adminRemoveStudentLink = async (
   adminUserId: string,
   studentToRemoveId: string
@@ -444,69 +444,34 @@ export const adminRemoveStudentLink = async (
     console.error(`[SERVICE_CLIENT/adminRemoveStudentLink] - Auth MISMATCH or missing adminUserId. Param: '${adminUserId}', SDK UID: '${clientAuthUid}'`);
     return { success: false, message: "Authentication error or mismatch. Cannot remove link." };
   }
-
-  const batch = writeBatch(firestore);
-  const studentUserDocRef = doc(firestore, USERS_COLLECTION, studentToRemoveId);
+  
+  if (!firebaseAuthClient.currentUser) {
+    return { success: false, message: 'No authenticated user found.' };
+  }
 
   try {
-    const adminProfileSnap = await getDoc(doc(firestore, USERS_COLLECTION, adminUserId));
-    if (!adminProfileSnap.exists() || adminProfileSnap.data().role !== 'admin') {
-      return { success: false, message: "Action failed: You are not authorized as an admin." };
-    }
+    const idToken = await firebaseAuthClient.currentUser.getIdToken();
 
-    const studentProfileSnap = await getDoc(studentUserDocRef);
-    if (!studentProfileSnap.exists()) {
-      return { success: false, message: "Student profile not found." };
-    }
-    const studentProfileData = studentProfileSnap.data() as UserProfile;
-
-    if (studentProfileData.associatedAdminFirebaseId !== adminUserId) {
-        return { success: false, message: "This student is not linked to you." };
-    }
-    
-    // 1. Update the student's profile to remove the link
-    batch.update(studentUserDocRef, {
-      associatedAdminFirebaseId: null,
-      associatedAdminUniqueId: null,
-      linkRequestStatus: 'none',
-      updatedAt: serverTimestamp(),
+    const response = await fetch('/api/admin/remove-student-link', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({ studentToRemoveId }),
     });
 
-    // 2. Find the link request and update its status to a final "revoked" state
-    const requestsQuery = query(
-      collection(firestore, STUDENT_LINK_REQUESTS_COLLECTION),
-      where('studentUserId', '==', studentToRemoveId),
-      where('adminFirebaseId', '==', adminUserId),
-      where('status', '==', 'accepted')
-    );
-    const requestsSnapshot = await getDocs(requestsQuery);
-    if (!requestsSnapshot.empty) {
-      requestsSnapshot.forEach(requestDoc => {
-        batch.update(requestDoc.ref, {
-          status: 'revoked_by_admin',
-          resolvedAt: serverTimestamp(),
-          resolvedBy: adminUserId,
-        });
-      });
-    }
-    
-    await batch.commit();
+    const result = await response.json();
 
-    // 3. Send email notification to the student
-    if (studentProfileData.email) {
-      const studentName = studentProfileData.displayName || 'Student';
-      const adminName = adminProfileSnap.data().displayName || 'your admin';
-      await sendEmail({
-        to: studentProfileData.email,
-        subject: `Update on your CertIntel Admin Link`,
-        text: `Hello ${studentName},\n\nYour link with ${adminName} has been removed by them. You can now link with another admin from your profile settings if you wish.\n\nRegards,\nThe CertIntel Team`,
-        html: `<p>Hello ${studentName},</p><p>Your link with <strong>${adminName}</strong> has been removed by them. You can now link with another admin from your profile settings if you wish.</p><p>Regards,<br/>The CertIntel Team</p>`,
-      });
+    if (!response.ok) {
+      throw new Error(result.message || 'Failed to unlink student.');
     }
 
-    return { success: true, message: 'Student has been unlinked successfully.' };
+    console.log(`%c[SERVICE_CLIENT/adminRemoveStudentLink] - SUCCESS from API. Message: ${result.message}`, "color: green; font-weight: bold;");
+    return { success: true, message: result.message };
+
   } catch (error: any) {
-    console.error(`%c[SERVICE_CLIENT/adminRemoveStudentLink] - !!! BATCH COMMIT FAILED !!! Admin: ${adminUserId}, Student: ${studentToRemoveId}. Firestore Error Code: ${error.code}. Message: ${error.message}. Full Error:`, "color: red; font-weight: bold;", error);
+    console.error(`%c[SERVICE_CLIENT/adminRemoveStudentLink] - !!! API CALL FAILED !!! Admin: ${adminUserId}, Student: ${studentToRemoveId}. Error:`, "color: red; font-weight: bold;", error);
     return { success: false, message: error.message || "Failed to unlink student." };
   }
 };
