@@ -35,10 +35,12 @@ stop_words = set(stopwords.words('english'))
 course_keywords = {"course", "certification", "developer", "programming", "bootcamp", "internship", "award", "degree", "diploma", "training"}
 
 # --- Constants ---
-COHERE_API_KEY = "jrAUYREK77bel5TGil5uyrzogksRcSxP78v97egn"
+# Use environment variable for API key, with a fallback to the hardcoded one
+COHERE_API_KEY = os.getenv("COHERE_API_KEY", "jrAUYREK77bel5TGil5uyrzogksRcSxP78v97egn")
+
 
 if not COHERE_API_KEY:
-    logging.warning("COHERE_API_KEY not found in environment variables. LLM fallback will not work.")
+    logging.warning("COHERE_API_KEY not found in environment variables or as a fallback. LLM features will not work.")
     co = None
 else:
     co = cohere.Client(COHERE_API_KEY)
@@ -129,19 +131,17 @@ course_graph = {
     }
 }
 
-YOLO_MODEL_PATH = "D:/CertIntel/certificate.v1i.yolov8(1)/runs/detect/exp/weights/best.pt"
+# --- YOLO Model Loading (Corrected for Cross-Platform Compatibility) ---
 model = None
 try:
-    if os.path.exists(YOLO_MODEL_PATH):
-        model = YOLO(YOLO_MODEL_PATH)
-        logging.info(f"Successfully loaded YOLO model from: {YOLO_MODEL_PATH}")
+    # Define the model path relative to the current script file.
+    # This assumes 'best.pt' is in the same directory as 'certificate_processor.py'.
+    yolo_model_path_relative = os.path.join(os.path.dirname(__file__), 'best.pt')
+    if os.path.exists(yolo_model_path_relative):
+        model = YOLO(yolo_model_path_relative)
+        logging.info(f"Successfully loaded YOLO model from relative path: {yolo_model_path_relative}")
     else:
-        script_dir_model_path = os.path.join(os.path.dirname(__file__), 'best.pt')
-        if os.path.exists(script_dir_model_path) and YOLO_MODEL_PATH == "best.pt": 
-             model = YOLO(script_dir_model_path)
-             logging.info(f"Successfully loaded YOLO model from script directory: {script_dir_model_path}")
-        else:
-            logging.error(f"YOLO model not found at path: {YOLO_MODEL_PATH} or in script directory (if default path was 'best.pt'). Please check the path or set YOLO_MODEL_PATH.")
+        logging.error(f"YOLO model 'best.pt' not found in the same directory as certificate_processor.py. Looked at path: {yolo_model_path_relative}. OCR performance will be degraded.")
 except Exception as e:
     logging.error(f"Error loading YOLO model: {e}")
 
@@ -937,3 +937,4 @@ if __name__ == "__main__":
 
     
 
+    
