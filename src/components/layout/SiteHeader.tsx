@@ -1,3 +1,4 @@
+
 'use client';
 
 import Link from 'next/link';
@@ -28,10 +29,10 @@ export default function SiteHeader() {
         setIsDashboardTooltipOpen(true);
         sessionStorage.setItem('adminDashboardTooltipShown', 'true');
 
-        // Hide it after 3 seconds
+        // Hide it after 5 seconds
         const timer = setTimeout(() => {
           setIsDashboardTooltipOpen(false);
-        }, 3000);
+        }, 5000);
 
         // Cleanup timer on component unmount or if dependencies change
         return () => clearTimeout(timer);
@@ -69,7 +70,7 @@ export default function SiteHeader() {
                       </Link>
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>
+                  <TooltipContent className="bg-primary text-primary-foreground border-transparent">
                     <p>Admin Dashboard</p>
                   </TooltipContent>
                 </Tooltip>
