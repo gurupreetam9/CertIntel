@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
@@ -63,6 +63,15 @@ export default function RegisterPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [showTeacherIdField, setShowTeacherIdField] = useState(false);
+  
+  // State for OTP Resend logic
+  const [isResending, setIsResending] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [resendAttempts, setResendAttempts] = useState(0);
+  const maxResendAttempts = 3;
+  const cooldownDuration = 60; // seconds
+
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   const roleForm = useForm<RoleSelectionFormValues>({ resolver: zodResolver(RoleSelectionSchema) });
   const emailForm = useForm<EmailFormValues>({ resolver: zodResolver(EmailSchema), defaultValues: { email: '' } });
@@ -74,6 +83,13 @@ export default function RegisterPage() {
       router.push('/');
     }
   }, [user, authLoading, router]);
+  
+  // Cleanup timer on component unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
 
   const handleRoleSelection = (values: RoleSelectionFormValues) => {
     setSelectedRole(values.role);
@@ -84,6 +100,11 @@ export default function RegisterPage() {
   const handleEmailSubmitAndSendOtp = async (values: EmailFormValues) => {
     setIsSubmitting(true);
     setServerError(null);
+    // Reset resend logic for new email submission
+    setResendAttempts(0);
+    if (timerRef.current) clearInterval(timerRef.current);
+    setResendCooldown(0);
+
     try {
       const result: InitiateEmailOtpOutput = await initiateEmailOtp({ email: values.email });
       if (result.success) {
@@ -93,6 +114,19 @@ export default function RegisterPage() {
         });
         setEmail(values.email);
         setStep(3); // Move to OTP + Details + Password step
+
+        // Start cooldown timer on first successful send
+        setResendCooldown(cooldownDuration);
+        timerRef.current = setInterval(() => {
+            setResendCooldown(prev => {
+                if (prev <= 1) {
+                    if (timerRef.current) clearInterval(timerRef.current);
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+
       } else {
         setServerError(result.message);
         toast({ title: 'Failed to Send OTP', description: result.message, variant: 'destructive' });
@@ -104,6 +138,37 @@ export default function RegisterPage() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+  
+  const handleResendOtp = async () => {
+    if (resendCooldown > 0 || isResending || resendAttempts >= maxResendAttempts) return;
+
+    setIsResending(true);
+    setResendAttempts(prev => prev + 1);
+
+    const result = await initiateEmailOtp({ email });
+
+    if (result.success) {
+        toast({ title: 'New OTP Sent', description: result.message });
+        
+        // Start cooldown timer on resend
+        setResendCooldown(cooldownDuration);
+        timerRef.current = setInterval(() => {
+            setResendCooldown(prev => {
+                if (prev <= 1) {
+                    if (timerRef.current) clearInterval(timerRef.current);
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+
+    } else {
+        toast({ title: 'Failed to Resend', description: result.message, variant: 'destructive' });
+        // Revert attempt count if resend failed
+        setResendAttempts(prev => prev - 1);
+    }
+    setIsResending(false);
   };
   
   const handleFinalRegistration = async (values: StudentDetailsFormValues | AdminDetailsFormValues) => {
@@ -318,13 +383,36 @@ export default function RegisterPage() {
                         )} />
                     )}
 
-                    <FormField control={studentDetailsForm.control} name="otp" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>OTP</FormLabel>
-                        <FormControl><Input placeholder="6-digit OTP" {...field} type="text" maxLength={6} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
+                    <FormField
+                        control={studentDetailsForm.control}
+                        name="otp"
+                        render={({ field }) => (
+                            <FormItem>
+                            <div className="flex justify-between items-center">
+                                <FormLabel>OTP</FormLabel>
+                                {resendAttempts < maxResendAttempts && (
+                                <Button
+                                    type="button"
+                                    variant="link"
+                                    className="p-0 h-auto text-xs"
+                                    onClick={handleResendOtp}
+                                    disabled={isSubmitting || isResending || resendCooldown > 0}
+                                >
+                                    {isResending && <Loader2 className="mr-2 h-3 w-3 animate-spin"/>}
+                                    {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend OTP'}
+                                </Button>
+                                )}
+                            </div>
+                            <FormControl>
+                                <Input placeholder="6-digit OTP" {...field} type="text" maxLength={6} />
+                            </FormControl>
+                            <FormMessage />
+                             {resendAttempts >= maxResendAttempts && (
+                                <p className="text-xs text-destructive text-right">Max resend attempts reached.</p>
+                            )}
+                            </FormItem>
+                        )}
+                    />
                     <FormField control={studentDetailsForm.control} name="password" render={({ field }) => (
                       <FormItem>
                         <FormLabel>Password</FormLabel>
@@ -353,13 +441,36 @@ export default function RegisterPage() {
               {selectedRole === 'admin' && (
                 <Form {...adminDetailsForm}>
                   <form onSubmit={adminDetailsForm.handleSubmit(handleFinalRegistration)} className="space-y-6">
-                     <FormField control={adminDetailsForm.control} name="otp" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>OTP</FormLabel>
-                        <FormControl><Input placeholder="6-digit OTP" {...field} type="text" maxLength={6} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
+                     <FormField
+                        control={adminDetailsForm.control}
+                        name="otp"
+                        render={({ field }) => (
+                            <FormItem>
+                            <div className="flex justify-between items-center">
+                                <FormLabel>OTP</FormLabel>
+                                {resendAttempts < maxResendAttempts && (
+                                <Button
+                                    type="button"
+                                    variant="link"
+                                    className="p-0 h-auto text-xs"
+                                    onClick={handleResendOtp}
+                                    disabled={isSubmitting || isResending || resendCooldown > 0}
+                                >
+                                    {isResending && <Loader2 className="mr-2 h-3 w-3 animate-spin"/>}
+                                    {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend OTP'}
+                                </Button>
+                                )}
+                            </div>
+                            <FormControl>
+                                <Input placeholder="6-digit OTP" {...field} type="text" maxLength={6} />
+                            </FormControl>
+                            <FormMessage />
+                            {resendAttempts >= maxResendAttempts && (
+                                <p className="text-xs text-destructive text-right">Max resend attempts reached.</p>
+                            )}
+                            </FormItem>
+                        )}
+                    />
                     <FormField control={adminDetailsForm.control} name="password" render={({ field }) => (
                       <FormItem>
                         <FormLabel>Password</FormLabel>
@@ -399,5 +510,3 @@ export default function RegisterPage() {
     </div>
   );
 }
-
-    
