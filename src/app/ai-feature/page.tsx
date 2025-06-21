@@ -733,7 +733,7 @@ function AiFeaturePageContent() {
                         return (
                           <Card key={key} className="bg-background/50 shadow-inner">
                             <CardHeader>
-                              <div className="flex justify-between items-start gap-4">
+                              <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
                                 <div className="flex-1 min-w-0">
                                   <CardTitle className="text-xl font-headline text-primary flex items-center">
                                     {displayName}
@@ -755,7 +755,7 @@ function AiFeaturePageContent() {
                                     <CardDescription className="pt-1 text-sm italic">No description available.</CardDescription>
                                   )}
                                 </div>
-                                <Button variant="outline" size="sm" onClick={() => handleRefreshSingleCourseSuggestions(originalName)} disabled={isRefreshingCourse === originalName || isLoadingOcr || isLoadingSuggestions} className="shrink-0">
+                                <Button variant="outline" size="sm" onClick={() => handleRefreshSingleCourseSuggestions(originalName)} disabled={isRefreshingCourse === originalName || isLoadingOcr || isLoadingSuggestions} className="shrink-0 self-start sm:self-auto">
                                   {isRefreshingCourse === originalName ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <RefreshCw className="mr-2 h-4 w-4"/>}
                                   Refresh Suggestions
                                 </Button>
@@ -810,6 +810,7 @@ export default function AiFeaturePage() {
 
     
     
+
 
 
 
