@@ -612,7 +612,7 @@ def generate_suggestions_from_known_courses(
         if "text" in cohere_batch_response_data and cohere_batch_response_data["text"]:
             parsed_cohere_batch_items = parse_llm_detailed_suggestions_response(cohere_batch_response_data["text"])
             parsed_cohere_batch_items_map = {
-                item["original_input_course_from_llm"].lower(): item 
+                re.sub(r'\s+', ' ', item["original_input_course_from_llm"]).strip().lower(): item 
                 for item in parsed_cohere_batch_items if "original_input_course_from_llm" in item
             }
             if not parsed_cohere_batch_items and courses_to_query_cohere_for_batch_cleaned: 
@@ -627,7 +627,9 @@ def generate_suggestions_from_known_courses(
 
     for cleaned_course_name_queried_in_batch in courses_to_query_cohere_for_batch_cleaned:
         original_full_name_for_output = cleaned_to_original_map.get(cleaned_course_name_queried_in_batch, cleaned_course_name_queried_in_batch) 
-        cohere_item_for_course = parsed_cohere_batch_items_map.get(cleaned_course_name_queried_in_batch.lower()) 
+        
+        normalized_lookup_key = re.sub(r'\s+', ' ', cleaned_course_name_queried_in_batch).strip().lower()
+        cohere_item_for_course = parsed_cohere_batch_items_map.get(normalized_lookup_key) 
 
         if cohere_item_for_course:
             user_processed_data_output.append({
@@ -678,14 +680,19 @@ def generate_suggestions_from_known_courses(
                 parsed_items = parse_llm_detailed_suggestions_response(cohere_individual_response["text"])
                 if parsed_items and len(parsed_items) == 1:
                     parsed_individual_item = parsed_items[0]
-                    if parsed_individual_item.get("original_input_course_from_llm", "").lower() == cleaned_name_for_individual_query.lower():
+                    llm_returned_name = parsed_individual_item.get("original_input_course_from_llm", "")
+                    
+                    normalized_llm_name = re.sub(r'\s+', ' ', llm_returned_name).strip().lower()
+                    normalized_expected_name = re.sub(r'\s+', ' ', cleaned_name_for_individual_query).strip().lower()
+
+                    if normalized_llm_name == normalized_expected_name:
                         individual_ai_description = parsed_individual_item.get("ai_description")
                         individual_suggestions = parsed_individual_item.get("llm_suggestions", [])
                         if not individual_ai_description and not individual_suggestions and not (parsed_individual_item.get("llm_suggestions") == [] and not parsed_individual_item.get("ai_description")): # Check if it was explicitly no suggestions vs total failure
                             current_item_individual_error = "Cohere (individual): Returned no description or suggestions."
                             any_individual_fallback_errors = True
                     else:
-                        current_item_individual_error = f"Cohere (individual): Parsed, but LLM's 'Original Input Course' ('{parsed_individual_item.get('original_input_course_from_llm')}') did not match expected input ('{cleaned_name_for_individual_query}')."
+                        current_item_individual_error = f"Cohere (individual): Parsed, but LLM's 'Original Input Course' ('{llm_returned_name}') did not match expected input ('{cleaned_name_for_individual_query}'). Normalized check failed: '{normalized_llm_name}' vs '{normalized_expected_name}'."
                         any_individual_fallback_errors = True
                 elif parsed_items and len(parsed_items) > 1 :
                      current_item_individual_error = f"Cohere (individual): Expected 1 parsed item for single course input, but got {len(parsed_items)}."
@@ -794,7 +801,6 @@ def extract_and_recommend_courses_from_image_data(
             elif raw_name: 
                  logging.warning(f"Suggestions Phase Init: Raw course name '{raw_name}' became empty after cleaning. It will be skipped for LLM suggestions.")
         
-        # Use cleaned_for_llm here, which was previously named cleaned_names_for_llm_query
         if not cleaned_names_for_llm_query:
             logging.warning("Suggestions Phase: No valid course names remaining after cleaning for suggestion generation.")
             return {
@@ -807,7 +813,7 @@ def extract_and_recommend_courses_from_image_data(
         current_previous_user_data_list = previous_user_data_list if isinstance(previous_user_data_list, list) else None
         
         suggestion_results = generate_suggestions_from_known_courses(
-            all_known_course_names_cleaned=cleaned_names_for_llm_query, # Corrected variable
+            all_known_course_names_cleaned=cleaned_names_for_llm_query,
             cleaned_to_original_map=cleaned_to_original_map, 
             previous_user_data_list=current_previous_user_data_list,
             force_refresh_for_courses=force_refresh_for_courses
@@ -934,6 +940,8 @@ if __name__ == "__main__":
         logging.warning("Local test: YOLO model ('best.pt') could not be loaded. OCR functionality will be limited.")
     if not TESSERACT_PATH:
          logging.warning("Local test: Tesseract executable not found. OCR will fail.")
+
+    
 
     
 
