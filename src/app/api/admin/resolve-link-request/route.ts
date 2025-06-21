@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     // 3. Get the request document and authorize the admin
     const requestDocRef = adminFirestore.collection(STUDENT_LINK_REQUESTS_COLLECTION).doc(requestId);
     const requestSnap = await requestDocRef.get();
-    if (!requestSnap.exists()) {
+    if (!requestSnap.exists) {
         console.warn(`API (Req ID: ${reqId}): Link request ${requestId} not found.`);
         return NextResponse.json({ message: 'Link request not found.' }, { status: 404 });
     }

@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
 
     // 3. Authorize the requester as an admin
     const adminProfileSnap = await adminFirestore.collection(USERS_COLLECTION).doc(requesterUid).get();
-    if (!adminProfileSnap.exists() || adminProfileSnap.data()?.role !== 'admin') {
+    if (!adminProfileSnap.exists || adminProfileSnap.data()?.role !== 'admin') {
       console.warn(`API (Req ID: ${reqId}): AUTH FAIL - Requester ${requesterUid} is not an admin.`);
       return NextResponse.json({ message: 'Forbidden: You are not authorized to perform this action.' }, { status: 403 });
     }
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
     // 4. Get the student's profile to verify the link and get their email
     const studentDocRef = adminFirestore.collection(USERS_COLLECTION).doc(studentToRemoveId);
     const studentProfileSnap = await studentDocRef.get();
-    if (!studentProfileSnap.exists()) {
+    if (!studentProfileSnap.exists) {
       console.warn(`API (Req ID: ${reqId}): Student profile for ID ${studentToRemoveId} not found.`);
       return NextResponse.json({ message: 'Student profile not found.' }, { status: 404 });
     }
