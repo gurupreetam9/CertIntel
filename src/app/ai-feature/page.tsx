@@ -102,7 +102,7 @@ function AiFeaturePageContent() {
       
       try {
         const idToken = await user.getIdToken();
-        const imagesResponse = await fetch(`/api/user-images?userId=${userId}`, { headers: { 'Authorization': `Bearer ${idToken}` }});
+        const imagesResponse = await fetch(`/api/user-images?userId=${userId}`, { headers: { 'Authorization': `Bearer ${idToken}`, 'ngrok-skip-browser-warning': 'true' }});
         if (!imagesResponse.ok) throw new Error('Failed to fetch user images metadata.');
         const imagesData: UserImage[] = await imagesResponse.json();
         setAllUserImageMetas(imagesData);
@@ -117,8 +117,6 @@ function AiFeaturePageContent() {
           let errorMessage = `Error fetching latest results: ${latestResultsResponse.status} ${latestResultsResponse.statusText}`;
           if (latestResultsResponse.status === 404) {
             errorMessage = "No processed results found for this user.";
-          } else if (responseText.toLowerCase().includes("<!doctype html") && responseText.toLowerCase().includes("ngrok.com")) {
-            errorMessage = `Received ngrok interstitial page. Ensure your ngrok tunnel for Flask (${flaskServerBaseUrl}) is active and you've visited it in your browser, or configured it to skip warnings.`;
           } else {
             try {
               const errJson = JSON.parse(responseText); 
@@ -127,8 +125,9 @@ function AiFeaturePageContent() {
                 errorMessage = `Database connection error on the backend server when fetching latest results. Please ensure the backend server (Flask) is connected to MongoDB. Original: ${errorMessage}`;
               }
             } catch (e) {
+               // This block is entered if responseText is not valid JSON
                if (responseText.toLowerCase().includes("<!doctype html")) {
-                  errorMessage = `Server returned an HTML error page (Status: ${latestResultsResponse.status}). Check Flask server logs or if the server is running at ${flaskServerBaseUrl}.`;
+                  errorMessage = `Server returned an HTML error page (Status: ${latestResultsResponse.status}). Check Flask server logs or if the server is running at ${flaskServerBaseUrl}. If using ngrok, ensure you've added the ngrok-skip-browser-warning header.`;
               } else if (responseText.length > 0 && responseText.length < 300) { 
                   errorMessage = `Server error (${latestResultsResponse.status}): ${responseText}`;
               } else {
@@ -165,12 +164,7 @@ function AiFeaturePageContent() {
                 }
             } catch (jsonParseError: any) {
                  let detailedError = 'Received an unexpected data format from the server when fetching latest results.';
-                 if (responseText.toLowerCase().includes("<!doctype html") && responseText.toLowerCase().includes("ngrok.com")) {
-                    detailedError = `Received ngrok interstitial page instead of JSON. Ensure your ngrok tunnel for Flask (${flaskServerBaseUrl}) is active, you've visited it in your browser, or configured it to skip warnings.`;
-                    console.error("AI Feature: Flask server returned ngrok interstitial page. Response text (first 500 chars):", responseText.substring(0, 500), "Error:", jsonParseError);
-                 } else {
-                    console.error("AI Feature: Successfully fetched from Flask (status OK), but failed to parse response as JSON. Response text (first 500 chars):", responseText.substring(0, 500), "Error:", jsonParseError);
-                 }
+                 console.error("AI Feature: Successfully fetched from Flask (status OK), but failed to parse response as JSON. Response text (first 500 chars):", responseText.substring(0, 500), "Error:", jsonParseError);
                  setError(detailedError); 
                  setFinalResult(null);
                  setOcrConsideredFileIds([]);    
@@ -180,9 +174,9 @@ function AiFeaturePageContent() {
         }
       } catch (err: any) { 
         console.error("AI Feature: Error fetching initial data:", err);
-        let genericMessage = `An error occurred while loading your initial data. Please check your Flask server connectivity and ngrok tunnel status.`;
+        let genericMessage = `An error occurred while loading your initial data. Please check your backend server connectivity.`;
         if (err.message && err.message.includes('Failed to fetch')) {
-            genericMessage = `Network error: Could not connect to the server at ${flaskServerBaseUrl}. Ensure the Flask server and ngrok tunnel are running and accessible.`;
+            genericMessage = `Network error: Could not connect to the server at ${flaskServerBaseUrl}. Ensure the server is running and accessible.`;
         } else if (err.message) {
             genericMessage += ` Original Error: ${err.message}`;
         }
@@ -278,7 +272,6 @@ function AiFeaturePageContent() {
         payload.forceRefreshForCourses = forceRefreshList;
       }
       
-      // Use ocrConsideredFileIds as the basis for associated IDs for this suggestion run
       if (ocrConsideredFileIds.length > 0) {
          payload.associated_image_file_ids_from_previous_run = ocrConsideredFileIds;
       }
@@ -296,22 +289,14 @@ function AiFeaturePageContent() {
         const newProcessedData = data.user_processed_data || [];
         let updatedUserProcessedDataMap = new Map<string, UserProcessedCourseData>();
 
-        // If it's a specific course refresh, start with previous results BUT allow new data to overwrite
-        if (forceRefreshList && forceRefreshList.length > 0) {
-           (prevResult?.user_processed_data || []).forEach(item => {
-             // If item is not the one being refreshed, keep it.
-             // If it IS the one being refreshed, it will be overwritten by new data below.
-             if (!forceRefreshList.includes(item.identified_course_name)) {
-                updatedUserProcessedDataMap.set(item.identified_course_name, item);
-             }
-           });
-        } else { // Full suggestion run (not a single refresh), so merge intelligently
-            (prevResult?.user_processed_data || []).forEach(item => {
-              updatedUserProcessedDataMap.set(item.identified_course_name, item);
-            });
-        }
+        const baseData = (forceRefreshList.length > 0) 
+            ? (prevResult?.user_processed_data || []).filter(item => !forceRefreshList.includes(item.identified_course_name))
+            : (prevResult?.user_processed_data || []);
+
+        baseData.forEach(item => {
+            updatedUserProcessedDataMap.set(item.identified_course_name, item);
+        });
         
-        // Merge or add new/refreshed data
         newProcessedData.forEach(item => {
           updatedUserProcessedDataMap.set(item.identified_course_name, { ...item, processed_by: item.processed_by || "Cohere" });
         });
@@ -322,7 +307,6 @@ function AiFeaturePageContent() {
         return {
           user_processed_data: finalUserProcessedData,
           llm_error_summary: data.llm_error_summary !== undefined ? data.llm_error_summary : prevResult?.llm_error_summary,
-          // Update associated_image_file_ids with those that formed the basis of THIS suggestion run
           associated_image_file_ids: ocrConsideredFileIds, 
           processedAt: new Date().toISOString(),
         };
@@ -410,7 +394,6 @@ function AiFeaturePageContent() {
       setOcrSuccessfullyExtracted(data.successfully_extracted_courses || []);
       setOcrFailedImages(data.failed_extraction_images || []);
       
-      // Update ocrConsideredFileIds with the set that formed the basis of this OCR run
       setOcrConsideredFileIds(currentOcrFileIdConsiderationSet);
 
       if (data.failed_extraction_images && data.failed_extraction_images.length > 0) {
@@ -444,22 +427,21 @@ function AiFeaturePageContent() {
           return;
       }
       setPhase('suggestionsProcessing'); 
-      // When getting suggestions for manual courses only, we don't really have "associated image file IDs" from an OCR run
-      // But we should still record the courses we're getting suggestions for.
-      // For now, we will set ocrConsideredFileIds to empty if it's just manual courses.
-      // Or, we could retain the previous ocrConsideredFileIds if we want to merge results. Let's try merging.
-      // setOcrConsideredFileIds([]); // Or some logic to define associated IDs for manual-only
       await fetchSuggestions(generalManualCourses);
   }, [userId, generalManualCoursesInput, fetchSuggestions, toast, setPhase]);
 
   const handleProceedToSuggestionsAfterOcr = useCallback(async () => {
-     if (phase === 'manualNaming') {
-        await saveManualCourseNames();
-     }
+    if (phase === 'manualNaming') {
+      await saveManualCourseNames();
+    }
     const userProvidedNamesForFailures = Object.values(manualNamesForFailedImages).map(name => name.trim()).filter(name => name.length > 0);
     const generalManualCourses = generalManualCoursesInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
-    const allKnownCourses = [...new Set([...ocrSuccessfullyExtracted, ...userProvidedNamesForFailures, ...generalManualCourses])].filter(name => name && name.length > 0);
     
+    // Combine new results with previous results
+    const newCoursesFromThisRun = [...new Set([...ocrSuccessfullyExtracted, ...userProvidedNamesForFailures, ...generalManualCourses])];
+    const previousCourses = finalResult?.user_processed_data?.map(item => item.identified_course_name) || [];
+    const allKnownCourses = [...new Set([...newCoursesFromThisRun, ...previousCourses])].filter(name => name && name.length > 0);
+
     if (allKnownCourses.length === 0) {
         toast({ title: "No Courses Available", description: "No courses identified or entered to get suggestions for."});
         setPhase(finalResult && finalResult.user_processed_data && finalResult.user_processed_data.length > 0 ? 'results' : 'initial');
@@ -700,14 +682,14 @@ function AiFeaturePageContent() {
             )}
 
             {phase === 'results' && finalResult && (
-              <div className="flex flex-col min-h-0 mt-4"> 
+              <div className="flex flex-col mt-4"> 
                 <div className="shrink-0 mb-4"> 
                     <SearchWithSuggestions
                         onSearch={handleResultsSearch} placeholder="Search your processed courses..."
                         searchableData={aiFeatureSearchableResults}
                     />
                 </div>
-                <div className="flex-grow min-h-0 overflow-y-auto border border-border rounded-lg shadow-md p-4 bg-card space-y-6">
+                <div className="border border-border rounded-lg shadow-md p-4 bg-card space-y-6">
                   <h2 className="text-2xl font-headline mb-4 border-b pb-2">Processed Result &amp; AI Suggestions:</h2>
                   {finalResult.processedAt && <p className="text-xs text-muted-foreground mb-3">Results from: {new Date(finalResult.processedAt).toLocaleString()}</p>}
 
@@ -816,6 +798,7 @@ export default function AiFeaturePage() {
 
     
     
+
 
 
 
