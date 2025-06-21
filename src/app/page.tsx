@@ -125,27 +125,32 @@ function HomePageContent() {
   }, [images]);
 
   return (
-    <div className="container mx-auto px-4 py-8 md:px-6 lg:px-8">
-      <div className="mb-8 flex flex-col md:flex-row justify-between items-center gap-4">
+    <div className="container mx-auto flex h-[calc(100vh-var(--header-height,4rem))] flex-col px-4 py-4 md:h-auto md:py-8">
+      <div className="flex shrink-0 flex-col justify-between gap-4 md:flex-row md:items-center">
         <div className="text-center md:text-left">
-            <h1 className="text-3xl md:text-4xl font-bold font-headline mb-2">Your Certificate Hub</h1>
-            <p className="text-muted-foreground text-lg">Browse, upload, and manage your certificates.</p>
+            <h1 className="text-3xl font-bold font-headline md:text-4xl">Your Certificate Hub</h1>
+            <p className="text-lg text-muted-foreground">Browse, upload, and manage your certificates.</p>
         </div>
       </div>
-      <div className="mb-6">
+      
+      <div className="my-4 shrink-0">
         <SearchWithSuggestions 
           onSearch={handleSearch} 
           placeholder="Search certificates by name or filename..."
           searchableData={searchableImageNames}
         />
       </div>
-      <ImageGrid
-        images={filteredImages}
-        isLoading={isLoading}
-        error={error}
-        onImageDeleted={triggerRefresh}
-        currentUserId={userId}
-      />
+
+      <div className="min-h-0 flex-grow overflow-y-auto pr-2 md:overflow-visible md:pr-0">
+        <ImageGrid
+          images={filteredImages}
+          isLoading={isLoading}
+          error={error}
+          onImageDeleted={triggerRefresh}
+          currentUserId={userId}
+        />
+      </div>
+
       <UploadFAB onUploadSuccess={triggerRefresh} />
       <AiFAB />
     </div>
