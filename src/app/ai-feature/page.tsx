@@ -628,7 +628,7 @@ function AiFeaturePageContent() {
                     Provide names below. Saved names are used in future OCR runs.
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4 max-h-96 overflow-y-auto px-4 pt-0 pb-4">
+                <CardContent className="space-y-4 max-h-96 overflow-y-auto p-4 pt-0 pb-4">
                   {ocrFailedImages.map(img => (
                     <div key={img.file_id} className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-3 border rounded-md bg-background/50 shadow-sm">
                       <div className="relative w-full sm:w-24 h-32 sm:h-24 rounded-md overflow-hidden shrink-0 border">
@@ -654,12 +654,12 @@ function AiFeaturePageContent() {
                   ))}
                 </CardContent>
                 <CardFooter className="p-4 pt-4">
-                  <Button onClick={handleProceedToSuggestionsAfterOcr} disabled={isLoadingOcr || isLoadingSuggestions || !user || !canProceedToSuggestionsAfterOcr} className="w-full">
-                    <Wand2 className="mr-2 h-5 w-5" />
-                    <span className="truncate">
-                      Save Names &amp; Proceed to Suggestions ({allKnownCoursesForProceedButton.length} Total)
-                    </span>
-                  </Button>
+                    <Button onClick={handleProceedToSuggestionsAfterOcr} disabled={isLoadingOcr || isLoadingSuggestions || !user || !canProceedToSuggestionsAfterOcr} className="w-full">
+                      <Wand2 className="mr-2 h-5 w-5" />
+                      <span className="truncate">
+                        Save Names &amp; Proceed to Suggestions ({allKnownCoursesForProceedButton.length} Total)
+                      </span>
+                    </Button>
                 </CardFooter>
               </Card>
             )}
@@ -733,17 +733,29 @@ function AiFeaturePageContent() {
                         return (
                           <Card key={key} className="bg-background/50 shadow-inner">
                             <CardHeader>
-                              <div className="flex justify-between items-start">
-                                <div>
+                              <div className="flex justify-between items-start gap-4">
+                                <div className="flex-1 min-w-0">
                                   <CardTitle className="text-xl font-headline text-primary flex items-center">
                                     {displayName}
                                     {isUnverified && ( <Tooltip><TooltipTrigger asChild><HelpCircle className="ml-2 h-4 w-4 text-muted-foreground cursor-help" /></TooltipTrigger><TooltipContent><p>This course was auto-identified and not from a pre-defined list.</p></TooltipContent></Tooltip> )}
                                   </CardTitle>
-                                  {identifiedCourseData.ai_description && ( <CardDescription className="pt-1 text-sm">AI Description ({currentProcessedBy}): {identifiedCourseData.ai_description}</CardDescription> )}
-                                  {identifiedCourseData.description_from_graph && !identifiedCourseData.ai_description && ( <CardDescription className="pt-1 text-sm italic">Graph Description: {identifiedCourseData.description_from_graph}</CardDescription> )}
-                                  {!identifiedCourseData.ai_description && !identifiedCourseData.description_from_graph && ( <CardDescription className="pt-1 text-sm italic">No description available.</CardDescription> )}
+                                  {identifiedCourseData.ai_description && (
+                                    <div className="pt-2 text-sm space-y-1">
+                                      <p className="font-medium text-muted-foreground">AI Description ({currentProcessedBy})</p>
+                                      <p className="text-foreground/90">{identifiedCourseData.ai_description}</p>
+                                    </div>
+                                  )}
+                                  {identifiedCourseData.description_from_graph && !identifiedCourseData.ai_description && (
+                                    <div className="pt-2 text-sm space-y-1">
+                                      <p className="font-medium text-muted-foreground">Graph Description</p>
+                                      <p className="mt-1 text-foreground/90 italic">{identifiedCourseData.description_from_graph}</p>
+                                    </div>
+                                  )}
+                                  {!identifiedCourseData.ai_description && !identifiedCourseData.description_from_graph && (
+                                    <CardDescription className="pt-1 text-sm italic">No description available.</CardDescription>
+                                  )}
                                 </div>
-                                <Button variant="outline" size="sm" onClick={() => handleRefreshSingleCourseSuggestions(originalName)} disabled={isRefreshingCourse === originalName || isLoadingOcr || isLoadingSuggestions}>
+                                <Button variant="outline" size="sm" onClick={() => handleRefreshSingleCourseSuggestions(originalName)} disabled={isRefreshingCourse === originalName || isLoadingOcr || isLoadingSuggestions} className="shrink-0">
                                   {isRefreshingCourse === originalName ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <RefreshCw className="mr-2 h-4 w-4"/>}
                                   Refresh Suggestions
                                 </Button>
@@ -797,9 +809,8 @@ export default function AiFeaturePage() {
     
 
     
+    
 
-    
-    
 
 
 
