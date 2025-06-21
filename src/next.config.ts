@@ -1,3 +1,3 @@
-// This file has been removed as Next.js only uses the next.config.ts at the project root.
-// Configuration has been consolidated in the root next.config.ts.
-// Keeping it can cause confusion.
+// This file is intentionally left empty.
+// Next.js requires a single next.config.ts file at the project root.
+// This file was causing a build conflict and has been cleared.
