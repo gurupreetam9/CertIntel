@@ -323,86 +323,42 @@ export const getStudentLinkRequestsForAdminRealtime = (
   return unsubscribe;
 };
 
-// CLIENT-SIDE: Admin action to update request status and link student if accepted
+// CLIENT-SIDE: Admin action to resolve request status by calling the secure API endpoint
 export const updateStudentLinkRequestStatusAndLinkStudent = async (
   requestId: string,
   adminFirebaseIdResolving: string,
   newStatus: Extract<LinkRequestStatus, 'accepted' | 'rejected'>
 ): Promise<void> => {
-  const batch = writeBatch(firestore);
-  const requestDocRef = doc(firestore, STUDENT_LINK_REQUESTS_COLLECTION, requestId);
-
-  const requestSnap = await getDoc(requestDocRef);
-  if (!requestSnap.exists()) {
-    throw new Error('Link request not found.');
+  const clientAuth = firebaseAuthClient.currentUser;
+  if (!clientAuth) {
+    throw new Error('Authentication Error: No user signed in.');
   }
-  const requestData = requestSnap.data() as StudentLinkRequest;
-
-  if (requestData.adminFirebaseId !== adminFirebaseIdResolving) {
-    throw new Error('Admin not authorized to resolve this request.');
+  if (clientAuth.uid !== adminFirebaseIdResolving) {
+    throw new Error('Authorization Error: You can only resolve your own requests.');
   }
-
-  batch.update(requestDocRef, {
-    status: newStatus,
-    resolvedAt: serverTimestamp(),
-    resolvedBy: adminFirebaseIdResolving
-  });
-
-  const studentUserDocRef = doc(firestore, USERS_COLLECTION, requestData.studentUserId);
-  const studentUpdateData: Partial<UserProfile> = {
-    linkRequestStatus: newStatus,
-    updatedAt: serverTimestamp(),
-  };
-
-  if (newStatus === 'accepted') {
-    studentUpdateData.associatedAdminFirebaseId = adminFirebaseIdResolving;
-    studentUpdateData.associatedAdminUniqueId = requestData.adminUniqueIdTargeted;
-  } else {
-    studentUpdateData.associatedAdminFirebaseId = null;
-    studentUpdateData.associatedAdminUniqueId = null;
-    // linkRequestStatus is already set to 'rejected'
-  }
-  batch.update(studentUserDocRef, studentUpdateData);
 
   try {
-    await batch.commit();
-    console.log(`[SERVICE_CLIENT/updateStudentLinkRequestStatus] Request ${requestId} status updated to ${newStatus} by admin ${adminFirebaseIdResolving}.`);
+    const idToken = await clientAuth.getIdToken();
+    const response = await fetch('/api/admin/resolve-link-request', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({ requestId, newStatus }),
+    });
 
-    // Email sending logic
-    const studentName = requestData.studentName || requestData.studentEmail.split('@')[0];
-    let emailSubject = '';
-    let emailText = '';
-    let emailHtml = '';
-
-    if (newStatus === 'accepted') {
-      emailSubject = 'Your Link Request to CertIntel Admin Was Approved!';
-      emailText = `Hello ${studentName},\n\nYour request to link with the CertIntel admin (${requestData.adminUniqueIdTargeted}) has been approved. You are now linked.\n\nRegards,\nThe CertIntel Team`;
-      emailHtml = `<p>Hello ${studentName},</p><p>Your request to link with the CertIntel admin (ID: <strong>${requestData.adminUniqueIdTargeted}</strong>) has been <strong>approved</strong>. You are now linked.</p><p>Regards,<br/>The CertIntel Team</p>`;
-    } else if (newStatus === 'rejected') {
-      emailSubject = 'Update on Your CertIntel Admin Link Request';
-      emailText = `Hello ${studentName},\n\nUnfortunately, your request to link with the CertIntel admin (${requestData.adminUniqueIdTargeted}) was not approved at this time.\n\nIf you believe this is an error, please contact your admin or try requesting again.\n\nRegards,\nThe CertIntel Team`;
-      emailHtml = `<p>Hello ${studentName},</p><p>Unfortunately, your request to link with the CertIntel admin (ID: <strong>${requestData.adminUniqueIdTargeted}</strong>) was <strong>not approved</strong> at this time.</p><p>If you believe this is an error, please contact your admin or try requesting again.</p><p>Regards,<br/>The CertIntel Team</p>`;
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || `Failed to resolve request. Server responded with ${response.status}`);
     }
-
-    if (requestData.studentEmail && emailSubject) {
-      // sendEmail is a server action, so it can be called from client-side service
-      const emailResult = await sendEmail({
-        to: requestData.studentEmail,
-        subject: emailSubject,
-        text: emailText,
-        html: emailHtml,
-      });
-      if (emailResult.success) {
-        console.log(`[SERVICE_CLIENT/updateStudentLinkRequestStatus] Email notification sent to ${requestData.studentEmail} for request ${requestId} status ${newStatus}.`);
-      } else {
-        console.warn(`[SERVICE_CLIENT/updateStudentLinkRequestStatus] Failed to send email notification to ${requestData.studentEmail}. Reason: ${emailResult.message}`);
-      }
-    }
+    console.log(`[SERVICE_CLIENT/updateStudentLinkRequestStatus] Successfully called API to resolve request ${requestId} to ${newStatus}.`);
   } catch (error: any) {
-    console.error(`[SERVICE_CLIENT/updateStudentLinkRequestStatus] Error committing batch or sending email for request ${requestId}:`, error);
-    throw error;
+    console.error(`[SERVICE_CLIENT/updateStudentLinkRequestStatus] Error calling API to resolve request ${requestId}:`, error);
+    throw error; // Re-throw the error to be caught by the calling component (e.g., to show a toast)
   }
 };
+
 
 // CLIENT-SIDE: Real-time listener for admin's accepted students
 export const getStudentsForAdminRealtime = (

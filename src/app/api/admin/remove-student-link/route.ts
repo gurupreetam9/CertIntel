@@ -114,6 +114,11 @@ export async function POST(request: NextRequest) {
     if (error.code === 'auth/id-token-expired' || error.code === 'auth/argument-error') {
       status = 401;
     }
-    return NextResponse.json({ message: 'An internal server error occurred.', error: error.message }, { status });
+    // For debugging, send a more detailed message to the client.
+    return NextResponse.json({ 
+        message: `An internal server error occurred: ${error.message}`, 
+        error: error.message, // Keep original error field for backward compat
+        code: error.code, // Send code if available
+    }, { status });
   }
 }
