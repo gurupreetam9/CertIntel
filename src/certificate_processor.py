@@ -571,176 +571,104 @@ def process_images_for_ocr(image_data_list):
 
 
 def generate_suggestions_from_known_courses(
-    all_known_course_names_cleaned: List[str], 
-    cleaned_to_original_map: Dict[str, str],    
+    all_known_course_names_cleaned: List[str],
+    cleaned_to_original_map: Dict[str, str],
     previous_user_data_list: Optional[List[Dict]] = None,
     force_refresh_for_courses: Optional[List[str]] = None
 ):
-    user_processed_data_output: List[Dict[str, any]] = []
-    llm_error_summary_for_output: Optional[str] = None
+    output_data = []
+    llm_error_summary = None
     
-    cached_data_map: Dict[str, Dict[str, any]] = {}
-    if previous_user_data_list:
-        for prev_item in previous_user_data_list: 
-            if "identified_course_name" in prev_item: 
-                 cached_data_map[prev_item["identified_course_name"]] = prev_item 
-    logging.info(f"Suggestions Phase: Built cache map from previous data with {len(cached_data_map)} entries. Keys are original full names.")
-
-    courses_to_query_cohere_for_batch_cleaned: List[str] = []
+    # DB Cache from previous runs
+    cache_map = {item["identified_course_name"]: item for item in previous_user_data_list or [] if "identified_course_name" in item}
     
-    for cleaned_course_name in all_known_course_names_cleaned:
-        original_full_name = cleaned_to_original_map.get(cleaned_course_name)
-        is_forced_refresh = force_refresh_for_courses and cleaned_course_name in force_refresh_for_courses
-
-        if not original_full_name:
-            logging.warning(f"Suggestions Phase: Could not find original name for cleaned name '{cleaned_course_name}' during cache check. Will proceed to query LLM for cleaned name.")
-            courses_to_query_cohere_for_batch_cleaned.append(cleaned_course_name)
+    courses_to_query_cohere_batch = []
+    
+    for cleaned_name in all_known_course_names_cleaned:
+        original_name = cleaned_to_original_map.get(cleaned_name, cleaned_name)
+        is_forced_refresh = force_refresh_for_courses and cleaned_name in force_refresh_for_courses
+        
+        # 1. Check for force refresh
+        if is_forced_refresh:
+            logging.info(f"Suggestions Phase: Force refresh requested for '{cleaned_name}'. Will query LLM.")
+            courses_to_query_cohere_batch.append(cleaned_name)
+            continue
+            
+        # 2. Check DB Cache
+        if original_name in cache_map:
+            logging.info(f"Suggestions Phase: Cache hit for original name '{original_name}'. Using cached data.")
+            output_data.append({**cache_map[original_name], "processed_by": "Cache"})
             continue
 
-        if original_full_name in cached_data_map and not is_forced_refresh:
-            logging.info(f"Suggestions Phase: Cache hit for original name '{original_full_name}' (via cleaned '{cleaned_course_name}'). Using cached data.")
-            user_processed_data_output.append({**cached_data_map[original_full_name], "processed_by": "Cache"})
-        else:
-            if is_forced_refresh: logging.info(f"Suggestions Phase: Force refresh requested for '{cleaned_course_name}' (original: '{original_full_name}'). Will query LLM.")
-            courses_to_query_cohere_for_batch_cleaned.append(cleaned_course_name) 
-    
-    parsed_cohere_batch_items_map: Dict[str, Dict[str, any]] = {}
-    if courses_to_query_cohere_for_batch_cleaned:
-        logging.info(f"Suggestions Phase: Querying Cohere LLM (batch) for {len(courses_to_query_cohere_for_batch_cleaned)} cleaned courses: {courses_to_query_cohere_for_batch_cleaned}")
-        cohere_batch_response_data = query_llm_for_detailed_suggestions(courses_to_query_cohere_for_batch_cleaned)
-        
-        if "text" in cohere_batch_response_data and cohere_batch_response_data["text"]:
-            parsed_cohere_batch_items = parse_llm_detailed_suggestions_response(cohere_batch_response_data["text"])
-            parsed_cohere_batch_items_map = {
-                re.sub(r'\s+', ' ', item["original_input_course_from_llm"]).strip().lower(): item 
-                for item in parsed_cohere_batch_items if "original_input_course_from_llm" in item
-            }
-            if not parsed_cohere_batch_items and courses_to_query_cohere_for_batch_cleaned: 
-                 llm_error_summary_for_output = "Cohere LLM (batch) response received but no valid items could be parsed. Check LLM output format and server logs."
-                 logging.warning(f"Suggestions Phase (Cohere Batch): {llm_error_summary_for_output}")
-        elif "error" in cohere_batch_response_data:
-            llm_error_summary_for_output = f"Cohere LLM (batch) error: {cohere_batch_response_data['error']}"
-            logging.error(f"Suggestions Phase: Cohere LLM (batch) query failed: {llm_error_summary_for_output}")
-        else: 
-            llm_error_summary_for_output = "Unexpected response structure from Cohere LLM (batch) query function."
-            logging.error(f"Suggestions Phase (Cohere Batch): {llm_error_summary_for_output}")
-
-    for cleaned_course_name_queried_in_batch in courses_to_query_cohere_for_batch_cleaned:
-        original_full_name_for_output = cleaned_to_original_map.get(cleaned_course_name_queried_in_batch, cleaned_course_name_queried_in_batch) 
-        
-        normalized_lookup_key = re.sub(r'\s+', ' ', cleaned_course_name_queried_in_batch).strip().lower()
-        cohere_item_for_course = parsed_cohere_batch_items_map.get(normalized_lookup_key) 
-
-        if cohere_item_for_course:
-            user_processed_data_output.append({
-                "identified_course_name": original_full_name_for_output, 
-                "description_from_graph": course_graph.get(cleaned_course_name_queried_in_batch, {}).get("description"), 
-                "ai_description": cohere_item_for_course.get("ai_description"),
-                "llm_suggestions": cohere_item_for_course.get("llm_suggestions", []),
+        # 3. Check Local Graph
+        if cleaned_name in course_graph:
+            logging.info(f"Suggestions Phase: Graph hit for cleaned name '{cleaned_name}'. Using graph data.")
+            graph_item = course_graph[cleaned_name]
+            output_data.append({
+                "identified_course_name": original_name,
+                "description_from_graph": graph_item.get("description"),
+                "ai_description": graph_item.get("description"), # Use graph desc as ai_desc for display
+                "llm_suggestions": graph_item.get("suggested_next_courses", []),
                 "llm_error": None,
-                "processed_by": "Cohere (batch)"
+                "processed_by": "Graph"
             })
-        else: 
-            error_msg_for_this_course = f"Cohere (batch): LLM was queried for '{cleaned_course_name_queried_in_batch}', but no specific data was returned or parsed for it in the batch response."
-            if llm_error_summary_for_output and "parsed" in llm_error_summary_for_output: 
-                error_msg_for_this_course = f"Cohere (batch): {llm_error_summary_for_output}"
-            elif llm_error_summary_for_output and "error" in llm_error_summary_for_output.lower():
-                 error_msg_for_this_course = llm_error_summary_for_output
+            continue
+            
+        # 4. If nothing else, add to Cohere batch
+        logging.info(f"Suggestions Phase: No cache or graph hit for '{cleaned_name}'. Adding to Cohere batch.")
+        courses_to_query_cohere_batch.append(cleaned_name)
 
-            logging.warning(f"No Cohere (batch) data for '{cleaned_course_name_queried_in_batch}' (original: '{original_full_name_for_output}'). Error: {error_msg_for_this_course}")
-            user_processed_data_output.append({
-                "identified_course_name": original_full_name_for_output,
-                "description_from_graph": course_graph.get(cleaned_course_name_queried_in_batch, {}).get("description"),
-                "ai_description": None,
-                "llm_suggestions": [],
-                "llm_error": error_msg_for_this_course,
-                "processed_by": "Cohere (batch failed)" 
-            })
-    
-    final_user_processed_data_after_fallback = []
-    any_individual_fallback_errors = False
-
-    for course_data_item in user_processed_data_output:
-        is_cohere_batch_failure_for_item = course_data_item.get("processed_by") == "Cohere (batch failed)" and \
-                                           course_data_item.get("llm_error") is not None
+    # Now, process the batch that needs to go to the LLM
+    if courses_to_query_cohere_batch:
+        logging.info(f"Suggestions Phase: Querying Cohere LLM (batch) for {len(courses_to_query_cohere_batch)} cleaned courses: {courses_to_query_cohere_batch}")
+        cohere_batch_response = query_llm_for_detailed_suggestions(courses_to_query_cohere_batch)
         
-        original_course_name_for_display = course_data_item['identified_course_name']
-        cleaned_name_for_individual_query = original_course_name_for_display.replace(" [UNVERIFIED]", "").replace("¢", "").strip()
-
-        if is_cohere_batch_failure_for_item and cleaned_name_for_individual_query:
-            logging.info(f"Suggestions Phase: Cohere (batch) failed for '{cleaned_name_for_individual_query}'. Attempting Cohere individual fallback. Batch error was: {course_data_item.get('llm_error')}")
-            
-            cohere_individual_response = query_llm_for_detailed_suggestions([cleaned_name_for_individual_query])
-            
-            current_item_individual_error = None
-            individual_ai_description = None
-            individual_suggestions = []
-            
-            if "text" in cohere_individual_response and cohere_individual_response["text"]:
-                parsed_items = parse_llm_detailed_suggestions_response(cohere_individual_response["text"])
-                if parsed_items and len(parsed_items) == 1:
-                    parsed_individual_item = parsed_items[0]
-                    llm_returned_name = parsed_individual_item.get("original_input_course_from_llm", "")
-                    
-                    normalized_llm_name = re.sub(r'\s+', ' ', llm_returned_name).strip().lower()
-                    normalized_expected_name = re.sub(r'\s+', ' ', cleaned_name_for_individual_query).strip().lower()
-
-                    if normalized_llm_name == normalized_expected_name:
-                        individual_ai_description = parsed_individual_item.get("ai_description")
-                        individual_suggestions = parsed_individual_item.get("llm_suggestions", [])
-                        if not individual_ai_description and not individual_suggestions and not (parsed_individual_item.get("llm_suggestions") == [] and not parsed_individual_item.get("ai_description")): # Check if it was explicitly no suggestions vs total failure
-                            current_item_individual_error = "Cohere (individual): Returned no description or suggestions."
-                            any_individual_fallback_errors = True
-                    else:
-                        current_item_individual_error = f"Cohere (individual): Parsed, but LLM's 'Original Input Course' ('{llm_returned_name}') did not match expected input ('{cleaned_name_for_individual_query}'). Normalized check failed: '{normalized_llm_name}' vs '{normalized_expected_name}'."
-                        any_individual_fallback_errors = True
-                elif parsed_items and len(parsed_items) > 1 :
-                     current_item_individual_error = f"Cohere (individual): Expected 1 parsed item for single course input, but got {len(parsed_items)}."
-                     any_individual_fallback_errors = True
-                else: 
-                    current_item_individual_error = "Cohere (individual): Response received but no valid items could be parsed."
-                    any_individual_fallback_errors = True
-            elif "error" in cohere_individual_response:
-                current_item_individual_error = f"Cohere (individual) Error: {cohere_individual_response['error']}"
-                any_individual_fallback_errors = True
-            else: 
-                current_item_individual_error = "Cohere (individual): Unexpected response structure from LLM query function."
-                any_individual_fallback_errors = True
-
-            if current_item_individual_error: 
-                final_user_processed_data_after_fallback.append({
-                    **course_data_item, 
-                    "llm_error": f"{course_data_item.get('llm_error', 'Cohere (batch) failed.')} {current_item_individual_error}",
-                    "processed_by": "Cohere (batch & individual failed)"
-                })
-                logging.warning(f"Suggestions Phase: Cohere individual fallback FAILED or no useful data for '{cleaned_name_for_individual_query}'. Combined error: {final_user_processed_data_after_fallback[-1]['llm_error']}")
-            else: 
-                final_user_processed_data_after_fallback.append({
-                    "identified_course_name": original_course_name_for_display,
-                    "description_from_graph": course_data_item.get("description_from_graph"), 
-                    "ai_description": individual_ai_description,
-                    "llm_suggestions": individual_suggestions,
-                    "llm_error": None, 
-                    "processed_by": "Cohere (individual fallback)"
-                })
-                logging.info(f"Suggestions Phase: Cohere individual fallback SUCCEEDED for '{cleaned_name_for_individual_query}'. Desc: {'Yes' if individual_ai_description else 'No'}, Sugs: {len(individual_suggestions)}")
+        parsed_cohere_batch_map = {}
+        if "text" in cohere_batch_response and cohere_batch_response["text"]:
+            parsed_items = parse_llm_detailed_suggestions_response(cohere_batch_response["text"])
+            parsed_cohere_batch_map = {
+                re.sub(r'\s+', ' ', item["original_input_course_from_llm"]).strip().lower(): item 
+                for item in parsed_items if "original_input_course_from_llm" in item
+            }
+            if not parsed_items and courses_to_query_cohere_batch:
+                llm_error_summary = "Cohere (batch) response received but no valid items could be parsed."
+        elif "error" in cohere_batch_response:
+            llm_error_summary = f"Cohere (batch) error: {cohere_batch_response['error']}"
         else:
-            final_user_processed_data_after_fallback.append(course_data_item) 
+            llm_error_summary = "Unexpected response structure from Cohere LLM (batch) query."
+
+        # Add successfully parsed Cohere results to our main output list
+        for cleaned_name in courses_to_query_cohere_batch:
+            original_name = cleaned_to_original_map.get(cleaned_name, cleaned_name)
+            normalized_lookup_key = re.sub(r'\s+', ' ', cleaned_name).strip().lower()
+            cohere_item = parsed_cohere_batch_map.get(normalized_lookup_key)
+
+            if cohere_item:
+                output_data.append({
+                    "identified_course_name": original_name,
+                    "description_from_graph": course_graph.get(cleaned_name, {}).get("description"),
+                    "ai_description": cohere_item.get("ai_description"),
+                    "llm_suggestions": cohere_item.get("llm_suggestions", []),
+                    "llm_error": None,
+                    "processed_by": "Cohere (batch)"
+                })
+            else:
+                # If a course was sent to Cohere but not returned, mark it as failed.
+                err_msg = f"Cohere (batch): No data for '{cleaned_name}'." + (f" Batch error: {llm_error_summary}" if llm_error_summary else "")
+                output_data.append({
+                    "identified_course_name": original_name,
+                    "description_from_graph": course_graph.get(cleaned_name, {}).get("description"),
+                    "ai_description": None,
+                    "llm_suggestions": [],
+                    "llm_error": err_msg,
+                    "processed_by": "Cohere (batch failed)"
+                })
+
+    output_data.sort(key=lambda x: x.get("identified_course_name", "").lower())
     
-    user_processed_data_output = final_user_processed_data_after_fallback
-    user_processed_data_output.sort(key=lambda x: x.get("identified_course_name", "").lower())
-
-    final_llm_error_summary = llm_error_summary_for_output 
-    if any_individual_fallback_errors:
-        individual_fallback_error_msg = "Some courses also failed individual Cohere fallback or Cohere returned no useful data. Check individual item errors and logs."
-        if final_llm_error_summary:
-            final_llm_error_summary += f" {individual_fallback_error_msg}"
-        else:
-            final_llm_error_summary = individual_fallback_error_msg
-            
     return {
-        "user_processed_data": user_processed_data_output,
-        "llm_error_summary": final_llm_error_summary
+        "user_processed_data": output_data,
+        "llm_error_summary": llm_error_summary
     }
 
 
