@@ -125,7 +125,9 @@ function HomePageContent() {
   }, [images]);
 
   return (
-    <div className="container mx-auto flex h-[calc(100vh-var(--header-height,4rem))] flex-col px-4 py-4 md:h-auto md:py-8">
+    // This container now uses h-full to take up space from the parent <main> tag.
+    <div className="container mx-auto flex h-full flex-col px-4 py-4 md:py-8">
+      {/* This top section does not grow or scroll */}
       <div className="flex shrink-0 flex-col justify-between gap-4 md:flex-row md:items-center">
         <div className="text-center md:text-left">
             <h1 className="text-3xl font-bold font-headline md:text-4xl">Your Certificate Hub</h1>
@@ -141,7 +143,8 @@ function HomePageContent() {
         />
       </div>
 
-      <div className="min-h-0 flex-grow overflow-y-auto pr-2 md:overflow-visible md:pr-0">
+      {/* This wrapper now uses flex-1 to grow and fill available space, with scrolling. */}
+      <div className="min-h-0 flex-1 overflow-y-auto pr-2 md:overflow-visible md:pr-0">
         <ImageGrid
           images={filteredImages}
           isLoading={isLoading}

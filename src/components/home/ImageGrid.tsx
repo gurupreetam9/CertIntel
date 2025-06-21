@@ -166,7 +166,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
 
   if (isLoading) {
     return (
-      <div className="flex h-full flex-col items-center justify-center text-center py-12">
+      <div className="flex h-full flex-col items-center justify-center text-center py-4 sm:py-8 md:py-12">
         <Loader2 className="w-16 h-16 text-primary animate-spin mb-4" />
         <h2 className="text-2xl font-headline mb-2">Loading Your Certificates...</h2>
         <p className="text-muted-foreground">Please wait a moment.</p>
@@ -176,7 +176,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
 
   if (error) {
     return (
-      <div className="flex h-full flex-col items-center justify-center text-center py-12 text-destructive">
+      <div className="flex h-full flex-col items-center justify-center text-center py-4 sm:py-8 md:py-12 text-destructive">
         <FileText className="w-16 h-16 mb-4" />
         <h2 className="text-2xl font-headline mb-2">Error Loading Certificates</h2>
         <p>{error}</p>
@@ -186,7 +186,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
 
   if (images.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center text-center py-12">
+      <div className="flex h-full flex-col items-center justify-center text-center py-4 sm:py-8 md:py-12">
         <FileText className="w-16 h-16 text-muted-foreground mb-4" />
         <h2 className="text-2xl font-headline mb-2">Your CertIntel Hub is Empty</h2>
         <p className="text-muted-foreground">Start by uploading your first certificate using the &apos;+&apos; button.</p>
