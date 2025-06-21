@@ -4,8 +4,7 @@ from flask_cors import CORS
 import os
 import logging
 from pymongo import MongoClient, DESCENDING, UpdateOne
-from gridfs import GridFS
-from bson.objectid import ObjectId # Import ObjectId
+from bson.objectid import ObjectId
 from dotenv import load_dotenv
 from datetime import datetime, timezone
 import json
@@ -30,8 +29,8 @@ app_logger.info(f"Flask app.py: .env loaded: {'Yes' if os.getenv('MONGODB_URI') 
 from certificate_processor import extract_and_recommend_courses_from_image_data
 
 app = Flask(__name__)
-CORS(app)
-app_logger.info("Flask app instance created.")
+CORS(app, resources={r"/*": {"origins": "*"}})
+app_logger.info("Flask app instance created with CORS enabled for all origins.")
 
 MONGODB_URI="mongodb+srv://gurupreetambodapati:MTXH7oEVPg3sJdg2@cluster0.fpsg1.mongodb.net/"
 DB_NAME="imageverse_db"
@@ -287,6 +286,7 @@ def convert_pdf_to_images_route():
     user_id = request.form.get('userId')
     original_pdf_name = request.form.get('originalName', pdf_file_storage.filename)
 
+
     if not user_id: return jsonify({"error": "Missing 'userId' in form data."}), 400
     if not original_pdf_name: return jsonify({"error": "No filename or originalName provided for PDF."}), 400
     app.logger.info(f"Flask (Req ID: {req_id}): Processing PDF '{original_pdf_name}' for userId '{user_id}'.")
@@ -319,7 +319,7 @@ def convert_pdf_to_images_route():
         return jsonify({"message": "PDF converted and pages stored successfully.", "converted_files": converted_files_metadata}), 200
 
     except PDFPageCountError: return jsonify({"error": "Could not determine page count. PDF may be corrupted or password-protected."}), 400
-    except PDFSyntaxError: return jsonify({"error": "PDF syntax error. File may be corrupted."}), 400
+    except PDFSyntaxError: return jsonify({"error": "File may be corrupted."}), 400
     except PDFPopplerTimeoutError: return jsonify({"error": "Timeout during PDF page conversion."}), 400
     except Exception as e:
         if "PopplerNotInstalledError" in str(type(e)) or "pdftoppm" in str(e).lower() or "pdfinfo" in str(e).lower(): return jsonify({"error": "PDF processing utilities (Poppler) are not installed/configured correctly (conversion stage)."}), 500
@@ -331,3 +331,6 @@ if __name__ == '__main__':
     app_logger.info(f"Effective MONGODB_DB_NAME: {DB_NAME}")
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)), debug=True)
 
+
+
+    
