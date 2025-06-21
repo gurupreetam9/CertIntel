@@ -372,12 +372,14 @@ function ProfileSettingsPageContent() {
               )}
 
               {isLinkPending && userProfile.associatedAdminUniqueId && (
-                <div className="space-y-2 p-4 border rounded-md bg-yellow-50 border-yellow-200 dark:bg-yellow-800/30 dark:border-yellow-700">
-                  <p className="text-sm text-yellow-700 dark:text-yellow-300 flex items-center">
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Your request to link with Teacher/Admin ID <strong className="font-semibold">{userProfile.associatedAdminUniqueId}</strong> is pending approval.
-                  </p>
-                   <Button variant="outline" onClick={handleRemoveLink} disabled={isRemovingLink || isSubmittingLinkRequest} size="sm">
+                <div className="space-y-3 p-4 border rounded-md bg-yellow-50 border-yellow-200 dark:bg-yellow-800/30 dark:border-yellow-700">
+                  <div className="flex items-start gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin text-yellow-700 dark:text-yellow-300 mt-0.5 shrink-0" />
+                    <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                      Your request to link with Teacher/Admin ID <strong className="font-semibold">{userProfile.associatedAdminUniqueId}</strong> is pending approval.
+                    </p>
+                  </div>
+                   <Button variant="outline" onClick={handleRemoveLink} disabled={isRemovingLink || isSubmittingLinkRequest} size="sm" className="ml-[20px]">
                     {isRemovingLink ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link2Off className="mr-2 h-4 w-4" />}
                     Cancel Request
                   </Button>
@@ -386,10 +388,12 @@ function ProfileSettingsPageContent() {
               
               {userProfile.linkRequestStatus === 'rejected' && userProfile.associatedAdminUniqueId && (
                 <div className="space-y-2 p-4 border rounded-md bg-red-50 border-red-200 dark:bg-red-900/30 dark:border-red-700">
-                  <p className="text-sm text-red-700 dark:text-red-300 flex items-center">
-                    <AlertTriangle className="mr-2 h-4 w-4" />
-                    Your previous link request with Teacher/Admin ID <strong className="font-semibold">{userProfile.associatedAdminUniqueId}</strong> was not approved. You can try requesting again or with a different ID.
-                  </p>
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="h-4 w-4 text-red-700 dark:text-red-300 mt-0.5 shrink-0" />
+                    <p className="text-sm text-red-700 dark:text-red-300">
+                      Your previous link request with Teacher/Admin ID <strong className="font-semibold">{userProfile.associatedAdminUniqueId}</strong> was not approved. You can try requesting again or with a different ID.
+                    </p>
+                  </div>
                 </div>
               )}
 
@@ -452,5 +456,3 @@ export default function ProfileSettingsPage() {
     </ProtectedPage>
   );
 }
-
-    
