@@ -628,7 +628,7 @@ function AiFeaturePageContent() {
                     Provide names below. Saved names are used in future OCR runs.
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4 max-h-96 overflow-y-auto pr-2">
+                <CardContent className="space-y-4 max-h-96 overflow-y-auto px-4 pt-0 pb-4">
                   {ocrFailedImages.map(img => (
                     <div key={img.file_id} className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-3 border rounded-md bg-background/50 shadow-sm">
                       <div className="relative w-full sm:w-24 h-32 sm:h-24 rounded-md overflow-hidden shrink-0 border">
@@ -653,10 +653,12 @@ function AiFeaturePageContent() {
                     </div>
                   ))}
                 </CardContent>
-                <CardFooter className="pt-4">
+                <CardFooter className="p-4 pt-4">
                   <Button onClick={handleProceedToSuggestionsAfterOcr} disabled={isLoadingOcr || isLoadingSuggestions || !user || !canProceedToSuggestionsAfterOcr} className="w-full">
                     <Wand2 className="mr-2 h-5 w-5" />
-                    Save Names &amp; Proceed to Suggestions ({allKnownCoursesForProceedButton.length} Total)
+                    <span className="truncate">
+                      Save Names &amp; Proceed to Suggestions ({allKnownCoursesForProceedButton.length} Total)
+                    </span>
                   </Button>
                 </CardFooter>
               </Card>
@@ -798,6 +800,7 @@ export default function AiFeaturePage() {
 
     
     
+
 
 
 
