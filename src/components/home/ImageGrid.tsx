@@ -167,9 +167,9 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
   if (isLoading) {
     return (
       <div className="flex h-full flex-col items-center justify-center text-center py-4 sm:py-8 md:py-12">
-        <Loader2 className="w-16 h-16 text-primary animate-spin mb-4" />
-        <h2 className="text-2xl font-headline mb-2">Loading Your Certificates...</h2>
-        <p className="text-muted-foreground">Please wait a moment.</p>
+        <Loader2 className="w-12 h-12 sm:w-16 sm:h-16 text-primary animate-spin mb-4" />
+        <h2 className="text-xl sm:text-2xl font-headline mb-2">Loading Your Certificates...</h2>
+        <p className="text-muted-foreground text-sm sm:text-base">Please wait a moment.</p>
       </div>
     );
   }
@@ -177,9 +177,9 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
   if (error) {
     return (
       <div className="flex h-full flex-col items-center justify-center text-center py-4 sm:py-8 md:py-12 text-destructive">
-        <FileText className="w-16 h-16 mb-4" />
-        <h2 className="text-2xl font-headline mb-2">Error Loading Certificates</h2>
-        <p>{error}</p>
+        <FileText className="w-12 h-12 sm:w-16 sm:h-16 mb-4" />
+        <h2 className="text-xl sm:text-2xl font-headline mb-2">Error Loading Certificates</h2>
+        <p className="text-sm sm:text-base">{error}</p>
       </div>
     );
   }
@@ -187,16 +187,16 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
   if (images.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center text-center py-4 sm:py-8 md:py-12">
-        <FileText className="w-16 h-16 text-muted-foreground mb-4" />
-        <h2 className="text-2xl font-headline mb-2">Your CertIntel Hub is Empty</h2>
-        <p className="text-muted-foreground">Start by uploading your first certificate using the &apos;+&apos; button.</p>
+        <FileText className="w-12 h-12 sm:w-16 sm:h-16 text-muted-foreground mb-4" />
+        <h2 className="text-xl sm:text-2xl font-headline mb-2">Your CertIntel Hub is Empty</h2>
+        <p className="text-muted-foreground text-sm sm:text-base">Start by uploading your first certificate using the &apos;+&apos; button.</p>
       </div>
     );
   }
 
   return (
     <>
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
         {images.map((image) => {
           const imageSrc = `/api/images/${image.fileId}`;
           const isPdf = image.contentType === 'application/pdf';
