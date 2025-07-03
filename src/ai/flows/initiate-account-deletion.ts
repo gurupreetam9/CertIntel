@@ -47,8 +47,16 @@ const initiateAccountDeletionFlow = ai.defineFlow(
     deletionTokenStore[token] = { userId, email, expiresAt };
     console.log(`initiateAccountDeletionFlow: Deletion token for ${email} (UID: ${userId}) is ${token}. Stored in memory.`);
 
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:9005';
-    const deletionUrl = `${baseUrl}/delete-account?token=${token}`;
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+    if (!baseUrl) {
+      const warningMessage = "Account Deletion Flow Warning: `NEXT_PUBLIC_BASE_URL` environment variable is not set. Defaulting to 'http://localhost:9005'. This link will be incorrect in a deployed environment.";
+      console.warn(warningMessage);
+      if (process.env.NODE_ENV === 'production') {
+        console.error("CRITICAL PRODUCTION ERROR: NEXT_PUBLIC_BASE_URL is not set, which will result in non-functional account deletion links.");
+      }
+    }
+    const finalBaseUrl = baseUrl || 'http://localhost:9005';
+    const deletionUrl = `${finalBaseUrl}/delete-account?token=${token}`;
 
     const emailSubject = 'Account Deletion Confirmation for CertIntel';
     const emailText = `We have received a request to delete your CertIntel account. To confirm this action, please click the link below. This link is valid for 15 minutes.\n\n${deletionUrl}\n\nIf you did not request this, you can safely ignore this email.`;
