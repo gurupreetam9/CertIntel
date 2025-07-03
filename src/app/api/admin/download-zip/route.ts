@@ -68,28 +68,33 @@ export async function POST(request: NextRequest) {
             const fileInfo = fileInfoArray[0];
             const downloadStream = bucket.openDownloadStream(objectId);
             
-            let fileName = fileInfo.metadata?.originalName || fileInfo.filename || `${fileId}.file`;
-            
-            // Sanitize filename and ensure it has a proper extension
-            fileName = fileName.replace(/[/\\?%*:|"<>]/g, '-'); // Replace invalid characters
-            const hasExtension = /\.[^/.]+$/.test(fileName);
-            
-            if (!hasExtension && fileInfo.contentType) {
-                const mimeType = fileInfo.contentType;
-                let extension = '';
-                if (mimeType === 'image/jpeg') extension = 'jpg';
-                else if (mimeType === 'image/png') extension = 'png';
-                else if (mimeType === 'image/gif') extension = 'gif';
-                else if (mimeType === 'image/webp') extension = 'webp';
-                else if (mimeType === 'application/pdf') extension = 'pdf';
-                
-                if (extension) {
-                    fileName = `${fileName}.${extension}`;
-                }
-            }
+            // Start with a base name
+            let baseName = fileInfo.metadata?.originalName || fileInfo.filename || fileId.toString();
 
-            archive.append(downloadStream, { name: fileName });
-            console.log(`API (Req ID: ${reqId}): Appended "${fileName}" to zip.`);
+            // Sanitize and remove common image/pdf extensions to avoid duplication like "file.pdf.png"
+            baseName = baseName.replace(/\.(jpg|jpeg|png|gif|webp|pdf)$/i, '');
+
+            // Determine correct extension from contentType
+            const mimeType = fileInfo.contentType;
+            let extension = '';
+            if (mimeType === 'image/jpeg') extension = '.jpg';
+            else if (mimeType === 'image/png') extension = '.png';
+            else if (mimeType === 'image/gif') extension = '.gif';
+            else if (mimeType === 'image/webp') extension = '.webp';
+            else if (mimeType === 'application/pdf') extension = '.pdf';
+            // Add a fallback if contentType is missing but filename has it
+            else if (!mimeType) {
+                 const match = fileInfo.filename.match(/\.(jpg|jpeg|png|gif|webp|pdf)$/i);
+                 if (match) {
+                     extension = match[0];
+                 }
+            }
+            
+            // Sanitize the baseName after removing extension
+            let finalName = baseName.replace(/[/\\?%*:|"<>]/g, '-') + extension;
+
+            archive.append(downloadStream, { name: finalName });
+            console.log(`API (Req ID: ${reqId}): Appended "${finalName}" to zip.`);
         }
         await archive.finalize();
         console.log(`API (Req ID: ${reqId}): Archiver finalized.`);
