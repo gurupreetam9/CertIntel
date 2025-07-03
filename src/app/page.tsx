@@ -3,7 +3,7 @@
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { useAuth } from '@/hooks/useAuth';
-import { Loader2, Users, Search as SearchIcon, ArrowUpDown, ChevronDown, ChevronUp, Download } from 'lucide-react';
+import { Loader2, Users, FileText as FileTextIcon, Divide, CalendarIcon, ChevronDown, ChevronUp } from 'lucide-react';
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 
 // --- Student-specific imports ---
@@ -16,13 +16,20 @@ import type { SearchableItem } from '@/components/common/SearchWithSuggestions';
 import { useToast } from '@/hooks/use-toast';
 
 // --- Admin-specific imports ---
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
+import { format, isAfter, isBefore, startOfMonth, endOfMonth } from 'date-fns';
+import type { DateRange } from 'react-day-picker';
+
 import { ChartContainer, ChartTooltipContent } from "@/components/ui/chart";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import ViewImageModal from '@/components/home/ViewImageModal';
+import AppLogo from '@/components/common/AppLogo';
+import { cn } from '@/lib/utils';
 
 // Combined type for admin dashboard data
 type AdminDashboardData = (UserImage & {
@@ -138,17 +145,18 @@ function StudentHomePageContent() {
 // Admin Home Page Content (New Dashboard)
 // ====================================================================================
 function AdminHomePageContent() {
-    const [dashboardData, setDashboardData] = useState<AdminDashboardData[]>([]);
+    const [allData, setAllData] = useState<AdminDashboardData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [sortConfig, setSortConfig] = useState<{ key: 'studentName' | 'studentRollNo' | 'originalName' | 'uploadDate'; direction: 'asc' | 'desc' } | null>(null);
-    const [selectedImageForView, setSelectedImageForView] = useState<UserImage | null>(null);
-    const [isViewModalOpen, setIsViewModalOpen] = useState(false);
-    const [expandedStudents, setExpandedStudents] = useState<Set<string>>(new Set());
     const { user } = useAuth();
     const { toast } = useToast();
-    const [isDownloading, setIsDownloading] = useState(false);
+
+    // Filter states
+    const [dateRange, setDateRange] = useState<DateRange | undefined>();
+    const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+    const [expandedStudents, setExpandedStudents] = useState<Set<string>>(new Set());
+    const [selectedImageForView, setSelectedImageForView] = useState<UserImage | null>(null);
+    const [isViewModalOpen, setIsViewModalOpen] = useState(false);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -165,9 +173,8 @@ function AdminHomePageContent() {
                     throw new Error(errorData.message || 'Failed to fetch dashboard data.');
                 }
                 const data: AdminDashboardData[] = await response.json();
-                // Ensure data is sorted by date descending initially
                 data.sort((a, b) => new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime());
-                setDashboardData(data);
+                setAllData(data);
             } catch (err: any) {
                 setError(err.message);
                 toast({ title: "Error Loading Dashboard", description: err.message, variant: 'destructive' });
@@ -178,312 +185,98 @@ function AdminHomePageContent() {
         fetchData();
     }, [user, toast]);
     
-    const toggleStudentExpansion = (studentId: string) => {
-        setExpandedStudents(prev => {
-            const newSet = new Set(prev);
-            if (newSet.has(studentId)) {
-                newSet.delete(studentId);
-            } else {
-                newSet.add(studentId);
-            }
-            return newSet;
-        });
-    };
+    const uniqueStudents = useMemo(() => {
+      const studentMap = new Map<string, { studentId: string; studentName: string }>();
+      allData.forEach(cert => {
+          if (!studentMap.has(cert.studentId)) {
+              studentMap.set(cert.studentId, { studentId: cert.studentId, studentName: cert.studentName });
+          }
+      });
+      return Array.from(studentMap.values()).sort((a,b) => a.studentName.localeCompare(b.studentName));
+    }, [allData]);
 
-    const { studentCount, topStudentsData } = useMemo(() => {
-        if (!dashboardData) return { studentCount: 0, topStudentsData: [] };
-        const studentMap = new Map<string, { name: string; count: number }>();
-        dashboardData.forEach(cert => {
-            if (studentMap.has(cert.studentId)) {
-                studentMap.get(cert.studentId)!.count++;
-            } else {
-                studentMap.set(cert.studentId, { name: cert.studentName, count: 1 });
-            }
+    const filteredData = useMemo(() => {
+        return allData.filter(cert => {
+            // Date filter
+            const uploadDate = new Date(cert.uploadDate);
+            if (dateRange?.from && isBefore(uploadDate, startOfMonth(dateRange.from))) return false;
+            if (dateRange?.to && isAfter(uploadDate, endOfMonth(dateRange.to))) return false;
+            // Student filter
+            if (selectedStudentIds.length > 0 && !selectedStudentIds.includes(cert.studentId)) return false;
+            return true;
         });
-        
-        const allStudents = Array.from(studentMap.values()).map(s => ({ name: s.name, certificates: s.count }));
-        
-        // Sort by certificate count descending and take top 5
-        const sortedStudents = allStudents.sort((a, b) => b.certificates - a.certificates);
-        const top5 = sortedStudents.slice(0, 5);
-        
+    }, [allData, dateRange, selectedStudentIds]);
+
+    const kpiStats = useMemo(() => {
+        const studentSet = new Set(filteredData.map(d => d.studentId));
+        const totalCerts = filteredData.length;
+        const totalStudents = studentSet.size;
         return {
-            studentCount: studentMap.size,
-            topStudentsData: top5.reverse(), // Reverse for horizontal chart to show top at the top
+            totalStudents: totalStudents,
+            totalCerts: totalCerts,
+            avgCertsPerStudent: totalStudents > 0 ? (totalCerts / totalStudents).toFixed(1) : '0.0',
         };
-    }, [dashboardData]);
+    }, [filteredData]);
 
-    // Data for the default view (grouped by student)
-    const studentsWithCerts = useMemo(() => {
+    const monthlyUploads = useMemo(() => {
+        const countsByMonth: { [key: string]: number } = {};
+        filteredData.forEach(cert => {
+            const month = format(new Date(cert.uploadDate), 'MMM yyyy');
+            countsByMonth[month] = (countsByMonth[month] || 0) + 1;
+        });
+        return Object.entries(countsByMonth).map(([month, count]) => ({ month, certificates: count }))
+          .sort((a, b) => new Date(a.month).getTime() - new Date(b.month).getTime());
+    }, [filteredData]);
+
+    const topStudentsData = useMemo(() => {
+        const studentMap = new Map<string, number>();
+        filteredData.forEach(cert => {
+            studentMap.set(cert.studentName, (studentMap.get(cert.studentName) || 0) + 1);
+        });
+        return Array.from(studentMap.entries())
+            .map(([name, count]) => ({ name, certificates: count }))
+            .sort((a, b) => b.certificates - a.certificates)
+            .slice(0, 5)
+            .reverse();
+    }, [filteredData]);
+    
+    const studentsWithCertsForTable = useMemo(() => {
         const studentGroups: { [key: string]: StudentWithCertificates } = {};
-        dashboardData.forEach(cert => {
+        filteredData.forEach(cert => {
             if (!studentGroups[cert.studentId]) {
                 studentGroups[cert.studentId] = {
-                    studentId: cert.studentId,
-                    studentName: cert.studentName,
-                    studentEmail: cert.studentEmail,
-                    studentRollNo: cert.studentRollNo,
+                    studentId: cert.studentId, studentName: cert.studentName,
+                    studentEmail: cert.studentEmail, studentRollNo: cert.studentRollNo,
                     certificates: [],
                 };
             }
             studentGroups[cert.studentId].certificates.push(cert);
         });
-        // The data is already sorted by date descending from fetch
         return Object.values(studentGroups);
-    }, [dashboardData]);
+    }, [filteredData]);
 
-    // Data for the search view (flat and sorted)
-    const searchResults = useMemo(() => {
-        if (!searchTerm) return [];
-        let filtered = dashboardData.filter(cert => 
-            cert.originalName.toLowerCase().includes(searchTerm.toLowerCase())
+    const handleStudentFilterChange = (studentId: string, checked: boolean) => {
+        setSelectedStudentIds(prev =>
+            checked ? [...prev, studentId] : prev.filter(id => id !== studentId)
         );
-
-        if (sortConfig) {
-            filtered.sort((a, b) => {
-                const aValue = a[sortConfig.key] || '';
-                const bValue = b[sortConfig.key] || '';
-                if (sortConfig.key === 'uploadDate') {
-                   return sortConfig.direction === 'asc' 
-                    ? new Date(aValue).getTime() - new Date(bValue).getTime()
-                    : new Date(bValue).getTime() - new Date(aValue).getTime();
-                }
-                if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
-                if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
-                return 0;
-            });
-        }
-        return filtered;
-    }, [dashboardData, searchTerm, sortConfig]);
-
-    const searchAnalysis = useMemo(() => {
-        if (!searchTerm || searchResults.length === 0) {
-          return null;
-        }
-        const studentCertCount = new Map<string, { name: string, count: number }>();
-        searchResults.forEach(cert => {
-            if (studentCertCount.has(cert.studentId)) {
-                studentCertCount.get(cert.studentId)!.count++;
-            } else {
-                studentCertCount.set(cert.studentId, { name: cert.studentName, count: 1 });
-            }
-        });
-
-        return {
-            studentsWithCert: studentCertCount.size,
-            totalStudents: studentCount,
-            chartData: Array.from(studentCertCount.values()).map(s => ({ name: s.name, certificates: s.count })),
-        };
-    }, [searchTerm, searchResults, studentCount]);
-
-    const requestSort = (key: 'studentName' | 'studentRollNo' | 'originalName' | 'uploadDate') => {
-        let direction: 'asc' | 'desc' = 'asc';
-        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
-            direction = 'desc';
-        }
-        setSortConfig({ key, direction });
     };
 
+    const toggleStudentExpansion = (studentId: string) => {
+        setExpandedStudents(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(studentId)) newSet.delete(studentId);
+            else newSet.add(studentId);
+            return newSet;
+        });
+    };
+    
     const openViewModal = (image: UserImage) => {
         setSelectedImageForView(image);
         setIsViewModalOpen(true);
     };
 
-    const handleDownloadZip = async () => {
-        if (searchResults.length === 0 || !user) return;
-    
-        setIsDownloading(true);
-        toast({
-            title: "Preparing Download",
-            description: `Zipping ${searchResults.length} certificate(s). Please wait...`
-        });
-    
-        try {
-            const fileIds = searchResults.map(cert => cert.fileId);
-            const idToken = await user.getIdToken();
-    
-            const response = await fetch('/api/admin/download-zip', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${idToken}`,
-                },
-                body: JSON.stringify({ fileIds }),
-            });
-    
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.message || "Failed to start download.");
-            }
-            
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            const contentDisposition = response.headers.get('content-disposition');
-            let fileName = 'certificates.zip';
-            if (contentDisposition) {
-                const fileNameMatch = contentDisposition.match(/filename="(.+)"/);
-                if (fileNameMatch && fileNameMatch.length === 2) {
-                    fileName = fileNameMatch[1];
-                }
-            }
-            a.download = fileName;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            window.URL.revokeObjectURL(url);
-            
-            toast({
-                title: "Download Started",
-                description: "Your ZIP file should be in your downloads folder."
-            });
-    
-        } catch (err: any) {
-            toast({
-                title: "Download Failed",
-                description: err.message,
-                variant: "destructive"
-            });
-        } finally {
-            setIsDownloading(false);
-        }
-    };
-
-    const renderDefaultView = () => (
-      <div className="space-y-4">
-        {studentsWithCerts.map((student) => (
-          <Card key={student.studentId}>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle>{student.studentName}</CardTitle>
-                <CardDescription>{student.studentEmail} {student.studentRollNo && ` - Roll: ${student.studentRollNo}`}</CardDescription>
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => toggleStudentExpansion(student.studentId)}>
-                {expandedStudents.has(student.studentId) ? 'Collapse' : `View All (${student.certificates.length})`}
-                {expandedStudents.has(student.studentId) ? <ChevronUp className="ml-2 h-4 w-4" /> : <ChevronDown className="ml-2 h-4 w-4" />}
-              </Button>
-            </CardHeader>
-            <CardContent>
-              <h4 className="text-sm font-semibold mb-2 text-muted-foreground">Most Recent Upload</h4>
-              {student.certificates.length > 0 ? (
-                <div className="flex items-center justify-between p-2 border rounded-md">
-                   <p className="truncate pr-4">{student.certificates[0].originalName}</p>
-                   <Button variant="outline" size="sm" onClick={() => openViewModal(student.certificates[0])}>View</Button>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">No certificates uploaded yet.</p>
-              )}
-              
-              {expandedStudents.has(student.studentId) && student.certificates.length > 1 && (
-                <div className="mt-4">
-                  <h4 className="text-sm font-semibold mb-2 text-muted-foreground">All Uploads</h4>
-                  <div className="space-y-2">
-                    {student.certificates.map(cert => (
-                       <div key={cert.fileId} className="flex items-center justify-between p-2 border rounded-md bg-muted/30">
-                          <p className="truncate pr-4">{cert.originalName} <span className="text-xs text-muted-foreground ml-2">({new Date(cert.uploadDate).toLocaleDateString()})</span></p>
-                          <Button variant="outline" size="sm" onClick={() => openViewModal(cert)}>View</Button>
-                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    );
-
-    const renderSearchView = () => (
-        <Card>
-            <CardHeader>
-                <div className="flex justify-between items-center">
-                    <div>
-                        <CardTitle>Certificate Search Results</CardTitle>
-                        <CardDescription>
-                          {searchAnalysis
-                            ? `Found ${searchResults.length} matching certificate(s) across ${searchAnalysis.studentsWithCert} of ${searchAnalysis.totalStudents} total student(s).`
-                            : `Found ${searchResults.length} certificate(s) matching your search.`
-                          }
-                        </CardDescription>
-                    </div>
-                    {searchResults.length > 0 && (
-                        <Button onClick={handleDownloadZip} disabled={isDownloading}>
-                            {isDownloading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                            Download as ZIP
-                        </Button>
-                    )}
-                </div>
-            </CardHeader>
-            <CardContent>
-                {searchAnalysis && searchAnalysis.chartData.length > 0 && (
-                    <Card className="mb-6">
-                        <CardHeader>
-                            <CardTitle>Search Results Analysis</CardTitle>
-                            <CardDescription>
-                                Distribution of found certificates among students.
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="pl-2">
-                             <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--accent))" } }} className="h-[250px] w-full">
-                                <ResponsiveContainer>
-                                    <BarChart
-                                        layout="vertical"
-                                        data={searchAnalysis.chartData}
-                                        margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
-                                    >
-                                        <CartesianGrid horizontal={false} />
-                                        <XAxis type="number" allowDecimals={false} />
-                                        <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tickMargin={8} width={100} />
-                                        <RechartsTooltip cursor={{ fill: 'hsl(var(--muted))' }} content={<ChartTooltipContent />} />
-                                        <Bar dataKey="certificates" layout="vertical" fill="var(--color-certificates)" radius={4} />
-                                    </BarChart>
-                                </ResponsiveContainer>
-                            </ChartContainer>
-                        </CardContent>
-                    </Card>
-                )}
-                <div className="rounded-md border">
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead><Button variant="ghost" onClick={() => requestSort('originalName')}>Certificate <ArrowUpDown className="ml-2 h-4 w-4" /></Button></TableHead>
-                                <TableHead><Button variant="ghost" onClick={() => requestSort('studentName')}>Student Name <ArrowUpDown className="ml-2 h-4 w-4" /></Button></TableHead>
-                                <TableHead><Button variant="ghost" onClick={() => requestSort('uploadDate')}>Upload Date <ArrowUpDown className="ml-2 h-4 w-4" /></Button></TableHead>
-                                <TableHead>Action</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {searchResults.length > 0 ? (
-                                searchResults.map((cert) => (
-                                    <TableRow key={cert.fileId}>
-                                        <TableCell className="font-medium">{cert.originalName}</TableCell>
-                                        <TableCell>{cert.studentName}</TableCell>
-                                        <TableCell>{new Date(cert.uploadDate).toLocaleDateString()}</TableCell>
-                                        <TableCell>
-                                            <Button variant="outline" size="sm" onClick={() => openViewModal(cert)}>View</Button>
-                                        </TableCell>
-                                    </TableRow>
-                                ))
-                            ) : (
-                                <TableRow>
-                                    <TableCell colSpan={4} className="h-24 text-center">No certificates found matching your search.</TableCell>
-                                </TableRow>
-                            )}
-                        </TableBody>
-                    </Table>
-                </div>
-            </CardContent>
-        </Card>
-    );
-
     if (isLoading) {
-        return (
-            <div className="flex h-[calc(100vh-var(--header-height,4rem))] items-center justify-center">
-                <Loader2 className="h-12 w-12 animate-spin text-primary" />
-                <p className="ml-4">Loading Admin Dashboard...</p>
-            </div>
-        );
+        return <div className="flex h-screen items-center justify-center bg-background"><Loader2 className="h-16 w-16 animate-spin text-primary" /><p className="ml-4 text-lg">Loading Admin Dashboard...</p></div>;
     }
     
     if (error) {
@@ -491,63 +284,148 @@ function AdminHomePageContent() {
     }
 
     return (
-        <div className="container mx-auto px-4 py-8 md:px-6 lg:px-8">
-            <h1 className="text-3xl font-bold font-headline mb-6">Admin Dashboard</h1>
+        <div className="flex min-h-screen">
+          <aside className="w-64 flex-shrink-0 bg-sidebar-background text-sidebar-foreground p-4 flex flex-col gap-6">
+              <div className="flex items-center gap-2">
+                  <AppLogo size={8} iconOnly/>
+                  <h2 className="text-xl font-bold">CertIntel</h2>
+              </div>
+              <div className="space-y-4">
+                  <h3 className="text-sm font-semibold text-sidebar-foreground/70 tracking-wider uppercase">Filters</h3>
+                  
+                  <div className="space-y-2">
+                      <Label className="text-sm">Date Range</Label>
+                      <Popover>
+                          <PopoverTrigger asChild>
+                              <Button
+                                  variant={"outline"}
+                                  className={cn(
+                                      "w-full justify-start text-left font-normal bg-sidebar-background border-sidebar-border hover:bg-sidebar-accent",
+                                      !dateRange && "text-muted-foreground"
+                                  )}
+                              >
+                                  <CalendarIcon className="mr-2 h-4 w-4" />
+                                  {dateRange?.from ? (
+                                      dateRange.to ? (
+                                          <>{format(dateRange.from, "LLL dd, y")} - {format(dateRange.to, "LLL dd, y")}</>
+                                      ) : (
+                                          format(dateRange.from, "LLL dd, y")
+                                      )
+                                  ) : (
+                                      <span>Pick a date range</span>
+                                  )}
+                              </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                              <Calendar
+                                  initialFocus
+                                  mode="range"
+                                  defaultMonth={dateRange?.from}
+                                  selected={dateRange}
+                                  onSelect={setDateRange}
+                                  numberOfMonths={2}
+                              />
+                          </PopoverContent>
+                      </Popover>
+                  </div>
+                  
+                  <div className="space-y-2">
+                      <Label className="text-sm">Students ({selectedStudentIds.length}/{uniqueStudents.length})</Label>
+                      <ScrollArea className="h-64 rounded-md border border-sidebar-border p-2">
+                          {uniqueStudents.map(student => (
+                              <div key={student.studentId} className="flex items-center space-x-2 py-1">
+                                  <Checkbox 
+                                      id={`student-${student.studentId}`} 
+                                      checked={selectedStudentIds.includes(student.studentId)}
+                                      onCheckedChange={(checked) => handleStudentFilterChange(student.studentId, !!checked)}
+                                      className="border-sidebar-foreground data-[state=checked]:bg-sidebar-primary data-[state=checked]:text-sidebar-primary-foreground"
+                                  />
+                                  <label htmlFor={`student-${student.studentId}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                                      {student.studentName}
+                                  </label>
+                              </div>
+                          ))}
+                      </ScrollArea>
+                      {selectedStudentIds.length > 0 && 
+                          <Button variant="link" className="p-0 h-auto text-xs text-sidebar-foreground/80" onClick={() => setSelectedStudentIds([])}>Clear selection</Button>
+                      }
+                  </div>
+              </div>
+          </aside>
 
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-6">
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Total Linked Students</CardTitle>
-                        <Users className="h-4 w-4 text-muted-foreground" />
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-bold">{studentCount}</div>
-                    </CardContent>
-                </Card>
-                <Card className="lg:col-span-2">
-                    <CardHeader>
-                        <CardTitle>Top Students by Certificate Count</CardTitle>
-                        <CardDescription>Showing the top 5 students with the most uploads.</CardDescription>
-                    </CardHeader>
+          <main className="flex-1 p-6 overflow-y-auto">
+              <h1 className="text-3xl font-bold font-headline mb-6">Admin Dashboard</h1>
+
+              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-6">
+                  <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Total Students</CardTitle><Users className="h-5 w-5 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{kpiStats.totalStudents}</div></CardContent></Card>
+                  <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Total Certificates</CardTitle><FileTextIcon className="h-5 w-5 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{kpiStats.totalCerts}</div></CardContent></Card>
+                  <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Avg. Certs / Student</CardTitle><Divide className="h-5 w-5 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{kpiStats.avgCertsPerStudent}</div></CardContent></Card>
+              </div>
+
+              <div className="grid gap-6 lg:grid-cols-5 mb-6">
+                <Card className="lg:col-span-3">
+                    <CardHeader><CardTitle>Certificate Uploads Over Time</CardTitle></CardHeader>
                     <CardContent className="pl-2">
-                        <ChartContainer config={{
-                            certificates: { label: "Certs", color: "hsl(var(--primary))" },
-                        }} className="h-[200px] w-full">
-                            <ResponsiveContainer>
-                                <BarChart
-                                    layout="vertical"
-                                    data={topStudentsData}
-                                    margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
-                                >
-                                    <CartesianGrid horizontal={false} />
-                                    <XAxis type="number" allowDecimals={false} />
-                                    <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tickMargin={8} width={100}/>
-                                    <RechartsTooltip cursor={{ fill: 'hsl(var(--muted))' }} content={<ChartTooltipContent />} />
-                                    <Bar dataKey="certificates" layout="vertical" fill="var(--color-certificates)" radius={4} />
-                                </BarChart>
-                            </ResponsiveContainer>
+                        <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--chart-1))" } }} className="h-[300px] w-full">
+                            <AreaChart data={monthlyUploads} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                                <CartesianGrid vertical={false} />
+                                <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
+                                <YAxis tickLine={false} axisLine={false} tickMargin={8} allowDecimals={false}/>
+                                <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
+                                <Area type="monotone" dataKey="certificates" stroke="var(--color-certificates)" fill="var(--color-certificates)" fillOpacity={0.4} />
+                            </AreaChart>
                         </ChartContainer>
                     </CardContent>
                 </Card>
-            </div>
-            
-             <div className="mb-6">
-                <div className="relative">
-                    <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input 
-                        placeholder="Search for a certificate by name to see results..." 
-                        className="pl-9"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                </div>
-            </div>
+                <Card className="lg:col-span-2">
+                    <CardHeader><CardTitle>Top Students by Certificate Count</CardTitle><CardDescription>Top 5 students in the filtered range.</CardDescription></CardHeader>
+                    <CardContent>
+                        <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--chart-2))" } }} className="h-[300px] w-full">
+                            <BarChart data={topStudentsData} layout="vertical" margin={{ left: 10 }}>
+                                <CartesianGrid horizontal={false} />
+                                <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tickMargin={8} width={80} />
+                                <XAxis type="number" allowDecimals={false} />
+                                <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
+                                <Bar dataKey="certificates" fill="var(--color-certificates)" radius={4} />
+                            </BarChart>
+                        </ChartContainer>
+                    </CardContent>
+                </Card>
+              </div>
 
-            {searchTerm ? renderSearchView() : renderDefaultView()}
-
-            {selectedImageForView && (
-                <ViewImageModal isOpen={isViewModalOpen} onClose={() => setIsViewModalOpen(false)} image={selectedImageForView} />
-            )}
+               <Card>
+                  <CardHeader><CardTitle>Student Details</CardTitle><CardDescription>Detailed view of certificates for filtered students.</CardDescription></CardHeader>
+                  <CardContent className="space-y-4">
+                      {studentsWithCertsForTable.length > 0 ? studentsWithCertsForTable.map((student) => (
+                        <Card key={student.studentId} className="bg-muted/30">
+                          <CardHeader className="flex flex-row items-center justify-between py-3">
+                            <div>
+                              <CardTitle className="text-base">{student.studentName}</CardTitle>
+                              <CardDescription>{student.studentEmail} {student.studentRollNo && ` - Roll: ${student.studentRollNo}`}</CardDescription>
+                            </div>
+                            <Button variant="ghost" size="sm" onClick={() => toggleStudentExpansion(student.studentId)}>
+                              {expandedStudents.has(student.studentId) ? 'Collapse' : `View All (${student.certificates.length})`}
+                              {expandedStudents.has(student.studentId) ? <ChevronUp className="ml-2 h-4 w-4" /> : <ChevronDown className="ml-2 h-4 w-4" />}
+                            </Button>
+                          </CardHeader>
+                          {expandedStudents.has(student.studentId) && (
+                            <CardContent className="pt-0 pb-3">
+                              <div className="space-y-2 mt-2 border-t pt-3">
+                                {student.certificates.map(cert => (
+                                  <div key={cert.fileId} className="flex items-center justify-between p-2 border rounded-md bg-background">
+                                    <p className="truncate pr-4">{cert.originalName} <span className="text-xs text-muted-foreground ml-2">({new Date(cert.uploadDate).toLocaleDateString()})</span></p>
+                                    <Button variant="outline" size="sm" onClick={() => openViewModal(cert)}>View</Button>
+                                  </div>
+                                ))}
+                              </div>
+                            </CardContent>
+                          )}
+                        </Card>
+                      )) : <p className="text-muted-foreground text-center py-8">No students or certificates match the current filters.</p>}
+                  </CardContent>
+              </Card>
+          </main>
+          {selectedImageForView && <ViewImageModal isOpen={isViewModalOpen} onClose={() => setIsViewModalOpen(false)} image={selectedImageForView} />}
         </div>
     );
 }

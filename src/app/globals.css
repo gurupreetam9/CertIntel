@@ -9,55 +9,54 @@ body {
 
 @layer base {
   :root {
-    --background: 45 20% 95%; /* Light beige: #F8F7F3 */
-    --foreground: 40 10% 15%; /* Dark brown/grey: #2B2925 */
+    --background: 220 13% 97%; /* Very light grey-blue: #F6F7FA */
+    --foreground: 220 10% 25%; /* Dark slate grey: #383E47 */
 
-    --card: 45 20% 98%; /* Slightly lighter beige: #FCFBF9 */
-    --card-foreground: 40 10% 15%; /* Dark brown/grey: #2B2925 */
+    --card: 0 0% 100%; /* White */
+    --card-foreground: 220 10% 25%;
 
-    --popover: 45 20% 98%; /* Slightly lighter beige: #FCFBF9 */
-    --popover-foreground: 40 10% 15%; /* Dark brown/grey: #2B2925 */
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 10% 25%;
 
-    --primary: 45 90% 50%; /* Gold: #FACC15 */
-    --primary-foreground: 40 10% 15%; /* Dark brown/grey: #2B2925 */
+    --primary: 210 80% 55%; /* Bright blue from chart */
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 45 20% 90%; /* Lighter beige variant for secondary elements */
-    --secondary-foreground: 40 10% 15%; /* Dark brown/grey: #2B2925 */
+    --secondary: 220 13% 92%; /* Slightly darker grey-blue */
+    --secondary-foreground: 220 10% 25%;
 
-    --muted: 45 20% 85%; /* Muted beige variant */
-    --muted-foreground: 40 10% 35%; /* Slightly lighter dark brown/grey */
+    --muted: 220 13% 92%;
+    --muted-foreground: 220 10% 45%;
 
-    --accent: 15 90% 50%; /* Vivid Orange: #FA5715 */
-    --accent-foreground: 0 0% 100%; /* White for text on orange */
+    --accent: 340 80% 60%; /* Pink/red from chart */
+    --accent-foreground: 0 0% 100%;
 
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 45 20% 88%; /* Beige border: #EBE8E2 */
-    --input: 45 20% 88%; /* Beige input background: #EBE8E2 */
-    --ring: 15 90% 50%; /* Vivid Orange for rings: #FA5715 */
+    --border: 220 13% 90%; /* #E2E4E9 */
+    --input: 220 13% 90%;
+    --ring: 210 80% 55%;
 
-    --radius: 0.5rem;
+    --radius: 0.75rem;
 
-    /* Chart colors (can be adjusted or expanded later if charts are used) */
-    --chart-1: 45 90% 50%; /* Gold */
-    --chart-2: 15 90% 50%; /* Orange */
-    --chart-3: 197 37% 24%;
-    --chart-4: 43 74% 66%;
-    --chart-5: 27 87% 67%;
+    /* Chart colors */
+    --chart-1: 210 80% 55%; /* primary */
+    --chart-2: 340 80% 60%; /* accent */
+    --chart-3: 30 90% 55%; /* Orange */
+    --chart-4: 120 70% 45%; /* Green */
+    --chart-5: 260 80% 65%; /* Purple */
 
-    /* Sidebar specific colors (keeping existing structure, adjusting to theme if needed) */
-    --sidebar-background: 45 20% 92%; /* Slightly darker beige for sidebar */
-    --sidebar-foreground: 40 10% 15%;
-    --sidebar-primary: 45 90% 50%; /* Gold */
-    --sidebar-primary-foreground: 40 10% 15%;
-    --sidebar-accent: 15 90% 50%; /* Orange */
+    /* Sidebar specific colors */
+    --sidebar-background: 225 30% 20%; /* Dark slate blue */
+    --sidebar-foreground: 220 20% 85%; /* Light grey-blue text */
+    --sidebar-primary: 210 80% 55%; 
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 225 30% 25%; /* Slightly lighter dark blue for hover */
     --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 45 20% 85%;
-    --sidebar-ring: 15 90% 50%;
+    --sidebar-border: 225 30% 25%;
+    --sidebar-ring: 210 80% 55%;
   }
 
-  /* Removed .dark class variables */
 }
 
 @layer base {
