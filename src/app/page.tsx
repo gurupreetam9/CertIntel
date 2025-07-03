@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
@@ -330,7 +331,7 @@ function AdminHomePageContent() {
             <Card className="lg:col-span-3">
                 <CardHeader><CardTitle>Certificate Uploads Over Time</CardTitle></CardHeader>
                 <CardContent className="pl-2">
-                    <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--chart-1))" } }} className="h-[300px] w-full">
+                    <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--primary))" } }} className="h-[300px] w-full">
                         <ResponsiveContainer>
                             <AreaChart data={monthlyUploads} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                                 <CartesianGrid vertical={false} />
@@ -346,7 +347,7 @@ function AdminHomePageContent() {
             <Card className="lg:col-span-2">
                 <CardHeader><CardTitle>Top Students by Certificate Count</CardTitle><CardDescription>Top 5 students in the filtered range.</CardDescription></CardHeader>
                 <CardContent>
-                    <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--chart-2))" } }} className="h-[300px] w-full">
+                    <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--accent))" } }} className="h-[300px] w-full">
                        <ResponsiveContainer>
                             <BarChart data={topStudentsData} layout="vertical" margin={{ left: 10, right: 10, top:10, bottom:10 }}>
                                 <CartesianGrid horizontal={false} />
@@ -450,7 +451,7 @@ function AdminHomePageContent() {
                               <p className="text-sm text-muted-foreground mb-4">
                                   Distribution of certificates matching your search.
                               </p>
-                              <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--chart-2))" } }} className="h-[250px] w-full">
+                              <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--accent))" } }} className="h-[250px] w-full">
                                   <ResponsiveContainer>
                                       <BarChart data={searchAnalysisData} layout="vertical" margin={{ left: 10, right: 10, top:10, bottom:10 }}>
                                           <CartesianGrid horizontal={false} />
@@ -466,35 +467,36 @@ function AdminHomePageContent() {
 
                   <div className="space-y-3">
                     {sortedAndFilteredData.length > 0 ? sortedAndFilteredData.map(cert => (
-                      <div key={cert.fileId} className="flex items-center justify-between p-3 border rounded-md bg-background/50 hover:bg-muted/50 transition-colors gap-4">
+                      <div key={cert.fileId} className="flex items-start justify-between p-4 border rounded-lg bg-background/50 hover:bg-muted/50 transition-colors gap-4">
                         <div className="flex-grow min-w-0">
-                            <p className="font-semibold text-primary truncate" title={cert.originalName}>
-                                {cert.originalName}
-                            </p>
-                            <div className="text-sm text-muted-foreground mt-1 flex items-baseline gap-x-4 flex-wrap">
-                                <span className="truncate" title={`${cert.studentName} (${cert.studentEmail})`}>
-                                    {cert.studentName} ({cert.studentEmail})
+                          <p className="font-semibold text-primary truncate text-base mb-2" title={cert.originalName}>
+                            {cert.originalName}
+                          </p>
+                          <div className="text-sm text-muted-foreground flex items-baseline gap-x-4 flex-wrap">
+                            <span className="truncate" title={`${cert.studentName} (${cert.studentEmail})`}>
+                              {cert.studentName} ({cert.studentEmail})
+                            </span>
+                            {cert.studentRollNo && (
+                              <span className="flex items-baseline gap-x-2 shrink-0">
+                                <span>Roll No:</span>
+                                <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded-sm">
+                                  {cert.studentRollNo}
                                 </span>
-                                {cert.studentRollNo && (
-                                    <span className="flex items-baseline gap-x-2 shrink-0">
-                                        <span>Roll No:</span>
-                                        <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded-sm">
-                                            {cert.studentRollNo}
-                                        </span>
-                                    </span>
-                                )}
-                            </div>
+                              </span>
+                            )}
+                          </div>
                         </div>
                         
-                        <Button 
-                            variant="outline" 
-                            size="sm" 
-                            onClick={() => openViewModal(cert)} 
-                            className="shrink-0"
-                        >
-                            <FileTextIcon className="mr-2 h-4 w-4" />
-                            View Certificate
-                        </Button>
+                        <div className="pt-1 shrink-0">
+                          <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => openViewModal(cert)} 
+                          >
+                              <FileTextIcon className="mr-2 h-4 w-4" />
+                              View Certificate
+                          </Button>
+                        </div>
                       </div>
                     )) : (
                       <p className="text-muted-foreground text-center py-8">No certificates match your criteria.</p>
