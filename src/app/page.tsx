@@ -199,12 +199,15 @@ function AdminHomePageContent() {
         
         if (selectedStudentIds.length > 0) data = data.filter(d => selectedStudentIds.includes(d.studentId));
         
-        if (searchTerm) data = data.filter(d => 
-          d.originalName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          d.studentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          d.studentEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          (d.studentRollNo || '').toLowerCase().includes(searchTerm.toLowerCase())
-        );
+        if (searchTerm) {
+          const lowercasedSearchTerm = searchTerm.toLowerCase();
+          data = data.filter(d => 
+            d.originalName.toLowerCase().includes(lowercasedSearchTerm) ||
+            d.studentName.toLowerCase().includes(lowercasedSearchTerm) ||
+            d.studentEmail.toLowerCase().includes(lowercasedSearchTerm) ||
+            (d.studentRollNo || '').toLowerCase().includes(lowercasedSearchTerm)
+          );
+        }
 
         return data;
     }, [allData, dateRange, selectedStudentIds, searchTerm]);
@@ -256,7 +259,7 @@ function AdminHomePageContent() {
   
       return studentArray;
   
-  }, [filteredData, sortOrder]);
+    }, [filteredData, sortOrder]);
 
 
     const kpiStats = useMemo(() => {
@@ -294,7 +297,7 @@ function AdminHomePageContent() {
     }, [filteredData]);
     
     const handleDownloadZip = async () => {
-      const dataToZip = groupedAndSortedData.flatMap(s => s.certificates);
+      const dataToZip = filteredData;
       if (!user || dataToZip.length === 0) return;
       setIsDownloading(true);
       toast({ title: "Preparing Download", description: `Zipping ${dataToZip.length} certificate(s)...`});
@@ -403,9 +406,12 @@ function AdminHomePageContent() {
               <CardHeader>
                 <div className="flex flex-col gap-4">
                   <div>
-                    <CardTitle>All Certificates By Student</CardTitle>
+                    <CardTitle>All Certificates</CardTitle>
                     <CardDescription>
-                      Showing {groupedAndSortedData.length} students with {filteredData.length} total certificates. Use filters to refine.
+                      {searchTerm ? 
+                        `Found ${filteredData.length} certificate(s) matching your search.` :
+                        `Showing ${groupedAndSortedData.length} students with ${filteredData.length} total certificates.`
+                      }
                     </CardDescription>
                   </div>
                   <div className="flex flex-col md:flex-row gap-2">
@@ -474,7 +480,7 @@ function AdminHomePageContent() {
                         <FilterX className="mr-2 h-4 w-4" />
                         Clear
                       </Button>
-                       <Button onClick={handleDownloadZip} disabled={isDownloading || groupedAndSortedData.length === 0} size="icon" title="Download Visible Results as ZIP">
+                       <Button onClick={handleDownloadZip} disabled={isDownloading || filteredData.length === 0} size="icon" title="Download Visible Results as ZIP">
                           {isDownloading ? <Loader2 className="h-4 w-4 animate-spin"/> : <Download className="h-4 w-4"/>}
                       </Button>
                     </div>
@@ -482,43 +488,76 @@ function AdminHomePageContent() {
                 </div>
               </CardHeader>
               <CardContent>
-                {groupedAndSortedData.length > 0 ? (
-                  <Accordion type="single" collapsible className="w-full space-y-2">
-                    {groupedAndSortedData.map(({ studentId, studentName, studentEmail, certificates }) => (
-                      <AccordionItem key={studentId} value={studentId} className="border rounded-lg shadow-sm bg-background/50 data-[state=open]:shadow-md">
-                          <AccordionTrigger className="p-4 hover:no-underline text-left">
-                              <div className="flex-grow">
-                                  <p className="text-lg font-semibold">{studentName}</p>
-                                  <p className="text-sm text-muted-foreground">{studentEmail}</p>
+                {searchTerm ? (
+                  // SEARCH VIEW: Flat list of certificates
+                  <ul className="space-y-4">
+                    {filteredData.length > 0 ? (
+                      filteredData.map((cert) => (
+                        <li key={cert.fileId} className="border rounded-lg p-4 shadow-sm bg-card">
+                          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                            <div className="flex-grow">
+                              <p className="text-lg font-semibold text-primary">{cert.originalName}</p>
+                              <div className="mt-1 space-y-0.5 text-sm text-muted-foreground">
+                                <p>
+                                  <span className="font-medium text-foreground/80">Student:</span> {cert.studentName} ({cert.studentEmail})
+                                </p>
+                                {cert.studentRollNo && <p><span className="font-medium text-foreground/80">Roll No:</span> {cert.studentRollNo}</p>}
                               </div>
-                              <Badge variant="secondary" className="ml-4">{certificates.length} Certificate(s)</Badge>
-                          </AccordionTrigger>
-                          <AccordionContent className="px-4 pb-4">
-                              <ul className="space-y-4 pt-4 border-t">
-                                  {certificates.map((cert) => (
-                                      <li key={cert.fileId} className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                            </div>
+                            <div className="mt-2 flex-shrink-0 sm:mt-0 flex flex-wrap items-center gap-2">
+                              <Button size="sm" variant="outline" onClick={() => openViewModal(cert)}>
+                                <FileTextIcon className="mr-2 h-4 w-4" />
+                                View Certificate
+                              </Button>
+                            </div>
+                          </div>
+                        </li>
+                      ))
+                    ) : (
+                      <p className="text-muted-foreground text-center py-8">No certificates match your search.</p>
+                    )}
+                  </ul>
+                ) : (
+                  // DEFAULT VIEW: Accordion grouped by student
+                  groupedAndSortedData.length > 0 ? (
+                    <Accordion type="single" collapsible className="w-full space-y-2">
+                      {groupedAndSortedData.map(({ studentId, studentName, studentEmail, certificates }) => (
+                        <AccordionItem key={studentId} value={studentId} className="border rounded-lg shadow-sm bg-background/50 data-[state=open]:shadow-md">
+                            <AccordionTrigger className="p-4 hover:no-underline text-left">
+                                <div className="flex-grow">
+                                    <p className="text-lg font-semibold">{studentName}</p>
+                                    <p className="text-sm text-muted-foreground">{studentEmail}</p>
+                                </div>
+                                <Badge variant="secondary" className="ml-4">{certificates.length} Certificate(s)</Badge>
+                            </AccordionTrigger>
+                            <AccordionContent className="px-4 pb-4">
+                                <ul className="space-y-4 pt-4 border-t">
+                                    {certificates.map((cert) => (
+                                      <li key={cert.fileId} className="border rounded-lg p-4 shadow-sm bg-card">
+                                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                                           <div className="flex-grow">
-                                              <p className="font-semibold text-primary">{cert.originalName}</p>
-                                              <div className="text-sm text-muted-foreground mt-1">
-                                                <p>
-                                                    <span className="font-medium text-foreground/80">Student:</span> {cert.studentName} ({cert.studentEmail})
-                                                </p>
-                                                {cert.studentRollNo && <p><span className="font-medium text-foreground/80">Roll No:</span> {cert.studentRollNo}</p>}
-                                              </div>
+                                            <p className="text-base font-semibold text-primary">{cert.originalName}</p>
+                                            <div className="mt-1 space-y-0.5 text-sm text-muted-foreground">
+                                              <p><span className="font-medium text-foreground/80">Uploaded:</span> {format(new Date(cert.uploadDate), "PPP")}</p>
+                                            </div>
                                           </div>
-                                          <Button size="sm" variant="outline" onClick={() => openViewModal(cert)} className="mt-2 sm:mt-0 flex-shrink-0">
+                                          <div className="mt-2 flex-shrink-0 sm:mt-0 flex flex-wrap items-center gap-2">
+                                            <Button size="sm" variant="outline" onClick={() => openViewModal(cert)}>
                                               <FileTextIcon className="mr-2 h-4 w-4" />
                                               View Certificate
-                                          </Button>
+                                            </Button>
+                                          </div>
+                                        </div>
                                       </li>
-                                  ))}
-                              </ul>
-                          </AccordionContent>
-                      </AccordionItem>
-                    ))}
-                  </Accordion>
-                ) : (
-                  <p className="text-muted-foreground text-center py-8">No students or certificates match your criteria.</p>
+                                    ))}
+                                </ul>
+                            </AccordionContent>
+                        </AccordionItem>
+                      ))}
+                    </Accordion>
+                  ) : (
+                    <p className="text-muted-foreground text-center py-8">No students or certificates match your criteria.</p>
+                  )
                 )}
               </CardContent>
           </Card>
