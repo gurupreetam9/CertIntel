@@ -6,7 +6,7 @@ import { useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, Save, KeyRound, UserCircle, Copy, Link2, Link2Off, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Loader2, Save, KeyRound, UserCircle, Copy, Link2, Link2Off, AlertTriangle, Trash2 } from 'lucide-react';
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { Button } from '@/components/ui/button';
@@ -26,6 +26,8 @@ import {
 import type { UserProfile } from '@/lib/models/user';
 import { doc, getDoc } from 'firebase/firestore';
 import { firestore, auth as firebaseAuth } from '@/lib/firebase/config'; // Import firebaseAuth for direct SDK access
+import { initiateAccountDeletion } from '@/ai/flows/initiate-account-deletion';
+
 
 const profileFormSchema = z.object({
   displayName: z.string().min(1, 'Display name cannot be empty.').max(50, 'Display name is too long.'),
@@ -44,6 +46,7 @@ function ProfileSettingsPageContent() {
 
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSendingReset, setIsSendingReset] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState(''); 
   
   const [isSubmittingLinkRequest, setIsSubmittingLinkRequest] = useState(false);
@@ -132,6 +135,39 @@ function ProfileSettingsPageContent() {
     });
     setIsSendingReset(false);
   };
+
+  const handleInitiateDeletion = async () => {
+    if (!user?.email || !user.uid) {
+        toast({ title: 'Error', description: 'Cannot initiate deletion without a valid user session.', variant: 'destructive' });
+        return;
+    }
+    setIsDeleting(true);
+    try {
+        const result = await initiateAccountDeletion({ email: user.email, userId: user.uid });
+        if (result.success) {
+            toast({
+                title: 'Deletion Email Sent',
+                description: result.message,
+                duration: 10000,
+            });
+        } else {
+            toast({
+                title: 'Request Failed',
+                description: result.message,
+                variant: 'destructive',
+            });
+        }
+    } catch (error: any) {
+        toast({
+            title: 'Error',
+            description: error.message || 'An unexpected error occurred.',
+            variant: 'destructive',
+        });
+    } finally {
+        setIsDeleting(false);
+    }
+  };
+
 
   const copyAdminId = () => {
     if (userProfile?.adminUniqueId) {
@@ -444,6 +480,25 @@ function ProfileSettingsPageContent() {
             </div>
           </CardContent>
         </Card>
+        
+        <Card id="delete-account" className="border-destructive">
+            <CardHeader>
+                <CardTitle className="text-xl font-headline flex items-center text-destructive"><Trash2 className="mr-2" /> Delete Account</CardTitle>
+                <CardDescription className="text-destructive/90">Permanently delete your account and all associated data.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <p className="text-sm text-muted-foreground mb-4">
+                    Once you request account deletion, we will send a confirmation link to your email address. This link is valid for 15 minutes.
+                    <br/>
+                    <strong className="font-semibold">This action is irreversible.</strong> All of your certificates and personal data will be permanently removed.
+                </p>
+                <Button variant="destructive" onClick={handleInitiateDeletion} disabled={isDeleting}>
+                    {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                    Request Account Deletion
+                </Button>
+            </CardContent>
+        </Card>
+
       </div>
     </div>
   );
