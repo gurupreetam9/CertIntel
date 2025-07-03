@@ -418,14 +418,18 @@ function AdminHomePageContent() {
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="pl-2">
-                             <ChartContainer config={{ certificates: { label: "Certificates", color: "hsl(var(--accent))" } }} className="h-[250px] w-full">
+                             <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--accent))" } }} className="h-[250px] w-full">
                                 <ResponsiveContainer>
-                                    <BarChart data={searchAnalysis.chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-                                        <CartesianGrid vertical={false} />
-                                        <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} fontSize={12} />
-                                        <YAxis allowDecimals={false} />
-                                        <RechartsTooltip content={<ChartTooltipContent />} />
-                                        <Bar dataKey="certificates" fill="var(--color-certificates)" radius={4} />
+                                    <BarChart
+                                        layout="vertical"
+                                        data={searchAnalysis.chartData}
+                                        margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
+                                    >
+                                        <CartesianGrid horizontal={false} />
+                                        <XAxis type="number" allowDecimals={false} />
+                                        <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tickMargin={8} width={100} />
+                                        <RechartsTooltip cursor={{ fill: 'hsl(var(--muted))' }} content={<ChartTooltipContent />} />
+                                        <Bar dataKey="certificates" layout="vertical" fill="var(--color-certificates)" radius={4} />
                                     </BarChart>
                                 </ResponsiveContainer>
                             </ChartContainer>
@@ -499,15 +503,19 @@ function AdminHomePageContent() {
                     </CardHeader>
                     <CardContent className="pl-2">
                         <ChartContainer config={{
-                            certificates: { label: "Certificates", color: "hsl(var(--primary))" },
+                            certificates: { label: "Certs", color: "hsl(var(--primary))" },
                         }} className="h-[200px] w-full">
                             <ResponsiveContainer>
-                                <BarChart data={certsPerStudentData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-                                    <CartesianGrid vertical={false} />
-                                    <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} fontSize={12} />
-                                    <YAxis allowDecimals={false} />
-                                    <RechartsTooltip content={<ChartTooltipContent />} />
-                                    <Bar dataKey="certificates" fill="var(--color-certificates)" radius={4} />
+                                <BarChart
+                                    layout="vertical"
+                                    data={certsPerStudentData}
+                                    margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
+                                >
+                                    <CartesianGrid horizontal={false} />
+                                    <XAxis type="number" allowDecimals={false} />
+                                    <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tickMargin={8} width={100}/>
+                                    <RechartsTooltip cursor={{ fill: 'hsl(var(--muted))' }} content={<ChartTooltipContent />} />
+                                    <Bar dataKey="certificates" layout="vertical" fill="var(--color-certificates)" radius={4} />
                                 </BarChart>
                             </ResponsiveContainer>
                         </ChartContainer>
