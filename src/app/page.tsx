@@ -493,18 +493,16 @@ function AdminHomePageContent() {
                   <ul className="space-y-4">
                     {filteredData.length > 0 ? (
                       filteredData.map((cert) => (
-                        <li key={cert.fileId} className="border rounded-lg p-4 shadow-sm bg-card">
+                        <li key={cert.fileId} className="border rounded-lg p-6 shadow-sm bg-card">
                           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                             <div className="flex-grow">
-                              <p className="text-lg font-semibold text-primary">{cert.originalName}</p>
-                              <div className="mt-1 space-y-0.5 text-sm text-muted-foreground">
-                                <p>
-                                  <span className="font-medium text-foreground/80">Student:</span> {cert.studentName} ({cert.studentEmail})
-                                </p>
-                                {cert.studentRollNo && <p><span className="font-medium text-foreground/80">Roll No:</span> {cert.studentRollNo}</p>}
+                              <p className="text-lg font-semibold text-primary mb-1.5">{cert.originalName}</p>
+                              <div className="text-sm text-muted-foreground space-y-0.5">
+                                  <p>Student: {cert.studentName} ({cert.studentEmail})</p>
+                                  {cert.studentRollNo && <p>Roll No: {cert.studentRollNo}</p>}
                               </div>
                             </div>
-                            <div className="mt-2 flex-shrink-0 sm:mt-0 flex flex-wrap items-center gap-2">
+                            <div className="flex-shrink-0 self-start pt-1">
                               <Button size="sm" variant="outline" onClick={() => openViewModal(cert)}>
                                 <FileTextIcon className="mr-2 h-4 w-4" />
                                 View Certificate
