@@ -14,7 +14,7 @@ import AiFAB from '@/components/home/AiFAB';
 import type { SearchableItem } from '@/components/common/SearchWithSuggestions';
 
 // --- Admin-specific imports ---
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 import { format, isAfter, isBefore, startOfMonth, endOfMonth } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
 
@@ -217,7 +217,7 @@ function AdminHomePageContent() {
     }, [allData, dateRange, selectedStudentIds, searchTerm]);
 
     const kpiStats = useMemo(() => {
-        const dataForKpi = searchTerm ? allData : filteredData; // KPIs should reflect overall state unless searching
+        const dataForKpi = allData;
         const studentSet = new Set(dataForKpi.map(d => d.studentId));
         const totalCerts = dataForKpi.length;
         const totalStudents = studentSet.size;
@@ -226,7 +226,7 @@ function AdminHomePageContent() {
             totalCerts: totalCerts,
             avgCertsPerStudent: totalStudents > 0 ? (totalCerts / totalStudents).toFixed(1) : '0.0',
         };
-    }, [filteredData, allData, searchTerm]);
+    }, [allData]);
 
     const monthlyUploads = useMemo(() => {
         const countsByMonth: { [key: string]: number } = {};
@@ -425,13 +425,15 @@ function AdminHomePageContent() {
                     <CardHeader><CardTitle>Certificate Uploads Over Time</CardTitle></CardHeader>
                     <CardContent className="pl-2">
                         <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--chart-1))" } }} className="h-[300px] w-full">
-                            <AreaChart data={monthlyUploads} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                                <CartesianGrid vertical={false} />
-                                <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
-                                <YAxis tickLine={false} axisLine={false} tickMargin={8} allowDecimals={false}/>
-                                <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
-                                <Area type="monotone" dataKey="certificates" stroke="var(--color-certificates)" fill="var(--color-certificates)" fillOpacity={0.4} />
-                            </AreaChart>
+                            <ResponsiveContainer>
+                                <AreaChart data={monthlyUploads} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                                    <CartesianGrid vertical={false} />
+                                    <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
+                                    <YAxis tickLine={false} axisLine={false} tickMargin={8} allowDecimals={false}/>
+                                    <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
+                                    <Area type="monotone" dataKey="certificates" stroke="var(--color-certificates)" fill="var(--color-certificates)" fillOpacity={0.4} />
+                                </AreaChart>
+                            </ResponsiveContainer>
                         </ChartContainer>
                     </CardContent>
                 </Card>
@@ -439,13 +441,15 @@ function AdminHomePageContent() {
                     <CardHeader><CardTitle>Top Students by Certificate Count</CardTitle><CardDescription>Top 5 students in the filtered range.</CardDescription></CardHeader>
                     <CardContent>
                         <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--chart-2))" } }} className="h-[300px] w-full">
-                            <BarChart data={topStudentsData} layout="vertical" margin={{ left: 10 }}>
-                                <CartesianGrid horizontal={false} />
-                                <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tickMargin={8} width={80} />
-                                <XAxis type="number" allowDecimals={false} />
-                                <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
-                                <Bar dataKey="certificates" fill="var(--color-certificates)" radius={4} />
-                            </BarChart>
+                           <ResponsiveContainer>
+                                <BarChart data={topStudentsData} layout="vertical" margin={{ left: 10 }}>
+                                    <CartesianGrid horizontal={false} />
+                                    <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tickMargin={8} width={80} />
+                                    <XAxis type="number" allowDecimals={false} />
+                                    <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
+                                    <Bar dataKey="certificates" fill="var(--color-certificates)" radius={4} />
+                                </BarChart>
+                            </ResponsiveContainer>
                         </ChartContainer>
                     </CardContent>
                 </Card>
@@ -471,15 +475,29 @@ function AdminHomePageContent() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                       {searchTerm ? (
-                        // Search Results View: Flat table
-                        <div className="space-y-2">
+                        <div className="space-y-3">
                           {filteredData.map(cert => (
-                            <div key={cert.fileId} className="flex items-center justify-between p-2 border rounded-md bg-background">
-                              <div>
-                                <p className="font-semibold">{cert.originalName}</p>
-                                <p className="text-sm text-muted-foreground">{cert.studentName} ({cert.studentEmail})</p>
+                            <div key={cert.fileId} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 border rounded-md bg-background gap-4">
+                              <div className="flex-grow">
+                                <p className="font-semibold text-primary">{cert.originalName}</p>
+                                <p className="text-sm text-muted-foreground">
+                                  <span className="font-medium">{cert.studentName}</span> ({cert.studentEmail})
+                                </p>
+                                {cert.studentRollNo && (
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    Roll No: <span className="font-mono p-1 bg-muted rounded">{cert.studentRollNo}</span>
+                                  </p>
+                                )}
                               </div>
-                              <Button variant="outline" size="sm" onClick={() => openViewModal(cert)}>View</Button>
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                onClick={() => openViewModal(cert)} 
+                                className="w-full sm:w-auto shrink-0"
+                              >
+                                <FileTextIcon className="mr-2 h-4 w-4" />
+                                View Certificate
+                              </Button>
                             </div>
                           ))}
                         </div>
