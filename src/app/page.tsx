@@ -3,8 +3,8 @@
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { useAuth } from '@/hooks/useAuth';
-import { Loader2, Users, FileText as FileTextIcon, Search as SearchIcon, ArrowUpDown } from 'lucide-react';
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { Loader2, Users, Search as SearchIcon, ArrowUpDown, ChevronDown, ChevronUp } from 'lucide-react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 
 // --- Student-specific imports ---
 import ImageGrid from '@/components/home/ImageGrid';
@@ -16,7 +16,7 @@ import type { SearchableItem } from '@/components/common/SearchWithSuggestions';
 import { useToast } from '@/hooks/use-toast';
 
 // --- Admin-specific imports ---
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis, Tooltip as RechartsTooltip } from 'recharts';
 import { ChartContainer, ChartTooltipContent } from "@/components/ui/chart";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -31,6 +31,15 @@ type AdminDashboardData = (UserImage & {
   studentEmail: string;
   studentRollNo?: string;
 });
+
+// Type for grouped search results for admin
+type GroupedStudentResult = {
+  studentId: string;
+  studentName: string;
+  studentEmail: string;
+  studentRollNo?: string;
+  matchingCertificates: UserImage[];
+};
 
 // ====================================================================================
 // Student Home Page Content
@@ -135,6 +144,7 @@ function AdminHomePageContent() {
     const [sortConfig, setSortConfig] = useState<{ key: 'studentName' | 'studentRollNo'; direction: 'asc' | 'desc' } | null>(null);
     const [selectedImageForView, setSelectedImageForView] = useState<UserImage | null>(null);
     const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+    const [expandedStudents, setExpandedStudents] = useState<Set<string>>(new Set());
     const { user } = useAuth();
     const { toast } = useToast();
 
@@ -163,6 +173,18 @@ function AdminHomePageContent() {
         };
         fetchData();
     }, [user, toast]);
+    
+    const toggleStudentExpansion = (studentId: string) => {
+        setExpandedStudents(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(studentId)) {
+                newSet.delete(studentId);
+            } else {
+                newSet.add(studentId);
+            }
+            return newSet;
+        });
+    };
 
     const { studentCount, certsPerStudentData } = useMemo(() => {
         if (!dashboardData) return { studentCount: 0, certsPerStudentData: [] };
@@ -180,8 +202,32 @@ function AdminHomePageContent() {
         };
     }, [dashboardData]);
 
-    const filteredAndSortedResults = useMemo(() => {
-        let results = dashboardData.filter(cert => cert.originalName.toLowerCase().includes(searchTerm.toLowerCase()));
+    const groupedAndSortedResults = useMemo(() => {
+        if (!searchTerm) {
+            return []; // Don't show anything if search is empty
+        }
+
+        const filteredCerts = dashboardData.filter(cert => 
+            cert.originalName.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+
+        const studentGroups: { [key: string]: GroupedStudentResult } = {};
+
+        filteredCerts.forEach(cert => {
+            if (!studentGroups[cert.studentId]) {
+                studentGroups[cert.studentId] = {
+                    studentId: cert.studentId,
+                    studentName: cert.studentName,
+                    studentEmail: cert.studentEmail,
+                    studentRollNo: cert.studentRollNo,
+                    matchingCertificates: [],
+                };
+            }
+            studentGroups[cert.studentId].matchingCertificates.push(cert);
+        });
+
+        let results = Object.values(studentGroups);
+
         if (sortConfig) {
             results.sort((a, b) => {
                 const aValue = a[sortConfig.key] || '';
@@ -275,6 +321,7 @@ function AdminHomePageContent() {
                         <Table>
                             <TableHeader>
                                 <TableRow>
+                                    <TableHead className="w-[50px]"></TableHead>
                                     <TableHead>
                                         <Button variant="ghost" onClick={() => requestSort('studentName')}>
                                             Student Name <ArrowUpDown className="ml-2 h-4 w-4" />
@@ -286,27 +333,52 @@ function AdminHomePageContent() {
                                             Roll No <ArrowUpDown className="ml-2 h-4 w-4" />
                                         </Button>
                                     </TableHead>
-                                    <TableHead>Certificate Name</TableHead>
-                                    <TableHead>Action</TableHead>
+                                    <TableHead>Matching Certs</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {filteredAndSortedResults.length > 0 ? (
-                                    filteredAndSortedResults.map((cert) => (
-                                        <TableRow key={cert.fileId}>
-                                            <TableCell className="font-medium">{cert.studentName}</TableCell>
-                                            <TableCell>{cert.studentEmail}</TableCell>
-                                            <TableCell>{cert.studentRollNo || 'N/A'}</TableCell>
-                                            <TableCell>{cert.originalName}</TableCell>
-                                            <TableCell>
-                                                <Button variant="outline" size="sm" onClick={() => openViewModal(cert)}>View</Button>
-                                            </TableCell>
-                                        </TableRow>
+                                {groupedAndSortedResults.length > 0 ? (
+                                    groupedAndSortedResults.map((student) => (
+                                        <React.Fragment key={student.studentId}>
+                                            <TableRow>
+                                                <TableCell>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        onClick={() => toggleStudentExpansion(student.studentId)}
+                                                        aria-label={expandedStudents.has(student.studentId) ? 'Collapse' : 'Expand'}
+                                                    >
+                                                        {expandedStudents.has(student.studentId) ? (
+                                                            <ChevronUp className="h-4 w-4" />
+                                                        ) : (
+                                                            <ChevronDown className="h-4 w-4" />
+                                                        )}
+                                                    </Button>
+                                                </TableCell>
+                                                <TableCell className="font-medium">{student.studentName}</TableCell>
+                                                <TableCell>{student.studentEmail}</TableCell>
+                                                <TableCell>{student.studentRollNo || 'N/A'}</TableCell>
+                                                <TableCell>{student.matchingCertificates.length}</TableCell>
+                                            </TableRow>
+                                            {expandedStudents.has(student.studentId) && (
+                                                student.matchingCertificates.map(cert => (
+                                                    <TableRow key={cert.fileId} className="bg-muted/50 hover:bg-muted/75">
+                                                        <TableCell></TableCell>
+                                                        <TableCell colSpan={3} className="pl-6">{cert.originalName}</TableCell>
+                                                        <TableCell>
+                                                            <Button variant="outline" size="sm" onClick={() => openViewModal(cert)}>
+                                                                View
+                                                            </Button>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))
+                                            )}
+                                        </React.Fragment>
                                     ))
                                 ) : (
                                     <TableRow>
                                         <TableCell colSpan={5} className="h-24 text-center">
-                                            No results found.
+                                            {searchTerm ? 'No students found with matching certificates.' : 'Enter a certificate name to begin your search.'}
                                         </TableCell>
                                     </TableRow>
                                 )}
