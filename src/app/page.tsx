@@ -29,7 +29,6 @@ import { Label } from '@/components/ui/label';
 import ViewImageModal from '@/components/home/ViewImageModal';
 import AppLogo from '@/components/common/AppLogo';
 import { cn } from '@/lib/utils';
-import SearchWithSuggestions from '@/components/common/SearchWithSuggestions';
 import { useToast } from '@/hooks/use-toast';
 import { Input } from '@/components/ui/input';
 
@@ -123,11 +122,13 @@ function StudentHomePageContent() {
         </div>
       </div>
       <div className="my-4 shrink-0">
-        <SearchWithSuggestions 
-          onSearch={handleSearch} 
-          placeholder="Search certificates by name or filename..."
-          searchableData={searchableImageNames}
-        />
+         <Input
+            type="search"
+            placeholder="Search certificates by name or filename..."
+            className="w-full text-base"
+            value={searchTerm}
+            onChange={(e) => handleSearch(e.target.value)}
+          />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto pr-1 md:overflow-visible md:pr-0">
         <ImageGrid
@@ -461,28 +462,6 @@ function AdminHomePageContent() {
                 </Card>
               </div>
               
-              {searchTerm && searchAnalysisData.length > 0 && (
-                <Card className="mb-6">
-                  <CardHeader>
-                    <CardTitle>Search Analysis</CardTitle>
-                    <CardDescription>Distribution of found certificates across students.</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--chart-2))" } }} className="h-[250px] w-full">
-                        <ResponsiveContainer>
-                            <BarChart data={searchAnalysisData} layout="vertical" margin={{ left: 10, right: 10, top:10, bottom:10 }}>
-                                <CartesianGrid horizontal={false} />
-                                <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tickMargin={8} width={80} />
-                                <XAxis type="number" allowDecimals={false} />
-                                <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
-                                <Bar dataKey="certificates" fill="var(--color-certificates)" radius={4} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </ChartContainer>
-                  </CardContent>
-                </Card>
-               )}
-
                <Card>
                   <CardHeader className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                     <div>
@@ -494,13 +473,13 @@ function AdminHomePageContent() {
                         }
                       </CardDescription>
                     </div>
-                    <div className="flex items-center gap-2 w-full md:w-auto">
+                    <div className="flex items-center gap-2 w-full md:w-[450px]">
                         <div className="relative flex-1">
                             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                             <Input
                                 type="search"
                                 placeholder="Search certificates..."
-                                className="w-full rounded-lg bg-background pl-8 md:w-[200px] lg:w-[320px]"
+                                className="w-full rounded-lg bg-background pl-8"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                             />
@@ -514,31 +493,53 @@ function AdminHomePageContent() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                       {searchTerm ? (
-                        <div className="space-y-3">
-                          {filteredData.length > 0 ? filteredData.map(cert => (
-                            <div key={cert.fileId} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 border rounded-md bg-background gap-4">
-                              <div className="flex-grow">
-                                <p className="font-semibold text-primary">{cert.originalName}</p>
-                                <p className="text-sm text-muted-foreground">
-                                  <span className="font-medium">{cert.studentName}</span> ({cert.studentEmail})
-                                </p>
-                                {cert.studentRollNo && (
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                    Roll No: <span className="font-mono p-1 bg-muted rounded">{cert.studentRollNo}</span>
+                        <div className="space-y-6">
+                          {searchAnalysisData.length > 0 && (
+                              <div className="border rounded-lg p-4">
+                                  <h3 className="text-lg font-semibold font-headline mb-1">Search Analysis</h3>
+                                  <p className="text-sm text-muted-foreground mb-4">
+                                      Distribution of certificates matching your search.
                                   </p>
-                                )}
+                                  <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--chart-2))" } }} className="h-[250px] w-full">
+                                      <ResponsiveContainer>
+                                          <BarChart data={searchAnalysisData} layout="vertical" margin={{ left: 10, right: 10, top:10, bottom:10 }}>
+                                              <CartesianGrid horizontal={false} />
+                                              <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tickMargin={8} width={80} />
+                                              <XAxis type="number" allowDecimals={false} />
+                                              <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
+                                              <Bar dataKey="certificates" fill="var(--color-certificates)" radius={4} />
+                                          </BarChart>
+                                      </ResponsiveContainer>
+                                  </ChartContainer>
                               </div>
-                              <Button 
-                                variant="outline" 
-                                size="sm" 
-                                onClick={() => openViewModal(cert)} 
-                                className="w-full sm:w-auto shrink-0"
-                              >
-                                <FileTextIcon className="mr-2 h-4 w-4" />
-                                View Certificate
-                              </Button>
-                            </div>
-                          )) : <p className="text-muted-foreground text-center py-8">No certificates match your search.</p>}
+                          )}
+
+                          <div className="space-y-3">
+                            {filteredData.length > 0 ? filteredData.map(cert => (
+                              <div key={cert.fileId} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 border rounded-md bg-background gap-4">
+                                <div className="flex-grow">
+                                  <p className="font-semibold text-primary">{cert.originalName}</p>
+                                  <p className="text-sm text-muted-foreground">
+                                    <span className="font-medium">{cert.studentName}</span> ({cert.studentEmail})
+                                  </p>
+                                  {cert.studentRollNo && (
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                      Roll No: <span className="font-mono p-1 bg-muted rounded">{cert.studentRollNo}</span>
+                                    </p>
+                                  )}
+                                </div>
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  onClick={() => openViewModal(cert)} 
+                                  className="w-full sm:w-auto shrink-0"
+                                >
+                                  <FileTextIcon className="mr-2 h-4 w-4" />
+                                  View Certificate
+                                </Button>
+                              </div>
+                            )) : <p className="text-muted-foreground text-center py-8">No certificates match your search.</p>}
+                          </div>
                         </div>
                       ) : (
                         // Default View: Grouped by student
