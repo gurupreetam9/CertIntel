@@ -9,52 +9,53 @@ body {
 
 @layer base {
   :root {
-    --background: 220 13% 97%; /* Very light grey-blue: #F6F7FA */
-    --foreground: 220 10% 25%; /* Dark slate grey: #383E47 */
+    /* Updated theme to match App Requirements */
+    --background: 45 20% 95%; /* HSL(45, 20%, 95%) - Light beige (#F8F7F3) */
+    --foreground: 24 10% 25%; /* Dark Brown for text */
 
     --card: 0 0% 100%; /* White */
-    --card-foreground: 220 10% 25%;
+    --card-foreground: 24 10% 25%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 220 10% 25%;
+    --popover-foreground: 24 10% 25%;
 
-    --primary: 210 80% 55%; /* Bright blue from chart */
-    --primary-foreground: 0 0% 100%;
+    --primary: 45 90% 50%; /* HSL(45, 90%, 50%) - Gold (#FACC15) */
+    --primary-foreground: 24 10% 15%; /* Darker brown for contrast on Gold */
 
-    --secondary: 220 13% 92%; /* Slightly darker grey-blue */
-    --secondary-foreground: 220 10% 25%;
+    --secondary: 45 20% 90%; /* Slightly darker beige */
+    --secondary-foreground: 24 10% 25%;
 
-    --muted: 220 13% 92%;
-    --muted-foreground: 220 10% 45%;
+    --muted: 45 20% 90%;
+    --muted-foreground: 24 10% 45%;
 
-    --accent: 340 80% 60%; /* Pink/red from chart */
-    --accent-foreground: 0 0% 100%;
+    --accent: 15 90% 50%; /* HSL(15, 90%, 50%) - Vivid orange (#FA5715) */
+    --accent-foreground: 0 0% 100%; /* White for text on Orange */
 
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 220 13% 90%; /* #E2E4E9 */
-    --input: 220 13% 90%;
-    --ring: 210 80% 55%;
+    --border: 45 20% 85%;
+    --input: 45 20% 85%;
+    --ring: 45 90% 50%; /* Gold for focus ring */
 
     --radius: 0.75rem;
 
-    /* Chart colors */
-    --chart-1: 210 80% 55%; /* primary */
-    --chart-2: 340 80% 60%; /* accent */
-    --chart-3: 30 90% 55%; /* Orange */
+    /* Chart colors - Using a vibrant, distinct palette */
+    --chart-1: hsl(var(--primary)); /* Gold */
+    --chart-2: hsl(var(--accent));  /* Orange */
+    --chart-3: 200 80% 55%; /* A nice Blue */
     --chart-4: 120 70% 45%; /* Green */
     --chart-5: 260 80% 65%; /* Purple */
 
-    /* Sidebar specific colors */
-    --sidebar-background: 225 30% 20%; /* Dark slate blue */
-    --sidebar-foreground: 220 20% 85%; /* Light grey-blue text */
-    --sidebar-primary: 210 80% 55%; 
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 225 30% 25%; /* Slightly lighter dark blue for hover */
+    /* Sidebar specific colors - Dark theme to complement the main content */
+    --sidebar-background: 220 15% 15%; /* Very dark, slightly cool gray/charcoal */
+    --sidebar-foreground: 220 10% 75%; /* Light gray for text */
+    --sidebar-primary: hsl(var(--primary)); /* Gold for active/highlighted items */
+    --sidebar-primary-foreground: 24 10% 10%; /* Dark text on gold highlight */
+    --sidebar-accent: 220 15% 25%; /* Slightly lighter charcoal for hover */
     --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 225 30% 25%;
-    --sidebar-ring: 210 80% 55%;
+    --sidebar-border: 220 15% 25%;
+    --sidebar-ring: hsl(var(--ring));
   }
 
 }
