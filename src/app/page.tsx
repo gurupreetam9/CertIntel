@@ -32,14 +32,15 @@ type AdminDashboardData = (UserImage & {
   studentRollNo?: string;
 });
 
-// Type for grouped search results for admin
-type GroupedStudentResult = {
+// Type for grouping certificates by student for the default admin view
+type StudentWithCertificates = {
   studentId: string;
   studentName: string;
   studentEmail: string;
   studentRollNo?: string;
-  matchingCertificates: UserImage[];
+  certificates: AdminDashboardData[];
 };
+
 
 // ====================================================================================
 // Student Home Page Content
@@ -141,7 +142,7 @@ function AdminHomePageContent() {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
-    const [sortConfig, setSortConfig] = useState<{ key: 'studentName' | 'studentRollNo'; direction: 'asc' | 'desc' } | null>(null);
+    const [sortConfig, setSortConfig] = useState<{ key: 'studentName' | 'studentRollNo' | 'originalName' | 'uploadDate'; direction: 'asc' | 'desc' } | null>(null);
     const [selectedImageForView, setSelectedImageForView] = useState<UserImage | null>(null);
     const [isViewModalOpen, setIsViewModalOpen] = useState(false);
     const [expandedStudents, setExpandedStudents] = useState<Set<string>>(new Set());
@@ -163,6 +164,8 @@ function AdminHomePageContent() {
                     throw new Error(errorData.message || 'Failed to fetch dashboard data.');
                 }
                 const data: AdminDashboardData[] = await response.json();
+                // Ensure data is sorted by date descending initially
+                data.sort((a, b) => new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime());
                 setDashboardData(data);
             } catch (err: any) {
                 setError(err.message);
@@ -202,45 +205,50 @@ function AdminHomePageContent() {
         };
     }, [dashboardData]);
 
-    const groupedAndSortedResults = useMemo(() => {
-        if (!searchTerm) {
-            return []; // Don't show anything if search is empty
-        }
-
-        const filteredCerts = dashboardData.filter(cert => 
-            cert.originalName.toLowerCase().includes(searchTerm.toLowerCase())
-        );
-
-        const studentGroups: { [key: string]: GroupedStudentResult } = {};
-
-        filteredCerts.forEach(cert => {
+    // Data for the default view (grouped by student)
+    const studentsWithCerts = useMemo(() => {
+        const studentGroups: { [key: string]: StudentWithCertificates } = {};
+        dashboardData.forEach(cert => {
             if (!studentGroups[cert.studentId]) {
                 studentGroups[cert.studentId] = {
                     studentId: cert.studentId,
                     studentName: cert.studentName,
                     studentEmail: cert.studentEmail,
                     studentRollNo: cert.studentRollNo,
-                    matchingCertificates: [],
+                    certificates: [],
                 };
             }
-            studentGroups[cert.studentId].matchingCertificates.push(cert);
+            studentGroups[cert.studentId].certificates.push(cert);
         });
+        // The data is already sorted by date descending from fetch
+        return Object.values(studentGroups);
+    }, [dashboardData]);
 
-        let results = Object.values(studentGroups);
+    // Data for the search view (flat and sorted)
+    const searchResults = useMemo(() => {
+        if (!searchTerm) return [];
+        let filtered = dashboardData.filter(cert => 
+            cert.originalName.toLowerCase().includes(searchTerm.toLowerCase())
+        );
 
         if (sortConfig) {
-            results.sort((a, b) => {
+            filtered.sort((a, b) => {
                 const aValue = a[sortConfig.key] || '';
                 const bValue = b[sortConfig.key] || '';
+                if (sortConfig.key === 'uploadDate') {
+                   return sortConfig.direction === 'asc' 
+                    ? new Date(aValue).getTime() - new Date(bValue).getTime()
+                    : new Date(bValue).getTime() - new Date(aValue).getTime();
+                }
                 if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
                 if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
                 return 0;
             });
         }
-        return results;
+        return filtered;
     }, [dashboardData, searchTerm, sortConfig]);
 
-    const requestSort = (key: 'studentName' | 'studentRollNo') => {
+    const requestSort = (key: 'studentName' | 'studentRollNo' | 'originalName' | 'uploadDate') => {
         let direction: 'asc' | 'desc' = 'asc';
         if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
             direction = 'desc';
@@ -252,6 +260,91 @@ function AdminHomePageContent() {
         setSelectedImageForView(image);
         setIsViewModalOpen(true);
     };
+
+    const renderDefaultView = () => (
+      <div className="space-y-4">
+        {studentsWithCerts.map((student) => (
+          <Card key={student.studentId}>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>{student.studentName}</CardTitle>
+                <CardDescription>{student.studentEmail} {student.studentRollNo && ` - Roll: ${student.studentRollNo}`}</CardDescription>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => toggleStudentExpansion(student.studentId)}>
+                {expandedStudents.has(student.studentId) ? 'Collapse' : `View All (${student.certificates.length})`}
+                {expandedStudents.has(student.studentId) ? <ChevronUp className="ml-2 h-4 w-4" /> : <ChevronDown className="ml-2 h-4 w-4" />}
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <h4 className="text-sm font-semibold mb-2 text-muted-foreground">Most Recent Upload</h4>
+              {student.certificates.length > 0 ? (
+                <div className="flex items-center justify-between p-2 border rounded-md">
+                   <p className="truncate pr-4">{student.certificates[0].originalName}</p>
+                   <Button variant="outline" size="sm" onClick={() => openViewModal(student.certificates[0])}>View</Button>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No certificates uploaded yet.</p>
+              )}
+              
+              {expandedStudents.has(student.studentId) && student.certificates.length > 1 && (
+                <div className="mt-4">
+                  <h4 className="text-sm font-semibold mb-2 text-muted-foreground">All Uploads</h4>
+                  <div className="space-y-2">
+                    {student.certificates.map(cert => (
+                       <div key={cert.fileId} className="flex items-center justify-between p-2 border rounded-md bg-muted/30">
+                          <p className="truncate pr-4">{cert.originalName} <span className="text-xs text-muted-foreground ml-2">({new Date(cert.uploadDate).toLocaleDateString()})</span></p>
+                          <Button variant="outline" size="sm" onClick={() => openViewModal(cert)}>View</Button>
+                       </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    );
+
+    const renderSearchView = () => (
+        <Card>
+            <CardHeader>
+                <CardTitle>Certificate Search Results</CardTitle>
+                <CardDescription>Found {searchResults.length} certificate(s) matching your search.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <div className="rounded-md border">
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead><Button variant="ghost" onClick={() => requestSort('originalName')}>Certificate <ArrowUpDown className="ml-2 h-4 w-4" /></Button></TableHead>
+                                <TableHead><Button variant="ghost" onClick={() => requestSort('studentName')}>Student Name <ArrowUpDown className="ml-2 h-4 w-4" /></Button></TableHead>
+                                <TableHead><Button variant="ghost" onClick={() => requestSort('uploadDate')}>Upload Date <ArrowUpDown className="ml-2 h-4 w-4" /></Button></TableHead>
+                                <TableHead>Action</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {searchResults.length > 0 ? (
+                                searchResults.map((cert) => (
+                                    <TableRow key={cert.fileId}>
+                                        <TableCell className="font-medium">{cert.originalName}</TableCell>
+                                        <TableCell>{cert.studentName}</TableCell>
+                                        <TableCell>{new Date(cert.uploadDate).toLocaleDateString()}</TableCell>
+                                        <TableCell>
+                                            <Button variant="outline" size="sm" onClick={() => openViewModal(cert)}>View</Button>
+                                        </TableCell>
+                                    </TableRow>
+                                ))
+                            ) : (
+                                <TableRow>
+                                    <TableCell colSpan={4} className="h-24 text-center">No certificates found matching your search.</TableCell>
+                                </TableRow>
+                            )}
+                        </TableBody>
+                    </Table>
+                </div>
+            </CardContent>
+        </Card>
+    );
 
     if (isLoading) {
         return (
@@ -302,91 +395,19 @@ function AdminHomePageContent() {
                 </Card>
             </div>
             
-            <Card>
-                <CardHeader>
-                    <CardTitle>Certificate Search</CardTitle>
-                    <CardDescription>Search for a certificate by name across all linked students.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <div className="relative mb-4">
-                        <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input 
-                            placeholder="Search by certificate name..." 
-                            className="pl-9"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
-                    </div>
-                    <div className="rounded-md border">
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead className="w-[50px]"></TableHead>
-                                    <TableHead>
-                                        <Button variant="ghost" onClick={() => requestSort('studentName')}>
-                                            Student Name <ArrowUpDown className="ml-2 h-4 w-4" />
-                                        </Button>
-                                    </TableHead>
-                                    <TableHead>Email</TableHead>
-                                    <TableHead>
-                                        <Button variant="ghost" onClick={() => requestSort('studentRollNo')}>
-                                            Roll No <ArrowUpDown className="ml-2 h-4 w-4" />
-                                        </Button>
-                                    </TableHead>
-                                    <TableHead>Matching Certs</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {groupedAndSortedResults.length > 0 ? (
-                                    groupedAndSortedResults.map((student) => (
-                                        <React.Fragment key={student.studentId}>
-                                            <TableRow>
-                                                <TableCell>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        onClick={() => toggleStudentExpansion(student.studentId)}
-                                                        aria-label={expandedStudents.has(student.studentId) ? 'Collapse' : 'Expand'}
-                                                    >
-                                                        {expandedStudents.has(student.studentId) ? (
-                                                            <ChevronUp className="h-4 w-4" />
-                                                        ) : (
-                                                            <ChevronDown className="h-4 w-4" />
-                                                        )}
-                                                    </Button>
-                                                </TableCell>
-                                                <TableCell className="font-medium">{student.studentName}</TableCell>
-                                                <TableCell>{student.studentEmail}</TableCell>
-                                                <TableCell>{student.studentRollNo || 'N/A'}</TableCell>
-                                                <TableCell>{student.matchingCertificates.length}</TableCell>
-                                            </TableRow>
-                                            {expandedStudents.has(student.studentId) && (
-                                                student.matchingCertificates.map(cert => (
-                                                    <TableRow key={cert.fileId} className="bg-muted/50 hover:bg-muted/75">
-                                                        <TableCell></TableCell>
-                                                        <TableCell colSpan={3} className="pl-6">{cert.originalName}</TableCell>
-                                                        <TableCell>
-                                                            <Button variant="outline" size="sm" onClick={() => openViewModal(cert)}>
-                                                                View
-                                                            </Button>
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ))
-                                            )}
-                                        </React.Fragment>
-                                    ))
-                                ) : (
-                                    <TableRow>
-                                        <TableCell colSpan={5} className="h-24 text-center">
-                                            {searchTerm ? 'No students found with matching certificates.' : 'Enter a certificate name to begin your search.'}
-                                        </TableCell>
-                                    </TableRow>
-                                )}
-                            </TableBody>
-                        </Table>
-                    </div>
-                </CardContent>
-            </Card>
+             <div className="mb-6">
+                <div className="relative">
+                    <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input 
+                        placeholder="Search for a certificate by name to see results..." 
+                        className="pl-9"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                </div>
+            </div>
+
+            {searchTerm ? renderSearchView() : renderDefaultView()}
 
             {selectedImageForView && (
                 <ViewImageModal isOpen={isViewModalOpen} onClose={() => setIsViewModalOpen(false)} image={selectedImageForView} />
