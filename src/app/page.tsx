@@ -514,29 +514,32 @@ function AdminHomePageContent() {
                         {sortedAndFilteredData.length > 0 ? sortedAndFilteredData.map(cert => (
                           <div key={cert.fileId} className="flex items-center justify-between p-3 border rounded-md bg-background/50 hover:bg-muted/50 transition-colors gap-4">
                             <div className="flex-grow min-w-0">
-                              <p className="font-semibold text-primary truncate" title={cert.originalName}>
-                                {cert.originalName}
-                              </p>
-                              <div className="text-sm text-muted-foreground mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
-                                <span>{cert.studentName} ({cert.studentEmail})</span>
-                                {cert.studentRollNo && (
-                                  <div className="flex items-center gap-2">
-                                    <span>Roll No:</span>
-                                    <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded-sm">
-                                      {cert.studentRollNo}
+                                <p className="font-semibold text-primary truncate" title={cert.originalName}>
+                                    {cert.originalName}
+                                </p>
+                                <div className="text-sm text-muted-foreground mt-1 flex items-baseline gap-x-4 flex-wrap">
+                                    <span className="truncate" title={`${cert.studentName} (${cert.studentEmail})`}>
+                                        {cert.studentName} ({cert.studentEmail})
                                     </span>
-                                  </div>
-                                )}
-                              </div>
+                                    {cert.studentRollNo && (
+                                        <span className="flex items-baseline gap-x-2 shrink-0">
+                                            <span>Roll No:</span>
+                                            <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded-sm">
+                                                {cert.studentRollNo}
+                                            </span>
+                                        </span>
+                                    )}
+                                </div>
                             </div>
+                            
                             <Button 
-                              variant="outline" 
-                              size="sm" 
-                              onClick={() => openViewModal(cert)} 
-                              className="shrink-0"
+                                variant="outline" 
+                                size="sm" 
+                                onClick={() => openViewModal(cert)} 
+                                className="shrink-0"
                             >
-                              <FileTextIcon className="mr-2 h-4 w-4" />
-                              View Certificate
+                                <FileTextIcon className="mr-2 h-4 w-4" />
+                                View Certificate
                             </Button>
                           </div>
                         )) : (
