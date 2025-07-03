@@ -516,23 +516,26 @@ function AdminHomePageContent() {
 
                           <div className="space-y-3">
                             {filteredData.length > 0 ? filteredData.map(cert => (
-                              <div key={cert.fileId} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 border rounded-md bg-background gap-4">
-                                <div className="flex-grow">
-                                  <p className="font-semibold text-primary">{cert.originalName}</p>
-                                  <p className="text-sm text-muted-foreground">
-                                    <span className="font-medium">{cert.studentName}</span> ({cert.studentEmail})
-                                  </p>
-                                  {cert.studentRollNo && (
-                                    <p className="text-xs text-muted-foreground mt-1">
-                                      Roll No: <span className="font-mono p-1 bg-muted rounded">{cert.studentRollNo}</span>
-                                    </p>
-                                  )}
+                              <div key={cert.fileId} className="flex items-center justify-between p-3 border rounded-md bg-background gap-4">
+                                <div className="flex-grow min-w-0">
+                                  <p className="font-semibold text-primary truncate" title={cert.originalName}>{cert.originalName}</p>
+                                  <div className="text-sm text-muted-foreground mt-1 flex items-center gap-x-4">
+                                    <span>{cert.studentName} ({cert.studentEmail})</span>
+                                    {cert.studentRollNo && (
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-xs">Roll No:</span>
+                                        <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">
+                                          {cert.studentRollNo}
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
                                 <Button 
                                   variant="outline" 
                                   size="sm" 
                                   onClick={() => openViewModal(cert)} 
-                                  className="w-full sm:w-auto shrink-0"
+                                  className="shrink-0"
                                 >
                                   <FileTextIcon className="mr-2 h-4 w-4" />
                                   View Certificate
