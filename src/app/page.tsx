@@ -190,8 +190,8 @@ function AdminHomePageContent() {
         });
     };
 
-    const { studentCount, certsPerStudentData } = useMemo(() => {
-        if (!dashboardData) return { studentCount: 0, certsPerStudentData: [] };
+    const { studentCount, topStudentsData } = useMemo(() => {
+        if (!dashboardData) return { studentCount: 0, topStudentsData: [] };
         const studentMap = new Map<string, { name: string; count: number }>();
         dashboardData.forEach(cert => {
             if (studentMap.has(cert.studentId)) {
@@ -200,9 +200,16 @@ function AdminHomePageContent() {
                 studentMap.set(cert.studentId, { name: cert.studentName, count: 1 });
             }
         });
+        
+        const allStudents = Array.from(studentMap.values()).map(s => ({ name: s.name, certificates: s.count }));
+        
+        // Sort by certificate count descending and take top 5
+        const sortedStudents = allStudents.sort((a, b) => b.certificates - a.certificates);
+        const top5 = sortedStudents.slice(0, 5);
+        
         return {
             studentCount: studentMap.size,
-            certsPerStudentData: Array.from(studentMap.values()).map(s => ({ name: s.name, certificates: s.count })),
+            topStudentsData: top5.reverse(), // Reverse for horizontal chart to show top at the top
         };
     }, [dashboardData]);
 
@@ -499,7 +506,8 @@ function AdminHomePageContent() {
                 </Card>
                 <Card className="lg:col-span-2">
                     <CardHeader>
-                        <CardTitle>Certificates Per Student</CardTitle>
+                        <CardTitle>Top Students by Certificate Count</CardTitle>
+                        <CardDescription>Showing the top 5 students with the most uploads.</CardDescription>
                     </CardHeader>
                     <CardContent className="pl-2">
                         <ChartContainer config={{
@@ -508,7 +516,7 @@ function AdminHomePageContent() {
                             <ResponsiveContainer>
                                 <BarChart
                                     layout="vertical"
-                                    data={certsPerStudentData}
+                                    data={topStudentsData}
                                     margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
                                 >
                                     <CartesianGrid horizontal={false} />
