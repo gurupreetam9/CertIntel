@@ -2,18 +2,40 @@
 'use client';
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
+import { useAuth } from '@/hooks/useAuth';
+import { Loader2, Users, FileText as FileTextIcon, Search as SearchIcon, ArrowUpDown } from 'lucide-react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
+
+// --- Student-specific imports ---
 import ImageGrid from '@/components/home/ImageGrid';
 import type { UserImage } from '@/components/home/ImageGrid';
 import UploadFAB from '@/components/home/UploadFAB';
 import AiFAB from '@/components/home/AiFAB';
 import SearchWithSuggestions from '@/components/common/SearchWithSuggestions';
 import type { SearchableItem } from '@/components/common/SearchWithSuggestions';
-import { useEffect, useState, useCallback, useMemo } from 'react';
-import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { FileText } from 'lucide-react';
 
-function HomePageContent() {
+// --- Admin-specific imports ---
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
+import { ChartContainer, ChartTooltipContent } from "@/components/ui/chart";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import ViewImageModal from '@/components/home/ViewImageModal';
+
+// Combined type for admin dashboard data
+type AdminDashboardData = (UserImage & {
+  studentId: string;
+  studentName: string;
+  studentEmail: string;
+  studentRollNo?: string;
+});
+
+// ====================================================================================
+// Student Home Page Content
+// ====================================================================================
+function StudentHomePageContent() {
   const [images, setImages] = useState<UserImage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -23,91 +45,41 @@ function HomePageContent() {
   const [searchTerm, setSearchTerm] = useState('');
 
   const triggerRefresh = useCallback(() => {
-    console.log("HomePageContent: Triggering refresh by incrementing refreshKey.");
     setRefreshKey(prevKey => prevKey + 1);
   }, []);
 
-  const fetchImages = useCallback(async () => {
-    if (!userId || !user) {
-      setIsLoading(false);
-      setImages([]);
-      console.log("HomePageContent: fetchImages skipped, no userId or user object.");
-      return;
-    }
-
-    console.log(`HomePageContent: Starting fetchImages for userId: ${userId}, refreshKey: ${refreshKey}`);
-    setIsLoading(true);
-    setError(null);
-    try {
-      const idToken = await user.getIdToken();
-      if (!idToken) {
-        console.error("HomePageContent: Failed to get ID token. User might not be fully authenticated or token refresh failed.");
-        throw new Error("Authentication token not available. Please ensure you are logged in or try logging in again.");
-      }
-
-      const fetchUrl = `/api/user-images?userId=${userId}`;
-      console.log(`HomePageContent: Fetching from URL: ${fetchUrl} with Authorization header.`);
-      const response = await fetch(fetchUrl, {
-        headers: {
-          'Authorization': `Bearer ${idToken}`
-        }
-      });
-
-      const responseText = await response.text(); 
-      if (!response.ok) {
-        let errorData = { message: `Error ${response.status}: Failed to load certificates from API.`, detail: `Status code ${response.status}`, errorKey: 'UNKNOWN_CLIENT_ERROR' };
-        let errorPayloadForConsole: any = { rawResponse: responseText.substring(0, 500) };
-        try {
-          errorPayloadForConsole = JSON.parse(responseText);
-          if (typeof errorPayloadForConsole === 'object' && errorPayloadForConsole !== null) {
-            errorData.message = errorPayloadForConsole.message || errorData.message;
-            errorData.detail = errorPayloadForConsole.detail || errorData.detail;
-            errorData.errorKey = errorPayloadForConsole.errorKey || errorData.errorKey;
-          }
-        } catch (jsonError) {
-          console.error("HomePageContent: Could not parse error JSON from API. Raw response text used for error message. JSON parsing error:", jsonError);
-          errorData.message = responseText.substring(0,200).trim() || errorData.message;
-          if (!responseText.trim() && response.status === 401) {
-             errorData.message = "Unauthorized: Access denied. Please check your login status.";
-          }
-        }
-        const displayErrorMessage = errorData.message || `Failed to load certificates. Server responded with status ${response.status}.`;
-        console.error(`HomePageContent: API error while fetching certificates. Status: ${response.status}. Parsed/Raw error payload for console:`, errorPayloadForConsole);
-        throw new Error(`API Error: ${displayErrorMessage}`);
-      }
-
-      const data: UserImage[] = JSON.parse(responseText); 
-      console.log("HomePageContent: Successfully fetched certificate data from API. Count:", data.length);
-      setImages(data);
-    } catch (err: any) {
-      console.error("HomePageContent: Error in fetchImages catch block:", err);
-      const errorMessage = err.message || "Could not load your certificates due to an unexpected error.";
-      setError(errorMessage);
-      toast({
-        title: "Error Loading Certificates",
-        description: errorMessage,
-        variant: "destructive",
-      });
-      setImages([]);
-    } finally {
-      console.log("HomePageContent: fetchImages finished. Setting isLoading to false.");
-      setIsLoading(false);
-    }
-  }, [userId, user, toast, refreshKey]);
-
   useEffect(() => {
-    console.log("HomePageContent: useEffect triggered for fetchImages. Current userId:", userId, "Current refreshKey:", refreshKey);
-    if (userId && user) {
-        fetchImages();
-    } else {
+    const fetchImages = async () => {
+      if (!userId || !user) {
         setIsLoading(false);
         setImages([]);
-    }
-  }, [userId, user, fetchImages, refreshKey]);
+        return;
+      }
+      setIsLoading(true);
+      setError(null);
+      try {
+        const idToken = await user.getIdToken();
+        const response = await fetch(`/api/user-images?userId=${userId}`, {
+          headers: { 'Authorization': `Bearer ${idToken}` }
+        });
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || 'Failed to load certificates.');
+        }
+        const data: UserImage[] = await response.json();
+        setImages(data);
+      } catch (err: any) {
+        setError(err.message);
+        toast({ title: "Error Loading Certificates", description: err.message, variant: "destructive" });
+        setImages([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchImages();
+  }, [userId, user, toast, refreshKey]);
 
-  const handleSearch = (query: string) => {
-    setSearchTerm(query.toLowerCase());
-  };
+  const handleSearch = (query: string) => setSearchTerm(query.toLowerCase());
 
   const filteredImages = useMemo(() => {
     if (!searchTerm) return images;
@@ -117,12 +89,10 @@ function HomePageContent() {
     );
   }, [images, searchTerm]);
 
-  const searchableImageNames: SearchableItem[] = useMemo(() => {
-    return images.map(img => ({
-      id: img.fileId,
-      value: img.originalName || img.filename,
-    }));
-  }, [images]);
+  const searchableImageNames: SearchableItem[] = useMemo(() =>
+    images.map(img => ({ id: img.fileId, value: img.originalName || img.filename })),
+    [images]
+  );
 
   return (
     <div className="container mx-auto flex h-full flex-col px-2 py-4 sm:px-4 md:py-8">
@@ -132,7 +102,6 @@ function HomePageContent() {
             <p className="text-base text-muted-foreground sm:text-lg">Browse, upload, and manage your certificates.</p>
         </div>
       </div>
-      
       <div className="my-4 shrink-0">
         <SearchWithSuggestions 
           onSearch={handleSearch} 
@@ -140,7 +109,6 @@ function HomePageContent() {
           searchableData={searchableImageNames}
         />
       </div>
-
       <div className="min-h-0 flex-1 overflow-y-auto pr-1 md:overflow-visible md:pr-0">
         <ImageGrid
           images={filteredImages}
@@ -150,17 +118,231 @@ function HomePageContent() {
           currentUserId={userId}
         />
       </div>
-
       <UploadFAB onUploadSuccess={triggerRefresh} />
       <AiFAB />
     </div>
   );
 }
 
-export default function HomePage() {
+// ====================================================================================
+// Admin Home Page Content (New Dashboard)
+// ====================================================================================
+function AdminHomePageContent() {
+    const [dashboardData, setDashboardData] = useState<AdminDashboardData[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [sortConfig, setSortConfig] = useState<{ key: 'studentName' | 'studentRollNo'; direction: 'asc' | 'desc' } | null>(null);
+    const [selectedImageForView, setSelectedImageForView] = useState<UserImage | null>(null);
+    const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+    const { user } = useAuth();
+    const { toast } = useToast();
+
+    useEffect(() => {
+        const fetchData = async () => {
+            if (!user) return;
+            setIsLoading(true);
+            setError(null);
+            try {
+                const idToken = await user.getIdToken();
+                const response = await fetch('/api/admin/dashboard-data', {
+                    headers: { 'Authorization': `Bearer ${idToken}` },
+                });
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || 'Failed to fetch dashboard data.');
+                }
+                const data: AdminDashboardData[] = await response.json();
+                setDashboardData(data);
+            } catch (err: any) {
+                setError(err.message);
+                toast({ title: "Error Loading Dashboard", description: err.message, variant: 'destructive' });
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchData();
+    }, [user, toast]);
+
+    const { studentCount, certsPerStudentData } = useMemo(() => {
+        if (!dashboardData) return { studentCount: 0, certsPerStudentData: [] };
+        const studentMap = new Map<string, { name: string; count: number }>();
+        dashboardData.forEach(cert => {
+            if (studentMap.has(cert.studentId)) {
+                studentMap.get(cert.studentId)!.count++;
+            } else {
+                studentMap.set(cert.studentId, { name: cert.studentName, count: 1 });
+            }
+        });
+        return {
+            studentCount: studentMap.size,
+            certsPerStudentData: Array.from(studentMap.values()).map(s => ({ name: s.name, certificates: s.count })),
+        };
+    }, [dashboardData]);
+
+    const filteredAndSortedResults = useMemo(() => {
+        let results = dashboardData.filter(cert => cert.originalName.toLowerCase().includes(searchTerm.toLowerCase()));
+        if (sortConfig) {
+            results.sort((a, b) => {
+                const aValue = a[sortConfig.key] || '';
+                const bValue = b[sortConfig.key] || '';
+                if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+                if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+        }
+        return results;
+    }, [dashboardData, searchTerm, sortConfig]);
+
+    const requestSort = (key: 'studentName' | 'studentRollNo') => {
+        let direction: 'asc' | 'desc' = 'asc';
+        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+            direction = 'desc';
+        }
+        setSortConfig({ key, direction });
+    };
+
+    const openViewModal = (image: UserImage) => {
+        setSelectedImageForView(image);
+        setIsViewModalOpen(true);
+    };
+
+    if (isLoading) {
+        return (
+            <div className="flex h-[calc(100vh-var(--header-height,4rem))] items-center justify-center">
+                <Loader2 className="h-12 w-12 animate-spin text-primary" />
+                <p className="ml-4">Loading Admin Dashboard...</p>
+            </div>
+        );
+    }
+    
+    if (error) {
+        return <div className="container py-8 text-center text-destructive">{error}</div>;
+    }
+
+    return (
+        <div className="container mx-auto px-4 py-8 md:px-6 lg:px-8">
+            <h1 className="text-3xl font-bold font-headline mb-6">Admin Dashboard</h1>
+
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-6">
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Total Linked Students</CardTitle>
+                        <Users className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">{studentCount}</div>
+                    </CardContent>
+                </Card>
+                <Card className="lg:col-span-2">
+                    <CardHeader>
+                        <CardTitle>Certificates Per Student</CardTitle>
+                    </CardHeader>
+                    <CardContent className="pl-2">
+                        <ChartContainer config={{
+                            certificates: { label: "Certificates", color: "hsl(var(--primary))" },
+                        }} className="h-[200px] w-full">
+                            <ResponsiveContainer>
+                                <BarChart data={certsPerStudentData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+                                    <CartesianGrid vertical={false} />
+                                    <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} fontSize={12} />
+                                    <YAxis allowDecimals={false} />
+                                    <RechartsTooltip content={<ChartTooltipContent />} />
+                                    <Bar dataKey="certificates" fill="var(--color-certificates)" radius={4} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </ChartContainer>
+                    </CardContent>
+                </Card>
+            </div>
+            
+            <Card>
+                <CardHeader>
+                    <CardTitle>Certificate Search</CardTitle>
+                    <CardDescription>Search for a certificate by name across all linked students.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <div className="relative mb-4">
+                        <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input 
+                            placeholder="Search by certificate name..." 
+                            className="pl-9"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                        />
+                    </div>
+                    <div className="rounded-md border">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>
+                                        <Button variant="ghost" onClick={() => requestSort('studentName')}>
+                                            Student Name <ArrowUpDown className="ml-2 h-4 w-4" />
+                                        </Button>
+                                    </TableHead>
+                                    <TableHead>Email</TableHead>
+                                    <TableHead>
+                                        <Button variant="ghost" onClick={() => requestSort('studentRollNo')}>
+                                            Roll No <ArrowUpDown className="ml-2 h-4 w-4" />
+                                        </Button>
+                                    </TableHead>
+                                    <TableHead>Certificate Name</TableHead>
+                                    <TableHead>Action</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {filteredAndSortedResults.length > 0 ? (
+                                    filteredAndSortedResults.map((cert) => (
+                                        <TableRow key={cert.fileId}>
+                                            <TableCell className="font-medium">{cert.studentName}</TableCell>
+                                            <TableCell>{cert.studentEmail}</TableCell>
+                                            <TableCell>{cert.studentRollNo || 'N/A'}</TableCell>
+                                            <TableCell>{cert.originalName}</TableCell>
+                                            <TableCell>
+                                                <Button variant="outline" size="sm" onClick={() => openViewModal(cert)}>View</Button>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                ) : (
+                                    <TableRow>
+                                        <TableCell colSpan={5} className="h-24 text-center">
+                                            No results found.
+                                        </TableCell>
+                                    </TableRow>
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
+                </CardContent>
+            </Card>
+
+            {selectedImageForView && (
+                <ViewImageModal isOpen={isViewModalOpen} onClose={() => setIsViewModalOpen(false)} image={selectedImageForView} />
+            )}
+        </div>
+    );
+}
+
+
+// ====================================================================================
+// Main Page Router
+// ====================================================================================
+function HomePage() {
+  const { userProfile, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex h-[calc(100vh-var(--header-height,4rem))] items-center justify-center">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   return (
     <ProtectedPage>
-      <HomePageContent />
+      {userProfile?.role === 'admin' ? <AdminHomePageContent /> : <StudentHomePageContent />}
     </ProtectedPage>
   );
 }
+
+export default HomePage;
