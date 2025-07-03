@@ -27,6 +27,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Label } from '@/components/ui/label';
 import ViewImageModal from '@/components/home/ViewImageModal';
 import AppLogo from '@/components/common/AppLogo';
 import { cn } from '@/lib/utils';
