@@ -3,7 +3,7 @@
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { useAuth } from '@/hooks/useAuth';
-import { Loader2, Users, FileText as FileTextIcon, Divide, Calendar as CalendarIcon, ChevronDown, ChevronUp, Download, Search } from 'lucide-react';
+import { Loader2, Users, FileText as FileTextIcon, Divide, Calendar as CalendarIcon, Download, Search } from 'lucide-react';
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 
 // --- Student-specific imports ---
@@ -31,6 +31,7 @@ import AppLogo from '@/components/common/AppLogo';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 
 // Combined type for admin dashboard data
@@ -40,15 +41,6 @@ type AdminDashboardData = (UserImage & {
   studentEmail: string;
   studentRollNo?: string;
 });
-
-// Type for grouping certificates by student for the default admin view
-type StudentWithCertificates = {
-  studentId: string;
-  studentName: string;
-  studentEmail: string;
-  studentRollNo?: string;
-  certificates: AdminDashboardData[];
-};
 
 
 // ====================================================================================
@@ -159,10 +151,10 @@ function AdminHomePageContent() {
     const [dateRange, setDateRange] = useState<DateRange | undefined>();
     const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
+    const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'student' | 'certificate'>('newest');
     const [isDownloading, setIsDownloading] = useState(false);
 
     // UI state
-    const [expandedStudents, setExpandedStudents] = useState<Set<string>>(new Set());
     const [selectedImageForView, setSelectedImageForView] = useState<UserImage | null>(null);
     const [isViewModalOpen, setIsViewModalOpen] = useState(false);
 
@@ -181,8 +173,7 @@ function AdminHomePageContent() {
                     throw new Error(errorData.message || 'Failed to fetch dashboard data.');
                 }
                 const data: AdminDashboardData[] = await response.json();
-                data.sort((a, b) => new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime());
-                setAllData(data);
+                setAllData(data); // Initial data is unsorted here, will be sorted in memo
             } catch (err: any) {
                 setError(err.message);
                 toast({ title: "Error Loading Dashboard", description: err.message, variant: 'destructive' });
@@ -219,6 +210,30 @@ function AdminHomePageContent() {
         return data;
     }, [allData, dateRange, selectedStudentIds, searchTerm]);
     
+    const sortedAndFilteredData = useMemo(() => {
+      const data = [...filteredData]; // Create a mutable copy
+      switch (sortOrder) {
+          case 'oldest':
+              return data.sort((a, b) => new Date(a.uploadDate).getTime() - new Date(b.uploadDate).getTime());
+          case 'student':
+              return data.sort((a, b) => {
+                  const nameCompare = a.studentName.localeCompare(b.studentName);
+                  if (nameCompare !== 0) return nameCompare;
+                  return new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime(); // secondary sort by date
+              });
+          case 'certificate':
+              return data.sort((a, b) => {
+                  const nameCompare = a.originalName.localeCompare(b.originalName);
+                  if (nameCompare !== 0) return nameCompare;
+                  return new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime(); // secondary sort by date
+              });
+          case 'newest':
+          default:
+              return data.sort((a, b) => new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime());
+      }
+    }, [filteredData, sortOrder]);
+
+
     const searchAnalysisData = useMemo(() => {
         if (!searchTerm) return [];
         const studentMap = new Map<string, number>();
@@ -265,29 +280,13 @@ function AdminHomePageContent() {
             .reverse();
     }, [filteredData]);
     
-    const studentsWithCertsForTable = useMemo(() => {
-        if (searchTerm) return []; // Don't show grouped view when searching
-        const studentGroups: { [key: string]: StudentWithCertificates } = {};
-        filteredData.forEach(cert => {
-            if (!studentGroups[cert.studentId]) {
-                studentGroups[cert.studentId] = {
-                    studentId: cert.studentId, studentName: cert.studentName,
-                    studentEmail: cert.studentEmail, studentRollNo: cert.studentRollNo,
-                    certificates: [],
-                };
-            }
-            studentGroups[cert.studentId].certificates.push(cert);
-        });
-        return Object.values(studentGroups);
-    }, [filteredData, searchTerm]);
-    
     const handleDownloadZip = async () => {
-      if (!user || filteredData.length === 0) return;
+      if (!user || sortedAndFilteredData.length === 0) return;
       setIsDownloading(true);
-      toast({ title: "Preparing Download", description: `Zipping ${filteredData.length} certificate(s)...`});
+      toast({ title: "Preparing Download", description: `Zipping ${sortedAndFilteredData.length} certificate(s)...`});
       try {
         const idToken = await user.getIdToken();
-        const fileIds = filteredData.map(cert => cert.fileId);
+        const fileIds = sortedAndFilteredData.map(cert => cert.fileId);
         const response = await fetch('/api/admin/download-zip', {
           method: 'POST',
           headers: {
@@ -322,15 +321,6 @@ function AdminHomePageContent() {
         setSelectedStudentIds(prev =>
             checked ? [...prev, studentId] : prev.filter(id => id !== studentId)
         );
-    };
-
-    const toggleStudentExpansion = (studentId: string) => {
-        setExpandedStudents(prev => {
-            const newSet = new Set(prev);
-            if (newSet.has(studentId)) newSet.delete(studentId);
-            else newSet.add(studentId);
-            return newSet;
-        });
     };
     
     const openViewModal = (image: UserImage) => {
@@ -463,39 +453,45 @@ function AdminHomePageContent() {
               </div>
               
                <Card>
-                  <CardHeader className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                    <div>
-                      <CardTitle>Details</CardTitle>
-                      <CardDescription>
-                        {searchTerm 
-                          ? `Found ${filteredData.length} certificate(s) across ${new Set(filteredData.map(d => d.studentId)).size} of ${uniqueStudents.length} total student(s).`
-                          : "Detailed view of certificates. Use search to find specific records."
-                        }
-                      </CardDescription>
-                    </div>
-                    <div className="flex items-center gap-2 w-full md:w-[450px]">
-                        <div className="relative flex-1">
-                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                            <Input
-                                type="search"
-                                placeholder="Search certificates..."
-                                className="w-full rounded-lg bg-background pl-8"
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                            />
+                  <CardHeader>
+                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                        <div>
+                          <CardTitle>All Certificates</CardTitle>
+                          <CardDescription>
+                            Showing {sortedAndFilteredData.length} of {allData.length} total certificates. Use filters or search to refine.
+                          </CardDescription>
                         </div>
-                        {searchTerm && filteredData.length > 0 && (
-                            <Button onClick={handleDownloadZip} disabled={isDownloading} size="icon" title="Download Results as ZIP">
+                        <div className="flex items-center gap-2 w-full md:w-auto md:max-w-xl flex-wrap">
+                            <div className="relative flex-1 min-w-[200px]">
+                                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                    type="search"
+                                    placeholder="Search certificates..."
+                                    className="w-full rounded-lg bg-background pl-8"
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                />
+                            </div>
+                            <Select value={sortOrder} onValueChange={(value) => setSortOrder(value as any)}>
+                                <SelectTrigger className="w-full sm:w-[180px]">
+                                    <SelectValue placeholder="Sort by..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="newest">Newest first</SelectItem>
+                                    <SelectItem value="oldest">Oldest first</SelectItem>
+                                    <SelectItem value="student">Student Name</SelectItem>
+                                    <SelectItem value="certificate">Certificate Name</SelectItem>
+                                </SelectContent>
+                            </Select>
+                            <Button onClick={handleDownloadZip} disabled={isDownloading || sortedAndFilteredData.length === 0} size="icon" title="Download Visible Results as ZIP">
                                 {isDownloading ? <Loader2 className="h-4 w-4 animate-spin"/> : <Download className="h-4 w-4"/>}
                             </Button>
-                        )}
+                        </div>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                      {searchTerm ? (
-                        <div className="space-y-6">
-                          {searchAnalysisData.length > 0 && (
-                              <div className="border rounded-lg p-4">
+                      {searchTerm && searchAnalysisData.length > 0 && (
+                          <div className="border rounded-lg p-4">
                                   <h3 className="text-lg font-semibold font-headline mb-1">Search Analysis</h3>
                                   <p className="text-sm text-muted-foreground mb-4">
                                       Distribution of certificates matching your search.
@@ -512,67 +508,41 @@ function AdminHomePageContent() {
                                       </ResponsiveContainer>
                                   </ChartContainer>
                               </div>
-                          )}
-
-                          <div className="space-y-3">
-                            {filteredData.length > 0 ? filteredData.map(cert => (
-                              <div key={cert.fileId} className="flex items-center justify-between p-3 border rounded-md bg-background gap-4">
-                                <div className="flex-grow min-w-0">
-                                  <p className="font-semibold text-primary truncate" title={cert.originalName}>{cert.originalName}</p>
-                                  <div className="text-sm text-muted-foreground mt-1 flex items-center gap-x-4">
-                                    <span>{cert.studentName} ({cert.studentEmail})</span>
-                                    {cert.studentRollNo && (
-                                      <div className="flex items-center gap-1">
-                                        <span className="text-xs">Roll No:</span>
-                                        <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">
-                                          {cert.studentRollNo}
-                                        </span>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                                <Button 
-                                  variant="outline" 
-                                  size="sm" 
-                                  onClick={() => openViewModal(cert)} 
-                                  className="shrink-0"
-                                >
-                                  <FileTextIcon className="mr-2 h-4 w-4" />
-                                  View Certificate
-                                </Button>
-                              </div>
-                            )) : <p className="text-muted-foreground text-center py-8">No certificates match your search.</p>}
-                          </div>
-                        </div>
-                      ) : (
-                        // Default View: Grouped by student
-                        studentsWithCertsForTable.length > 0 ? studentsWithCertsForTable.map((student) => (
-                          <Card key={student.studentId} className="bg-muted/30">
-                            <CardHeader className="flex flex-row items-center justify-between py-3">
-                              <div>
-                                <CardTitle className="text-base">{student.studentName}</CardTitle>
-                                <CardDescription>{student.studentEmail} {student.studentRollNo && ` - Roll: ${student.studentRollNo}`}</CardDescription>
-                              </div>
-                              <Button variant="ghost" size="sm" onClick={() => toggleStudentExpansion(student.studentId)}>
-                                {expandedStudents.has(student.studentId) ? 'Collapse' : `View All (${student.certificates.length})`}
-                                {expandedStudents.has(student.studentId) ? <ChevronUp className="ml-2 h-4 w-4" /> : <ChevronDown className="ml-2 h-4 w-4" />}
-                              </Button>
-                            </CardHeader>
-                            {expandedStudents.has(student.studentId) && (
-                              <CardContent className="pt-0 pb-3">
-                                <div className="space-y-2 mt-2 border-t pt-3">
-                                  {student.certificates.map(cert => (
-                                    <div key={cert.fileId} className="flex items-center justify-between p-2 border rounded-md bg-background">
-                                      <p className="truncate pr-4">{cert.originalName} <span className="text-xs text-muted-foreground ml-2">({new Date(cert.uploadDate).toLocaleDateString()})</span></p>
-                                      <Button variant="outline" size="sm" onClick={() => openViewModal(cert)}>View</Button>
-                                    </div>
-                                  ))}
-                                </div>
-                              </CardContent>
-                            )}
-                          </Card>
-                        )) : <p className="text-muted-foreground text-center py-8">No students or certificates match the current filters.</p>
                       )}
+
+                      <div className="space-y-3">
+                        {sortedAndFilteredData.length > 0 ? sortedAndFilteredData.map(cert => (
+                          <div key={cert.fileId} className="flex items-center justify-between p-3 border rounded-md bg-background/50 hover:bg-muted/50 transition-colors gap-4">
+                            <div className="flex-grow min-w-0">
+                              <p className="font-semibold text-primary truncate" title={cert.originalName}>
+                                {cert.originalName}
+                              </p>
+                              <div className="text-sm text-muted-foreground mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
+                                <span>{cert.studentName} ({cert.studentEmail})</span>
+                                {cert.studentRollNo && (
+                                  <div className="flex items-center gap-2">
+                                    <span>Roll No:</span>
+                                    <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded-sm">
+                                      {cert.studentRollNo}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => openViewModal(cert)} 
+                              className="shrink-0"
+                            >
+                              <FileTextIcon className="mr-2 h-4 w-4" />
+                              View Certificate
+                            </Button>
+                          </div>
+                        )) : (
+                          <p className="text-muted-foreground text-center py-8">No certificates match your criteria.</p>
+                        )}
+                      </div>
                   </CardContent>
               </Card>
           </main>
