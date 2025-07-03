@@ -67,10 +67,29 @@ export async function POST(request: NextRequest) {
     
             const fileInfo = fileInfoArray[0];
             const downloadStream = bucket.openDownloadStream(objectId);
-            const fileName = fileInfo.metadata?.originalName || fileInfo.filename || `${fileId}.file`;
             
+            let fileName = fileInfo.metadata?.originalName || fileInfo.filename || `${fileId}.file`;
+            
+            // Sanitize filename and ensure it has a proper extension
+            fileName = fileName.replace(/[/\\?%*:|"<>]/g, '-'); // Replace invalid characters
+            const hasExtension = /\.[^/.]+$/.test(fileName);
+            
+            if (!hasExtension && fileInfo.contentType) {
+                const mimeType = fileInfo.contentType;
+                let extension = '';
+                if (mimeType === 'image/jpeg') extension = 'jpg';
+                else if (mimeType === 'image/png') extension = 'png';
+                else if (mimeType === 'image/gif') extension = 'gif';
+                else if (mimeType === 'image/webp') extension = 'webp';
+                else if (mimeType === 'application/pdf') extension = 'pdf';
+                
+                if (extension) {
+                    fileName = `${fileName}.${extension}`;
+                }
+            }
+
             archive.append(downloadStream, { name: fileName });
-            console.log(`API (Req ID: ${reqId}): Appended ${fileName} to zip.`);
+            console.log(`API (Req ID: ${reqId}): Appended "${fileName}" to zip.`);
         }
         await archive.finalize();
         console.log(`API (Req ID: ${reqId}): Archiver finalized.`);
