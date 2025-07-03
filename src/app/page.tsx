@@ -3,7 +3,7 @@
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { useAuth } from '@/hooks/useAuth';
-import { Loader2, Users, Search as SearchIcon, ArrowUpDown, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader2, Users, Search as SearchIcon, ArrowUpDown, ChevronDown, ChevronUp, Download } from 'lucide-react';
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 
 // --- Student-specific imports ---
@@ -148,6 +148,7 @@ function AdminHomePageContent() {
     const [expandedStudents, setExpandedStudents] = useState<Set<string>>(new Set());
     const { user } = useAuth();
     const { toast } = useToast();
+    const [isDownloading, setIsDownloading] = useState(false);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -261,6 +262,67 @@ function AdminHomePageContent() {
         setIsViewModalOpen(true);
     };
 
+    const handleDownloadZip = async () => {
+        if (searchResults.length === 0 || !user) return;
+    
+        setIsDownloading(true);
+        toast({
+            title: "Preparing Download",
+            description: `Zipping ${searchResults.length} certificate(s). Please wait...`
+        });
+    
+        try {
+            const fileIds = searchResults.map(cert => cert.fileId);
+            const idToken = await user.getIdToken();
+    
+            const response = await fetch('/api/admin/download-zip', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${idToken}`,
+                },
+                body: JSON.stringify({ fileIds }),
+            });
+    
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || "Failed to start download.");
+            }
+            
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            const contentDisposition = response.headers.get('content-disposition');
+            let fileName = 'certificates.zip';
+            if (contentDisposition) {
+                const fileNameMatch = contentDisposition.match(/filename="(.+)"/);
+                if (fileNameMatch && fileNameMatch.length === 2) {
+                    fileName = fileNameMatch[1];
+                }
+            }
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+            
+            toast({
+                title: "Download Started",
+                description: "Your ZIP file should be in your downloads folder."
+            });
+    
+        } catch (err: any) {
+            toast({
+                title: "Download Failed",
+                description: err.message,
+                variant: "destructive"
+            });
+        } finally {
+            setIsDownloading(false);
+        }
+    };
+
     const renderDefaultView = () => (
       <div className="space-y-4">
         {studentsWithCerts.map((student) => (
@@ -308,8 +370,18 @@ function AdminHomePageContent() {
     const renderSearchView = () => (
         <Card>
             <CardHeader>
-                <CardTitle>Certificate Search Results</CardTitle>
-                <CardDescription>Found {searchResults.length} certificate(s) matching your search.</CardDescription>
+                <div className="flex justify-between items-center">
+                    <div>
+                        <CardTitle>Certificate Search Results</CardTitle>
+                        <CardDescription>Found {searchResults.length} certificate(s) matching your search.</CardDescription>
+                    </div>
+                    {searchResults.length > 0 && (
+                        <Button onClick={handleDownloadZip} disabled={isDownloading}>
+                            {isDownloading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                            Download as ZIP
+                        </Button>
+                    )}
+                </div>
             </CardHeader>
             <CardContent>
                 <div className="rounded-md border">
