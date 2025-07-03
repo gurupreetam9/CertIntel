@@ -14,7 +14,7 @@ import AiFAB from '@/components/home/AiFAB';
 import type { SearchableItem } from '@/components/common/SearchWithSuggestions';
 
 // --- Admin-specific imports ---
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { format, isAfter, isBefore, startOfMonth, endOfMonth } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
 
@@ -215,9 +215,21 @@ function AdminHomePageContent() {
 
         return data;
     }, [allData, dateRange, selectedStudentIds, searchTerm]);
+    
+    const searchAnalysisData = useMemo(() => {
+        if (!searchTerm) return [];
+        const studentMap = new Map<string, number>();
+        filteredData.forEach(cert => {
+            studentMap.set(cert.studentName, (studentMap.get(cert.studentName) || 0) + 1);
+        });
+        return Array.from(studentMap.entries())
+            .map(([name, count]) => ({ name, certificates: count }))
+            .sort((a, b) => b.certificates - a.certificates);
+    }, [filteredData, searchTerm]);
+
 
     const kpiStats = useMemo(() => {
-        const dataForKpi = allData;
+        const dataForKpi = filteredData; // Use filtered data for KPIs
         const studentSet = new Set(dataForKpi.map(d => d.studentId));
         const totalCerts = dataForKpi.length;
         const totalStudents = studentSet.size;
@@ -226,7 +238,7 @@ function AdminHomePageContent() {
             totalCerts: totalCerts,
             avgCertsPerStudent: totalStudents > 0 ? (totalCerts / totalStudents).toFixed(1) : '0.0',
         };
-    }, [allData]);
+    }, [filteredData]);
 
     const monthlyUploads = useMemo(() => {
         const countsByMonth: { [key: string]: number } = {};
@@ -246,7 +258,7 @@ function AdminHomePageContent() {
         return Array.from(studentMap.entries())
             .map(([name, count]) => ({ name, certificates: count }))
             .sort((a, b) => b.certificates - a.certificates)
-            .slice(0, 5)
+            .slice(0, 5) // Show top 5
             .reverse();
     }, [filteredData]);
     
@@ -409,15 +421,12 @@ function AdminHomePageContent() {
           <main className="flex-1 p-6 overflow-y-auto">
               <div className="flex items-center justify-between mb-6 gap-4">
                 <h1 className="text-3xl font-bold font-headline">Admin Dashboard</h1>
-                <div className="w-full max-w-sm">
-                  <SearchWithSuggestions onSearch={setSearchTerm} placeholder="Search by certificate name..." searchableData={searchableItems} />
-                </div>
               </div>
 
               <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-6">
-                  <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Total Students</CardTitle><Users className="h-5 w-5 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{kpiStats.totalStudents}</div></CardContent></Card>
-                  <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Total Certificates</CardTitle><FileTextIcon className="h-5 w-5 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{kpiStats.totalCerts}</div></CardContent></Card>
-                  <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Avg. Certs / Student</CardTitle><Divide className="h-5 w-5 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{kpiStats.avgCertsPerStudent}</div></CardContent></Card>
+                  <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Total Students</CardTitle><Users className="h-5 w-5 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{kpiStats.totalStudents}</div><p className="text-xs text-muted-foreground">{uniqueStudents.length > 0 ? `${((kpiStats.totalStudents / uniqueStudents.length) * 100).toFixed(0)}% of total students in filter` : '0% of total'}</p></CardContent></Card>
+                  <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Total Certificates</CardTitle><FileTextIcon className="h-5 w-5 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{kpiStats.totalCerts}</div><p className="text-xs text-muted-foreground">in current filter</p></CardContent></Card>
+                  <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Avg. Certs / Student</CardTitle><Divide className="h-5 w-5 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{kpiStats.avgCertsPerStudent}</div><p className="text-xs text-muted-foreground">in current filter</p></CardContent></Card>
               </div>
 
               <div className="grid gap-6 lg:grid-cols-5 mb-6">
@@ -442,7 +451,7 @@ function AdminHomePageContent() {
                     <CardContent>
                         <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--chart-2))" } }} className="h-[300px] w-full">
                            <ResponsiveContainer>
-                                <BarChart data={topStudentsData} layout="vertical" margin={{ left: 10 }}>
+                                <BarChart data={topStudentsData} layout="vertical" margin={{ left: 10, right: 10, top:10, bottom:10 }}>
                                     <CartesianGrid horizontal={false} />
                                     <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tickMargin={8} width={80} />
                                     <XAxis type="number" allowDecimals={false} />
@@ -454,29 +463,55 @@ function AdminHomePageContent() {
                     </CardContent>
                 </Card>
               </div>
+              
+              {searchTerm && searchAnalysisData.length > 0 && (
+                <Card className="mb-6">
+                  <CardHeader>
+                    <CardTitle>Search Analysis</CardTitle>
+                    <CardDescription>Distribution of found certificates across students.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--chart-2))" } }} className="h-[250px] w-full">
+                        <ResponsiveContainer>
+                            <BarChart data={searchAnalysisData} layout="vertical" margin={{ left: 10, right: 10, top:10, bottom:10 }}>
+                                <CartesianGrid horizontal={false} />
+                                <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tickMargin={8} width={80} />
+                                <XAxis type="number" allowDecimals={false} />
+                                <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
+                                <Bar dataKey="certificates" fill="var(--color-certificates)" radius={4} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </ChartContainer>
+                  </CardContent>
+                </Card>
+               )}
 
                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
+                  <CardHeader className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                     <div>
                       <CardTitle>Details</CardTitle>
                       <CardDescription>
                         {searchTerm 
-                          ? `Found ${filteredData.length} certificate(s) matching "${searchTerm}"`
-                          : "Detailed view of certificates for filtered students."
+                          ? `Found ${filteredData.length} certificate(s) across ${new Set(filteredData.map(d => d.studentId)).size} of ${uniqueStudents.length} total student(s).`
+                          : "Detailed view of certificates. Use search to find specific records."
                         }
                       </CardDescription>
                     </div>
-                    {searchTerm && filteredData.length > 0 && (
-                      <Button onClick={handleDownloadZip} disabled={isDownloading}>
-                        {isDownloading ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Download className="mr-2 h-4 w-4"/>}
-                        Download as ZIP
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-2 w-full md:w-auto">
+                      <div className="w-full md:w-auto md:min-w-[250px]">
+                        <SearchWithSuggestions onSearch={setSearchTerm} placeholder="Search certificates..." searchableData={searchableItems} />
+                      </div>
+                      {searchTerm && filteredData.length > 0 && (
+                        <Button onClick={handleDownloadZip} disabled={isDownloading} size="icon" title="Download Results as ZIP">
+                          {isDownloading ? <Loader2 className="h-4 w-4 animate-spin"/> : <Download className="h-4 w-4"/>}
+                        </Button>
+                      )}
+                    </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
                       {searchTerm ? (
                         <div className="space-y-3">
-                          {filteredData.map(cert => (
+                          {filteredData.length > 0 ? filteredData.map(cert => (
                             <div key={cert.fileId} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 border rounded-md bg-background gap-4">
                               <div className="flex-grow">
                                 <p className="font-semibold text-primary">{cert.originalName}</p>
@@ -499,7 +534,7 @@ function AdminHomePageContent() {
                                 View Certificate
                               </Button>
                             </div>
-                          ))}
+                          )) : <p className="text-muted-foreground text-center py-8">No certificates match your search.</p>}
                         </div>
                       ) : (
                         // Default View: Grouped by student
