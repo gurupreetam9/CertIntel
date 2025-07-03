@@ -12,12 +12,12 @@ import ImageGrid from '@/components/home/ImageGrid';
 import type { UserImage } from '@/components/home/ImageGrid';
 import UploadFAB from '@/components/home/UploadFAB';
 import AiFAB from '@/components/home/AiFAB';
-import type { SearchableItem } from '@/components/common/SearchWithSuggestions';
 
 // --- Admin-specific imports ---
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { format, isAfter, isBefore, startOfMonth, endOfMonth } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 import { ChartContainer, ChartTooltipContent } from "@/components/ui/chart";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -41,6 +41,16 @@ type AdminDashboardData = (UserImage & {
   studentEmail: string;
   studentRollNo?: string;
 });
+
+// Type for grouped data
+interface GroupedStudentData {
+  studentInfo: {
+    studentId: string;
+    studentName: string;
+    studentEmail: string;
+  };
+  certificates: AdminDashboardData[];
+}
 
 
 // ====================================================================================
@@ -90,7 +100,9 @@ function StudentHomePageContent() {
     fetchImages();
   }, [userId, user, toast, refreshKey]);
 
-  const handleSearch = (query: string) => setSearchTerm(query.toLowerCase());
+  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchTerm(e.target.value.toLowerCase());
+  };
 
   const filteredImages = useMemo(() => {
     if (!searchTerm) return images;
@@ -114,7 +126,7 @@ function StudentHomePageContent() {
             placeholder="Search certificates by name or filename..."
             className="w-full text-base"
             value={searchTerm}
-            onChange={(e) => handleSearch(e.target.value)}
+            onChange={handleSearch}
           />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto pr-1 md:overflow-visible md:pr-0">
@@ -202,16 +214,6 @@ function AdminHomePageContent() {
         return data;
     }, [allData, dateRange, selectedStudentIds, searchTerm]);
     
-    const sortedAndFilteredData = useMemo(() => {
-      const data = [...filteredData];
-      switch (sortOrder) {
-          case 'oldest': return data.sort((a, b) => new Date(a.uploadDate).getTime() - new Date(b.uploadDate).getTime());
-          case 'student': return data.sort((a, b) => a.studentName.localeCompare(b.studentName) || new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime());
-          case 'certificate': return data.sort((a, b) => a.originalName.localeCompare(b.originalName) || new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime());
-          case 'newest': default: return data.sort((a, b) => new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime());
-      }
-    }, [filteredData, sortOrder]);
-
     const searchAnalysisData = useMemo(() => {
         if (!searchTerm) return [];
         const studentMap = new Map<string, number>();
@@ -222,6 +224,45 @@ function AdminHomePageContent() {
             .map(([name, count]) => ({ name, certificates: count }))
             .sort((a, b) => b.certificates - a.certificates);
     }, [filteredData, searchTerm]);
+
+    const groupedAndSortedData = useMemo((): GroupedStudentData[] => {
+      const groups = new Map<string, { studentInfo: any; certificates: AdminDashboardData[] }>();
+
+      filteredData.forEach(cert => {
+          if (!groups.has(cert.studentId)) {
+              groups.set(cert.studentId, {
+                  studentInfo: {
+                      studentId: cert.studentId,
+                      studentName: cert.studentName,
+                      studentEmail: cert.studentEmail
+                  },
+                  certificates: []
+              });
+          }
+          groups.get(cert.studentId)!.certificates.push(cert);
+      });
+
+      // Sort the certificates WITHIN each group first
+      groups.forEach(group => {
+           switch (sortOrder) {
+              case 'oldest': group.certificates.sort((a, b) => new Date(a.uploadDate).getTime() - new Date(b.uploadDate).getTime()); break;
+              case 'certificate': group.certificates.sort((a, b) => a.originalName.localeCompare(b.originalName)); break;
+              case 'newest': default: group.certificates.sort((a, b) => new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime()); break;
+           }
+      });
+
+      // Then, sort the GROUPS themselves
+      const sortedGroups = Array.from(groups.values());
+      if (sortOrder === 'student') {
+        sortedGroups.sort((a, b) => a.studentInfo.studentName.localeCompare(b.studentInfo.studentName));
+      } else {
+        // Default group sort by student name if not sorting by student explicitly
+        sortedGroups.sort((a, b) => a.studentInfo.studentName.localeCompare(b.studentInfo.studentName));
+      }
+
+      return sortedGroups;
+  }, [filteredData, sortOrder]);
+
 
     const kpiStats = useMemo(() => {
         const dataForKpi = filteredData;
@@ -258,12 +299,12 @@ function AdminHomePageContent() {
     }, [filteredData]);
     
     const handleDownloadZip = async () => {
-      if (!user || sortedAndFilteredData.length === 0) return;
+      if (!user || filteredData.length === 0) return;
       setIsDownloading(true);
-      toast({ title: "Preparing Download", description: `Zipping ${sortedAndFilteredData.length} certificate(s)...`});
+      toast({ title: "Preparing Download", description: `Zipping ${filteredData.length} certificate(s)...`});
       try {
         const idToken = await user.getIdToken();
-        const fileIds = sortedAndFilteredData.map(cert => cert.fileId);
+        const fileIds = filteredData.map(cert => cert.fileId);
         const response = await fetch('/api/admin/download-zip', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
@@ -368,7 +409,7 @@ function AdminHomePageContent() {
                   <div>
                     <CardTitle>All Certificates</CardTitle>
                     <CardDescription>
-                      Showing {sortedAndFilteredData.length} of {allData.length} total certificates. Use filters or search to refine.
+                      Showing {filteredData.length} of {allData.length} total certificates, grouped by student. Use filters to refine.
                     </CardDescription>
                   </div>
                   <div className="flex flex-col md:flex-row gap-2">
@@ -437,7 +478,7 @@ function AdminHomePageContent() {
                         <FilterX className="mr-2 h-4 w-4" />
                         Clear
                       </Button>
-                       <Button onClick={handleDownloadZip} disabled={isDownloading || sortedAndFilteredData.length === 0} size="icon" title="Download Visible Results as ZIP">
+                       <Button onClick={handleDownloadZip} disabled={isDownloading || filteredData.length === 0} size="icon" title="Download Visible Results as ZIP">
                           {isDownloading ? <Loader2 className="h-4 w-4 animate-spin"/> : <Download className="h-4 w-4"/>}
                       </Button>
                     </div>
@@ -449,7 +490,7 @@ function AdminHomePageContent() {
                       <div className="border rounded-lg p-4">
                               <h3 className="text-lg font-semibold font-headline mb-1">Search Analysis</h3>
                               <p className="text-sm text-muted-foreground mb-4">
-                                  Distribution of certificates matching your search.
+                                  Distribution of certificates matching your search term.
                               </p>
                               <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--accent))" } }} className="h-[250px] w-full">
                                   <ResponsiveContainer>
@@ -465,40 +506,45 @@ function AdminHomePageContent() {
                           </div>
                   )}
 
-                  <div className="space-y-3">
-                    {sortedAndFilteredData.length > 0 ? sortedAndFilteredData.map(cert => (
-                      <div key={cert.fileId} className="flex items-start justify-between p-4 border rounded-lg bg-background/50 hover:bg-muted/50 transition-colors gap-4">
-                        <div className="flex-grow min-w-0">
-                          <p className="font-semibold text-primary truncate text-base mb-2" title={cert.originalName}>
-                            {cert.originalName}
-                          </p>
-                          <div className="text-sm text-muted-foreground flex items-baseline gap-x-4 flex-wrap">
-                            <span className="truncate" title={`${cert.studentName} (${cert.studentEmail})`}>
-                              {cert.studentName} ({cert.studentEmail})
-                            </span>
-                            {cert.studentRollNo && (
-                              <span className="flex items-baseline gap-x-2 shrink-0">
-                                <span>Roll No:</span>
-                                <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded-sm">
-                                  {cert.studentRollNo}
+                  <div className="space-y-2">
+                    {groupedAndSortedData.length > 0 ? (
+                       <Accordion type="multiple" className="w-full">
+                          {groupedAndSortedData.map((group) => (
+                            <AccordionItem value={group.studentInfo.studentId} key={group.studentInfo.studentId}>
+                              <AccordionTrigger className="hover:bg-muted/50 px-4 rounded-md">
+                                <div className="flex items-center gap-3 text-left">
+                                  <div className="flex-grow">
+                                    <p className="font-semibold">{group.studentInfo.studentName}</p>
+                                    <p className="text-xs text-muted-foreground">{group.studentInfo.studentEmail}</p>
+                                  </div>
+                                </div>
+                                <span className="ml-auto text-sm font-normal text-muted-foreground pr-4">
+                                  {group.certificates.length} certificate(s)
                                 </span>
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        
-                        <div className="pt-1 shrink-0">
-                          <Button 
-                              variant="outline" 
-                              size="sm" 
-                              onClick={() => openViewModal(cert)} 
-                          >
-                              <FileTextIcon className="mr-2 h-4 w-4" />
-                              View Certificate
-                          </Button>
-                        </div>
-                      </div>
-                    )) : (
+                              </AccordionTrigger>
+                              <AccordionContent>
+                                <div className="space-y-1 pt-2 pl-8 pr-2">
+                                    {group.certificates.map(cert => (
+                                        <div key={cert.fileId} className="flex items-center justify-between p-2 rounded-md hover:bg-muted/30">
+                                            <p className="text-sm text-foreground truncate" title={cert.originalName}>
+                                                {cert.originalName}
+                                            </p>
+                                            <Button 
+                                                variant="ghost" 
+                                                size="sm" 
+                                                onClick={() => openViewModal(cert)} 
+                                            >
+                                                <FileTextIcon className="mr-2 h-4 w-4" />
+                                                View
+                                            </Button>
+                                        </div>
+                                    ))}
+                                </div>
+                              </AccordionContent>
+                            </AccordionItem>
+                          ))}
+                        </Accordion>
+                    ) : (
                       <p className="text-muted-foreground text-center py-8">No certificates match your criteria.</p>
                     )}
                   </div>
