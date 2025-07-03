@@ -3,7 +3,7 @@
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { useAuth } from '@/hooks/useAuth';
-import { Loader2, Users, FileText as FileTextIcon, Divide, Calendar as CalendarIcon, ChevronDown, ChevronUp, Download } from 'lucide-react';
+import { Loader2, Users, FileText as FileTextIcon, Divide, Calendar as CalendarIcon, ChevronDown, ChevronUp, Download, Search } from 'lucide-react';
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 
 // --- Student-specific imports ---
@@ -31,6 +31,8 @@ import AppLogo from '@/components/common/AppLogo';
 import { cn } from '@/lib/utils';
 import SearchWithSuggestions from '@/components/common/SearchWithSuggestions';
 import { useToast } from '@/hooks/use-toast';
+import { Input } from '@/components/ui/input';
+
 
 // Combined type for admin dashboard data
 type AdminDashboardData = (UserImage & {
@@ -278,11 +280,6 @@ function AdminHomePageContent() {
         return Object.values(studentGroups);
     }, [filteredData, searchTerm]);
     
-    const searchableItems: SearchableItem[] = useMemo(() => {
-        const certNames = new Set(allData.map(d => d.originalName));
-        return Array.from(certNames).map(name => ({ id: name, value: name }));
-    }, [allData]);
-
     const handleDownloadZip = async () => {
       if (!user || filteredData.length === 0) return;
       setIsDownloading(true);
@@ -498,14 +495,21 @@ function AdminHomePageContent() {
                       </CardDescription>
                     </div>
                     <div className="flex items-center gap-2 w-full md:w-auto">
-                      <div className="w-full md:w-auto md:min-w-[250px]">
-                        <SearchWithSuggestions onSearch={setSearchTerm} placeholder="Search certificates..." searchableData={searchableItems} />
-                      </div>
-                      {searchTerm && filteredData.length > 0 && (
-                        <Button onClick={handleDownloadZip} disabled={isDownloading} size="icon" title="Download Results as ZIP">
-                          {isDownloading ? <Loader2 className="h-4 w-4 animate-spin"/> : <Download className="h-4 w-4"/>}
-                        </Button>
-                      )}
+                        <div className="relative flex-1">
+                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                type="search"
+                                placeholder="Search certificates..."
+                                className="w-full rounded-lg bg-background pl-8 md:w-[200px] lg:w-[320px]"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
+                        </div>
+                        {searchTerm && filteredData.length > 0 && (
+                            <Button onClick={handleDownloadZip} disabled={isDownloading} size="icon" title="Download Results as ZIP">
+                                {isDownloading ? <Loader2 className="h-4 w-4 animate-spin"/> : <Download className="h-4 w-4"/>}
+                            </Button>
+                        )}
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
