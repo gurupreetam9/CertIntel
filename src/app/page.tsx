@@ -249,6 +249,17 @@ function AdminHomePageContent() {
         return filtered;
     }, [dashboardData, searchTerm, sortConfig]);
 
+    const searchAnalysis = useMemo(() => {
+      if (!searchTerm || searchResults.length === 0) {
+        return null;
+      }
+      const uniqueStudentIdsInSearch = new Set(searchResults.map(cert => cert.studentId));
+      return {
+        studentsWithCert: uniqueStudentIdsInSearch.size,
+        totalStudents: studentCount
+      };
+    }, [searchTerm, searchResults, studentCount]);
+
     const requestSort = (key: 'studentName' | 'studentRollNo' | 'originalName' | 'uploadDate') => {
         let direction: 'asc' | 'desc' = 'asc';
         if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
@@ -373,7 +384,12 @@ function AdminHomePageContent() {
                 <div className="flex justify-between items-center">
                     <div>
                         <CardTitle>Certificate Search Results</CardTitle>
-                        <CardDescription>Found {searchResults.length} certificate(s) matching your search.</CardDescription>
+                        <CardDescription>
+                          {searchAnalysis
+                            ? `Found ${searchResults.length} matching certificate(s) across ${searchAnalysis.studentsWithCert} of ${searchAnalysis.totalStudents} total student(s).`
+                            : `Found ${searchResults.length} certificate(s) matching your search.`
+                          }
+                        </CardDescription>
                     </div>
                     {searchResults.length > 0 && (
                         <Button onClick={handleDownloadZip} disabled={isDownloading}>
