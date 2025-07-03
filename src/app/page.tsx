@@ -250,14 +250,23 @@ function AdminHomePageContent() {
     }, [dashboardData, searchTerm, sortConfig]);
 
     const searchAnalysis = useMemo(() => {
-      if (!searchTerm || searchResults.length === 0) {
-        return null;
-      }
-      const uniqueStudentIdsInSearch = new Set(searchResults.map(cert => cert.studentId));
-      return {
-        studentsWithCert: uniqueStudentIdsInSearch.size,
-        totalStudents: studentCount
-      };
+        if (!searchTerm || searchResults.length === 0) {
+          return null;
+        }
+        const studentCertCount = new Map<string, { name: string, count: number }>();
+        searchResults.forEach(cert => {
+            if (studentCertCount.has(cert.studentId)) {
+                studentCertCount.get(cert.studentId)!.count++;
+            } else {
+                studentCertCount.set(cert.studentId, { name: cert.studentName, count: 1 });
+            }
+        });
+
+        return {
+            studentsWithCert: studentCertCount.size,
+            totalStudents: studentCount,
+            chartData: Array.from(studentCertCount.values()).map(s => ({ name: s.name, certificates: s.count })),
+        };
     }, [searchTerm, searchResults, studentCount]);
 
     const requestSort = (key: 'studentName' | 'studentRollNo' | 'originalName' | 'uploadDate') => {
@@ -400,6 +409,29 @@ function AdminHomePageContent() {
                 </div>
             </CardHeader>
             <CardContent>
+                {searchAnalysis && searchAnalysis.chartData.length > 0 && (
+                    <Card className="mb-6">
+                        <CardHeader>
+                            <CardTitle>Search Results Analysis</CardTitle>
+                            <CardDescription>
+                                Distribution of found certificates among students.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="pl-2">
+                             <ChartContainer config={{ certificates: { label: "Certificates", color: "hsl(var(--accent))" } }} className="h-[250px] w-full">
+                                <ResponsiveContainer>
+                                    <BarChart data={searchAnalysis.chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+                                        <CartesianGrid vertical={false} />
+                                        <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} fontSize={12} />
+                                        <YAxis allowDecimals={false} />
+                                        <RechartsTooltip content={<ChartTooltipContent />} />
+                                        <Bar dataKey="certificates" fill="var(--color-certificates)" radius={4} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </ChartContainer>
+                        </CardContent>
+                    </Card>
+                )}
                 <div className="rounded-md border">
                     <Table>
                         <TableHeader>
