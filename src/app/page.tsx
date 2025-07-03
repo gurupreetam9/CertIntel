@@ -5,7 +5,7 @@
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { useAuth } from '@/hooks/useAuth';
 import { Loader2, Users, FileText as FileTextIcon, Divide, Calendar as CalendarIcon, Download, Search, FilterX, ChevronsUpDown } from 'lucide-react';
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 
 // --- Student-specific imports ---
 import ImageGrid from '@/components/home/ImageGrid';
@@ -28,6 +28,8 @@ import { Label } from '@/components/ui/label';
 import ViewImageModal from '@/components/home/ViewImageModal';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 
@@ -53,7 +55,7 @@ function StudentHomePageContent() {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
 
-  const triggerRefresh = useCallback(() => {
+  const triggerRefresh = React.useCallback(() => {
     setRefreshKey(prevKey => prevKey + 1);
   }, []);
 
@@ -206,38 +208,56 @@ function AdminHomePageContent() {
 
         return data;
     }, [allData, dateRange, selectedStudentIds, searchTerm]);
-    
-    const sortedData = useMemo(() => {
-      let data = [...filteredData];
-      switch (sortOrder) {
-        case 'oldest':
-          data.sort((a, b) => new Date(a.uploadDate).getTime() - new Date(b.uploadDate).getTime());
-          break;
-        case 'student':
-          data.sort((a, b) => a.studentName.localeCompare(b.studentName));
-          break;
-        case 'certificate':
-          data.sort((a, b) => a.originalName.localeCompare(b.originalName));
-          break;
-        case 'newest':
-        default:
-          data.sort((a, b) => new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime());
-          break;
+
+    const groupedAndSortedData = useMemo(() => {
+      const studentCertificateMap = new Map<string, AdminDashboardData[]>();
+  
+      // Group certificates by student from the filtered data
+      filteredData.forEach(cert => {
+          if (!studentCertificateMap.has(cert.studentId)) {
+              studentCertificateMap.set(cert.studentId, []);
+          }
+          studentCertificateMap.get(cert.studentId)!.push(cert);
+      });
+  
+      const studentArray = Array.from(studentCertificateMap.entries()).map(([studentId, certs]) => {
+          const studentInfo = certs[0]; 
+          return {
+              studentId,
+              studentName: studentInfo.studentName,
+              studentEmail: studentInfo.studentEmail,
+              certificates: certs,
+          };
+      });
+  
+      // Sort the student groups themselves if requested
+      if (sortOrder === 'student') {
+          studentArray.sort((a, b) => a.studentName.localeCompare(b.studentName));
       }
-      return data;
-    }, [filteredData, sortOrder]);
+      
+      // Sort the certificates *within* each student group, regardless of the group sort order
+      studentArray.forEach(student => {
+          let certs = [...student.certificates];
+          switch (sortOrder) {
+              case 'oldest':
+                certs.sort((a, b) => new Date(a.uploadDate).getTime() - new Date(b.uploadDate).getTime());
+                break;
+              case 'certificate':
+                certs.sort((a, b) => a.originalName.localeCompare(b.originalName));
+                break;
+              case 'newest':
+              case 'student': // also sort by newest within student group
+              default:
+                certs.sort((a, b) => new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime());
+                break;
+          }
+          student.certificates = certs;
+      });
+  
+      return studentArray;
+  
+  }, [filteredData, sortOrder]);
 
-
-    const searchAnalysisData = useMemo(() => {
-        if (!searchTerm) return [];
-        const studentMap = new Map<string, number>();
-        filteredData.forEach(cert => {
-            studentMap.set(cert.studentName, (studentMap.get(cert.studentName) || 0) + 1);
-        });
-        return Array.from(studentMap.entries())
-            .map(([name, count]) => ({ name, certificates: count }))
-            .sort((a, b) => b.certificates - a.certificates);
-    }, [filteredData, searchTerm]);
 
     const kpiStats = useMemo(() => {
         const dataForKpi = filteredData;
@@ -274,12 +294,13 @@ function AdminHomePageContent() {
     }, [filteredData]);
     
     const handleDownloadZip = async () => {
-      if (!user || sortedData.length === 0) return;
+      const dataToZip = groupedAndSortedData.flatMap(s => s.certificates);
+      if (!user || dataToZip.length === 0) return;
       setIsDownloading(true);
-      toast({ title: "Preparing Download", description: `Zipping ${sortedData.length} certificate(s)...`});
+      toast({ title: "Preparing Download", description: `Zipping ${dataToZip.length} certificate(s)...`});
       try {
         const idToken = await user.getIdToken();
-        const fileIds = sortedData.map(cert => cert.fileId);
+        const fileIds = dataToZip.map(cert => cert.fileId);
         const response = await fetch('/api/admin/download-zip', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` },
@@ -382,9 +403,9 @@ function AdminHomePageContent() {
               <CardHeader>
                 <div className="flex flex-col gap-4">
                   <div>
-                    <CardTitle>All Certificates</CardTitle>
+                    <CardTitle>All Certificates By Student</CardTitle>
                     <CardDescription>
-                      Showing {sortedData.length} of {allData.length} total certificates. Use filters to refine.
+                      Showing {groupedAndSortedData.length} students with {filteredData.length} total certificates. Use filters to refine.
                     </CardDescription>
                   </div>
                   <div className="flex flex-col md:flex-row gap-2">
@@ -453,7 +474,7 @@ function AdminHomePageContent() {
                         <FilterX className="mr-2 h-4 w-4" />
                         Clear
                       </Button>
-                       <Button onClick={handleDownloadZip} disabled={isDownloading || sortedData.length === 0} size="icon" title="Download Visible Results as ZIP">
+                       <Button onClick={handleDownloadZip} disabled={isDownloading || groupedAndSortedData.length === 0} size="icon" title="Download Visible Results as ZIP">
                           {isDownloading ? <Loader2 className="h-4 w-4 animate-spin"/> : <Download className="h-4 w-4"/>}
                       </Button>
                     </div>
@@ -461,53 +482,44 @@ function AdminHomePageContent() {
                 </div>
               </CardHeader>
               <CardContent>
-                  {searchTerm && searchAnalysisData.length > 0 && (
-                      <div className="border rounded-lg p-4 mb-6">
-                              <h3 className="text-lg font-semibold font-headline mb-1">Search Analysis</h3>
-                              <p className="text-sm text-muted-foreground mb-4">
-                                  Distribution of certificates matching your search term.
-                              </p>
-                              <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--accent))" } }} className="h-[250px] w-full">
-                                  <ResponsiveContainer>
-                                      <BarChart data={searchAnalysisData} layout="vertical" margin={{ left: 10, right: 10, top:10, bottom:10 }}>
-                                          <CartesianGrid horizontal={false} />
-                                          <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tickMargin={8} width={80} />
-                                          <XAxis type="number" allowDecimals={false} />
-                                          <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
-                                          <Bar dataKey="certificates" fill="var(--color-certificates)" radius={4} />
-                                      </BarChart>
-                                  </ResponsiveContainer>
-                              </ChartContainer>
-                          </div>
-                  )}
-
-                  <ul className="space-y-4">
-                      {sortedData.length > 0 ? (
-                        sortedData.map((cert) => (
-                          <li key={cert.fileId} className="border rounded-lg p-4 shadow-sm bg-card">
-                            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                {groupedAndSortedData.length > 0 ? (
+                  <Accordion type="single" collapsible className="w-full space-y-2">
+                    {groupedAndSortedData.map(({ studentId, studentName, studentEmail, certificates }) => (
+                      <AccordionItem key={studentId} value={studentId} className="border rounded-lg shadow-sm bg-background/50 data-[state=open]:shadow-md">
+                          <AccordionTrigger className="p-4 hover:no-underline text-left">
                               <div className="flex-grow">
-                                <p className="text-lg font-semibold text-primary">{cert.originalName}</p>
-                                <div className="mt-1 space-y-0.5 text-sm text-muted-foreground">
-                                  <p>
-                                    <span className="font-semibold text-foreground/80">Student:</span> {cert.studentName} ({cert.studentEmail})
-                                  </p>
-                                  {cert.studentRollNo && <p><span className="font-semibold text-foreground/80">Roll No:</span> {cert.studentRollNo}</p>}
-                                </div>
+                                  <p className="text-lg font-semibold">{studentName}</p>
+                                  <p className="text-sm text-muted-foreground">{studentEmail}</p>
                               </div>
-                              <div className="mt-2 flex-shrink-0 sm:mt-0 flex flex-wrap items-center gap-2">
-                                <Button size="sm" variant="outline" onClick={() => openViewModal(cert)}>
-                                  <FileTextIcon className="mr-2 h-4 w-4" />
-                                  View Certificate
-                                </Button>
-                              </div>
-                            </div>
-                          </li>
-                        ))
-                      ) : (
-                        <p className="text-muted-foreground text-center py-8">No certificates match your criteria.</p>
-                      )}
-                  </ul>
+                              <Badge variant="secondary" className="ml-4">{certificates.length} Certificate(s)</Badge>
+                          </AccordionTrigger>
+                          <AccordionContent className="px-4 pb-4">
+                              <ul className="space-y-4 pt-4 border-t">
+                                  {certificates.map((cert) => (
+                                      <li key={cert.fileId} className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                                          <div className="flex-grow">
+                                              <p className="font-semibold text-primary">{cert.originalName}</p>
+                                              <div className="text-sm text-muted-foreground mt-1">
+                                                <p>
+                                                    <span className="font-medium text-foreground/80">Student:</span> {cert.studentName} ({cert.studentEmail})
+                                                </p>
+                                                {cert.studentRollNo && <p><span className="font-medium text-foreground/80">Roll No:</span> {cert.studentRollNo}</p>}
+                                              </div>
+                                          </div>
+                                          <Button size="sm" variant="outline" onClick={() => openViewModal(cert)} className="mt-2 sm:mt-0 flex-shrink-0">
+                                              <FileTextIcon className="mr-2 h-4 w-4" />
+                                              View Certificate
+                                          </Button>
+                                      </li>
+                                  ))}
+                              </ul>
+                          </AccordionContent>
+                      </AccordionItem>
+                    ))}
+                  </Accordion>
+                ) : (
+                  <p className="text-muted-foreground text-center py-8">No students or certificates match your criteria.</p>
+                )}
               </CardContent>
           </Card>
           {selectedImageForView && <ViewImageModal isOpen={isViewModalOpen} onClose={() => setIsViewModalOpen(false)} image={selectedImageForView} />}
