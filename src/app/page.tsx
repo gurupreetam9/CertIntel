@@ -108,6 +108,8 @@ function AdminHomePageContent() {
       direction: 'asc',
     });
 
+    const PRIMARY_CHART_COLOR = "hsl(var(--chart-1))";
+
 
     useEffect(() => {
         const fetchData = async () => {
@@ -175,11 +177,8 @@ function AdminHomePageContent() {
         });
         
         const COLORS = [
-          "hsl(var(--chart-1))",
-          "hsl(var(--chart-2))",
-          "hsl(var(--chart-3))",
-          "hsl(var(--chart-4))",
-          "hsl(var(--chart-5))",
+          "hsl(var(--chart-1))", "hsl(var(--chart-2))", "hsl(var(--chart-3))",
+          "hsl(var(--chart-4))", "hsl(var(--chart-5))",
         ];
         
         const rawPieData = Object.entries(courseCounts)
@@ -207,7 +206,7 @@ function AdminHomePageContent() {
     const lineChartConfig = {
         count: {
             label: "Uploads",
-            color: "hsl(var(--chart-1))",
+            color: PRIMARY_CHART_COLOR,
         },
     } satisfies ChartConfig;
     
@@ -363,7 +362,7 @@ function AdminHomePageContent() {
                                             <Pie
                                                 data={pieChartData}
                                                 dataKey="value"
-                                                nameKey="name"
+                                                nameKey="key"
                                                 cx="50%"
                                                 cy="50%"
                                                 outerRadius={"80%"}
@@ -397,7 +396,7 @@ function AdminHomePageContent() {
                                           <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
                                           <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={30} />
                                           <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
-                                          <Line type="monotone" dataKey="count" stroke="hsl(var(--chart-1))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
+                                          <Line type="monotone" dataKey="count" stroke={PRIMARY_CHART_COLOR} strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
                                         </RechartsLineChart>
                                     </ChartContainer>
                                 </CardContent>
@@ -460,13 +459,13 @@ function AdminHomePageContent() {
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>
-                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentName')} className="p-0 hover:bg-transparent hover:text-primary">
+                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentName')} className="p-0 text-primary hover:bg-transparent hover:text-primary/80">
                                                 Student Name
                                                 {sortConfig.key === 'studentName' && (sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-4 w-4" /> : <ArrowDown className="ml-2 h-4 w-4" />)}
                                             </Button>
                                         </TableHead>
                                         <TableHead>
-                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentRollNo')} className="p-0 hover:bg-transparent hover:text-primary">
+                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentRollNo')} className="p-0 text-primary hover:bg-transparent hover:text-primary/80">
                                                 Roll No.
                                                 {sortConfig.key === 'studentRollNo' && (sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-4 w-4" /> : <ArrowDown className="ml-2 h-4 w-4" />)}
                                             </Button>
