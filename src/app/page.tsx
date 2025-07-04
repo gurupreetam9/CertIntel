@@ -429,7 +429,7 @@ function AdminHomePageContent() {
                        <ResponsiveContainer>
                             <BarChart data={topStudentsData} layout="vertical" margin={{ top: 10, right: 10, bottom: 0, left: 10 }}>
                                 <CartesianGrid horizontal={false} />
-                                <YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={8} width={80} />
+                                <YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={8} />
                                 <XAxis type="number" allowDecimals={false} />
                                 <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
                                 <Bar dataKey="certificates" fill="var(--color-certificates)" radius={[0, 4, 4, 0]} />
@@ -669,5 +669,3 @@ function HomePage() {
 }
 
 export default HomePage;
-
-    
