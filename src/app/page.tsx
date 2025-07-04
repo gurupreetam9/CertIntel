@@ -14,7 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
-import { PieChart, LineChart as RechartsLineChart, Pie, Line, XAxis, YAxis, CartesianGrid, Cell, Sector, ResponsiveContainer } from 'recharts';
+import { PieChart as RechartsPieChart, LineChart as RechartsLineChart, Pie, Line, XAxis, YAxis, CartesianGrid, Cell, Sector, ResponsiveContainer } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
@@ -101,6 +101,7 @@ function AdminHomePageContent() {
     const [selectedChartData, setSelectedChartData] = useState<{ name: string; value: number } | null>(null);
 
     const [isDownloading, setIsDownloading] = useState(false);
+    const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -147,12 +148,18 @@ function AdminHomePageContent() {
         setIsChartModalOpen(true);
     };
 
+    const truncateLabel = (label: string, maxLength = 25) => {
+      if (label.length <= maxLength) return label;
+      return `${label.substring(0, maxLength)}...`;
+    };
+
     const chartData = useMemo(() => {
         const courseCounts: { [key: string]: number } = {};
         const completionTrends: { [key: string]: number } = {};
 
         dashboardData.forEach(cert => {
-            const courseName = cert.originalName;
+            // Use originalName which is more descriptive than filename
+            const courseName = cert.originalName || cert.fileId;
             courseCounts[courseName] = (courseCounts[courseName] || 0) + 1;
             
             const date = format(parseISO(cert.uploadDate), 'yyyy-MM-dd');
@@ -326,8 +333,8 @@ function AdminHomePageContent() {
                                     <CardDescription>Click a slice to see details.</CardDescription>
                                 </CardHeader>
                                 <CardContent>
-                                    <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[250px] sm:h-[400px]">
-                                        <PieChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                                    <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[300px] sm:h-[400px]">
+                                        <RechartsPieChart margin={{ top: 40, right: 40, bottom: 40, left: 40 }}>
                                             <ChartTooltip content={<ChartTooltipContent hideLabel />} />
                                             <Pie 
                                                 data={chartData.pieChartData} 
@@ -343,7 +350,7 @@ function AdminHomePageContent() {
                                                     <Cell key={`cell-${index}`} fill={entry.fill} />
                                                 ))}
                                             </Pie>
-                                        </PieChart>
+                                        </RechartsPieChart>
                                     </ChartContainer>
                                 </CardContent>
                             </Card>
@@ -355,7 +362,7 @@ function AdminHomePageContent() {
                                     </CardTitle>
                                 </CardHeader>
                                 <CardContent>
-                                   <ChartContainer config={lineChartConfig} className="h-[250px] w-full sm:h-[400px]">
+                                   <ChartContainer config={lineChartConfig} className="h-[300px] w-full sm:h-[400px]">
                                         <RechartsLineChart accessibilityLayer data={chartData.lineChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                                           <CartesianGrid strokeDasharray="3 3" />
                                           <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
@@ -391,14 +398,14 @@ function AdminHomePageContent() {
                                     </CardHeader>
                                     <CardContent className="flex flex-col items-center justify-center p-4">
                                         <ChartContainer config={gaugeChartConfig} className="mx-auto aspect-square h-[150px]">
-                                            <PieChart>
+                                            <RechartsPieChart>
                                                 <ChartTooltip content={<ChartTooltipContent indicator="dot" nameKey="name" />} />
                                                 <Pie data={gaugeChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={60} startAngle={180} endAngle={0}>
                                                      {gaugeChartData.map((entry, index) => (
                                                         <Cell key={`cell-${index}`} fill={entry.fill} />
                                                      ))}
                                                 </Pie>
-                                            </PieChart>
+                                            </RechartsPieChart>
                                          </ChartContainer>
                                          <p className="text-center font-bold text-lg -mt-8">{gaugeChartData[0]?.value || 0} of {allStudents.length} students</p>
                                          <p className="text-center text-sm text-muted-foreground">have this certificate.</p>
@@ -545,4 +552,3 @@ function HomePage() {
 }
 
 export default HomePage;
-
