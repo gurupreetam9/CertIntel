@@ -86,6 +86,8 @@ interface DashboardData {
     studentRollNo?: string;
 }
 
+type SortableKeys = 'studentName' | 'studentRollNo';
+
 function AdminHomePageContent() {
     const { user } = useAuth();
     const { toast } = useToast();
@@ -101,7 +103,10 @@ function AdminHomePageContent() {
     const [selectedChartData, setSelectedChartData] = useState<{ name: string; value: number } | null>(null);
 
     const [isDownloading, setIsDownloading] = useState(false);
-    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+    const [sortConfig, setSortConfig] = useState<{ key: SortableKeys; direction: 'asc' | 'desc' }>({
+      key: 'studentName',
+      direction: 'asc',
+    });
 
 
     useEffect(() => {
@@ -144,6 +149,14 @@ function AdminHomePageContent() {
         fetchData();
     }, [user, toast]);
     
+    const requestSort = (key: SortableKeys) => {
+        let direction: 'asc' | 'desc' = 'asc';
+        if (sortConfig.key === key && sortConfig.direction === 'asc') {
+            direction = 'desc';
+        }
+        setSortConfig({ key, direction });
+    };
+
     const handlePieClick = useCallback((data: any) => {
         setSelectedChartData({ name: data.name, value: data.value });
         setIsChartModalOpen(true);
@@ -214,16 +227,19 @@ function AdminHomePageContent() {
                 };
             });
         
-        // Sort the results by student name based on sortOrder
-        const sortedStudents = studentsWithCert.sort((a, b) => {
-            if (sortOrder === 'asc') {
-                return a.studentName.localeCompare(b.studentName);
-            } else {
-                return b.studentName.localeCompare(a.studentName);
-            }
+        const sortedData = [...studentsWithCert].sort((a, b) => {
+            const key = sortConfig.key;
+            const aVal = a[key] || '';
+            const bVal = b[key] || '';
+    
+            const comparison = String(aVal).localeCompare(String(bVal), undefined, { numeric: true });
+            
+            return sortConfig.direction === 'asc' ? comparison : -comparison;
         });
-        return sortedStudents;
-    }, [searchTerm, dashboardData, allStudents, sortOrder]);
+
+        return sortedData;
+
+    }, [searchTerm, dashboardData, allStudents, sortConfig]);
 
     const gaugeChartConfig = {
         value: {
@@ -432,13 +448,18 @@ function AdminHomePageContent() {
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>
-                                            <Button variant="ghost" size="sm" onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')} className="p-0 hover:bg-transparent">
+                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentName')} className="p-0 hover:bg-transparent">
                                                 Student Name
-                                                {sortOrder === 'asc' ? <ArrowUp className="ml-2 h-4 w-4" /> : <ArrowDown className="ml-2 h-4 w-4" />}
+                                                {sortConfig.key === 'studentName' && (sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-4 w-4" /> : <ArrowDown className="ml-2 h-4 w-4" />)}
                                             </Button>
                                         </TableHead>
                                         <TableHead>Email</TableHead>
-                                        <TableHead>Roll No.</TableHead>
+                                        <TableHead>
+                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentRollNo')} className="p-0 hover:bg-transparent">
+                                                Roll No.
+                                                {sortConfig.key === 'studentRollNo' && (sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-4 w-4" /> : <ArrowDown className="ml-2 h-4 w-4" />)}
+                                            </Button>
+                                        </TableHead>
                                         <TableHead>Certificate</TableHead>
                                         <TableHead className="text-right">Action</TableHead>
                                     </TableRow>
