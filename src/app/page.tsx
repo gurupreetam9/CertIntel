@@ -3,7 +3,7 @@
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { useAuth } from '@/hooks/useAuth';
-import { Loader2, FileText as FileTextIcon, Search, Download, AlertCircle, BarChart2, PieChart, LineChart, Users, View, User, Mail, Hash, ChevronUp, ChevronDown } from 'lucide-react';
+import { Loader2, FileText as FileTextIcon, Search, Download, AlertCircle, BarChart2, PieChart, LineChart, Users, View, User, Mail, Hash } from 'lucide-react';
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 
 // --- Student-specific imports ---
@@ -127,9 +127,6 @@ interface DashboardData {
     studentRollNo?: string;
 }
 
-type SortKey = 'studentName' | 'studentEmail' | 'originalName' | 'uploadDate';
-type SortDirection = 'asc' | 'desc';
-
 // Active Shape for Pie Chart
 const renderActiveShape = (props: any) => {
   const RADIAN = Math.PI / 180;
@@ -164,11 +161,10 @@ function AdminHomePageContent() {
 
     const [isLoading, setIsLoading] = useState(true);
     const [dashboardData, setDashboardData] = useState<DashboardData[]>([]);
+    const [allStudents, setAllStudents] = useState<any[]>([]);
     const [error, setError] = useState<string | null>(null);
 
     const [searchTerm, setSearchTerm] = useState('');
-    const [sortKey, setSortKey] = useState<SortKey>('studentName');
-    const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
     const [activePieIndex, setActivePieIndex] = useState(0);
 
     const [isDownloading, setIsDownloading] = useState(false);
@@ -189,6 +185,20 @@ function AdminHomePageContent() {
                 }
                 const data: DashboardData[] = await response.json();
                 setDashboardData(data);
+
+                const uniqueStudents = Array.from(new Set(data.map(item => item.studentId)))
+                  .map(id => {
+                    const student = data.find(item => item.studentId === id);
+                    return {
+                        studentId: id,
+                        studentName: student?.studentName || 'Unknown',
+                        studentEmail: student?.studentEmail || 'Unknown',
+                        studentRollNo: student?.studentRollNo,
+                        certificateCount: data.filter(item => item.studentId === id).length
+                    };
+                  });
+                setAllStudents(uniqueStudents);
+
             } catch (err: any) {
                 setError(err.message);
                 toast({ title: "Error Loading Dashboard", description: err.message, variant: "destructive" });
@@ -198,15 +208,6 @@ function AdminHomePageContent() {
         };
         fetchData();
     }, [user, toast]);
-
-    const handleSort = (key: SortKey) => {
-        if (sortKey === key) {
-            setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
-        } else {
-            setSortKey(key);
-            setSortDirection('asc');
-        }
-    };
     
     const onPieEnter = useCallback((_: any, index: number) => {
         setActivePieIndex(index);
@@ -277,68 +278,68 @@ function AdminHomePageContent() {
         });
         return config;
     }, [chartData.pieChartData]);
-
-    const filteredAndSortedData = useMemo(() => {
-        let filtered = dashboardData;
-        if (searchTerm) {
-            filtered = dashboardData.filter(item =>
-                item.originalName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                item.studentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                item.studentEmail.toLowerCase().includes(searchTerm.toLowerCase())
-            );
-        }
-
-        return [...filtered].sort((a, b) => {
-            const valA = a[sortKey];
-            const valB = b[sortKey];
-
-            if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
-            if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
-            return 0;
-        });
-    }, [dashboardData, searchTerm, sortKey, sortDirection]);
     
-    const totalStudents = useMemo(() => {
-       const studentIds = new Set(dashboardData.map(item => item.studentId));
-       return studentIds.size;
-    }, [dashboardData]);
+    const [allCertsFiltered, searchResults] = useMemo(() => {
+        if (!searchTerm) {
+            return [allStudents, []];
+        }
+        const lowercasedFilter = searchTerm.toLowerCase();
+        
+        const certs = dashboardData.filter(item =>
+            item.originalName.toLowerCase().includes(lowercasedFilter)
+        );
+
+        const studentsWithCert = Array.from(new Set(certs.map(item => item.studentId)))
+            .map(id => {
+                const studentProfile = allStudents.find(s => s.studentId === id);
+                const relevantCerts = certs.filter(c => c.studentId === id);
+                return {
+                    ...studentProfile,
+                    certificates: relevantCerts
+                };
+            });
+        
+        return [allStudents, studentsWithCert];
+    }, [searchTerm, dashboardData, allStudents]);
 
     const gaugeChartData = useMemo(() => {
-        if (!searchTerm.trim() || totalStudents === 0) return [];
-        const studentIdsWithCert = new Set(filteredAndSortedData.map(item => item.studentId));
+        if (!searchTerm.trim() || allStudents.length === 0) return [];
+        const studentIdsWithCert = new Set(searchResults.map(item => item.studentId));
         const numStudentsWithCert = studentIdsWithCert.size;
         return [
-            { name: 'Has Certificate', value: numStudentsWithCert },
-            { name: 'Does Not Have', value: totalStudents - numStudentsWithCert }
+            { name: 'Has Certificate', value: numStudentsWithCert, fill: 'hsl(var(--primary))' },
+            { name: 'Does Not Have', value: allStudents.length - numStudentsWithCert, fill: 'hsl(var(--muted))' }
         ];
-    }, [searchTerm, filteredAndSortedData, totalStudents]);
+    }, [searchTerm, searchResults, allStudents]);
     
     const gaugeChartConfig = {
         'Has Certificate': {
           label: 'Has Certificate',
+          color: 'hsl(var(--primary))'
         },
         'Does Not Have': {
           label: 'Does Not Have',
+          color: 'hsl(var(--muted))'
         },
       } satisfies ChartConfig;
 
     const handleDownloadZip = async () => {
-        if (filteredAndSortedData.length === 0) {
-            toast({ title: 'No certificates to download', variant: 'destructive' });
+        const fileIdsToDownload = searchResults.flatMap(student => student.certificates.map((cert: any) => cert.fileId));
+        
+        if (fileIdsToDownload.length === 0) {
+            toast({ title: 'No certificates to download for this search', variant: 'destructive' });
             return;
         }
         setIsDownloading(true);
         try {
             const idToken = await user?.getIdToken();
-            const fileIds = filteredAndSortedData.map(cert => cert.fileId);
-
             const response = await fetch('/api/admin/download-zip', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${idToken}`
                 },
-                body: JSON.stringify({ fileIds })
+                body: JSON.stringify({ fileIds: fileIdsToDownload })
             });
 
             if (!response.ok) {
@@ -383,20 +384,7 @@ function AdminHomePageContent() {
             </div>
         );
     }
-
-    const SortableHeader = ({ sortKey: key, children }: { sortKey: SortKey, children: React.ReactNode }) => (
-        <TableHead onClick={() => handleSort(key)} className="cursor-pointer group">
-            <div className="flex items-center gap-2">
-                {children}
-                {sortKey === key ? (
-                    sortDirection === 'asc' ? <ChevronUp className="h-4 w-4"/> : <ChevronDown className="h-4 w-4"/>
-                ) : (
-                    <ChevronDown className="h-4 w-4 opacity-0 group-hover:opacity-50" />
-                )}
-            </div>
-        </TableHead>
-    );
-
+    
     return (
         <div className="container mx-auto p-4 md:p-8 space-y-8">
             <h1 className="text-3xl font-bold font-headline">Admin Analysis Dashboard</h1>
@@ -415,7 +403,7 @@ function AdminHomePageContent() {
                                 <CardTitle className="flex items-center"><PieChart className="mr-2"/>Top 10 Course Certificate Distribution</CardTitle>
                             </CardHeader>
                             <CardContent>
-                                <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-full w-full">
+                                <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[450px]">
                                     <RechartsPieChart>
                                         <ChartTooltip content={<ChartTooltipContent hideLabel />} />
                                         <Pie 
@@ -423,7 +411,7 @@ function AdminHomePageContent() {
                                             cx="50%" 
                                             cy="50%" 
                                             labelLine={false}
-                                            outerRadius={80} 
+                                            outerRadius={140}
                                             dataKey="value"
                                             activeIndex={activePieIndex}
                                             activeShape={renderActiveShape}
@@ -438,35 +426,35 @@ function AdminHomePageContent() {
                             </CardContent>
                         </Card>
                         <Card>
-                            <CardHeader>
-                                <CardTitle className="flex items-center"><Users className="mr-2"/>Top 10 Courses by Student Count</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <ChartContainer config={barChartConfig} className="min-h-[300px] w-full">
-                                    <RechartsBarChart accessibilityLayer data={chartData.barChartData} layout="vertical" margin={{ left: 10, right: 10 }}>
-                                      <CartesianGrid strokeDasharray="3 3" />
-                                      <XAxis type="number" hide />
-                                      <YAxis dataKey="name" type="category" tickLine={false} tickMargin={10} axisLine={false} tickFormatter={(value) => value.length > 20 ? `${value.slice(0, 20)}...` : value} width={120} />
-                                      <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
-                                      <Bar dataKey="students" fill="var(--color-students)" radius={4} />
-                                    </RechartsBarChart>
-                                </ChartContainer>
-                            </CardContent>
-                        </Card>
-                        <Card className="lg:col-span-2">
                              <CardHeader>
                                 <CardTitle className="flex items-center"><LineChart className="mr-2"/>Certificate Uploads Over Time</CardTitle>
                             </CardHeader>
                             <CardContent>
-                               <ChartContainer config={lineChartConfig} className="min-h-[300px] w-full">
+                               <ChartContainer config={lineChartConfig} className="h-[450px] w-full">
                                     <RechartsLineChart accessibilityLayer data={chartData.lineChartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                                       <CartesianGrid strokeDasharray="3 3" />
                                       <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
-                                      <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={30} />
+                                      <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
                                       <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
                                       <ChartLegend content={<ChartLegendContent />} />
                                       <Line type="monotone" dataKey="count" stroke="var(--color-count)" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
                                     </RechartsLineChart>
+                                </ChartContainer>
+                            </CardContent>
+                        </Card>
+                        <Card className="lg:col-span-2">
+                            <CardHeader>
+                                <CardTitle className="flex items-center"><Users className="mr-2"/>Top 10 Courses by Student Count</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <ChartContainer config={barChartConfig} className="min-h-[450px] w-full">
+                                    <RechartsBarChart accessibilityLayer data={chartData.barChartData} layout="vertical" margin={{ left: 150, right: 30 }}>
+                                      <CartesianGrid strokeDasharray="3 3" />
+                                      <XAxis type="number" hide />
+                                      <YAxis dataKey="name" type="category" tickLine={false} tickMargin={10} axisLine={false} tick={{ fontSize: 12 }} />
+                                      <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
+                                      <Bar dataKey="students" fill="var(--color-students)" radius={4} />
+                                    </RechartsBarChart>
                                 </ChartContainer>
                             </CardContent>
                         </Card>
@@ -475,6 +463,45 @@ function AdminHomePageContent() {
               </AccordionItem>
             </Accordion>
             
+            <Accordion type="single" collapsible className="w-full">
+                <AccordionItem value="item-1">
+                    <AccordionTrigger className="text-xl font-semibold">
+                       <div className="flex items-center gap-2">
+                         <FileTextIcon className="h-6 w-6" /> All Certificates
+                       </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="space-y-4 pt-4">
+                      {allStudents.map(student => (
+                        <Accordion key={student.studentId} type="single" collapsible className="w-full border rounded-md px-4">
+                            <AccordionItem value={student.studentId}>
+                                <AccordionTrigger>
+                                    <div className="flex items-center justify-between w-full">
+                                        <div className="flex-1 min-w-0">
+                                            <p className="font-semibold truncate">{student.studentName}</p>
+                                            <p className="text-sm text-muted-foreground truncate">{student.studentEmail}</p>
+                                        </div>
+                                        <div className="ml-4 shrink-0 bg-muted text-muted-foreground text-xs font-medium px-2 py-1 rounded-md">
+                                            {student.certificateCount} Certs
+                                        </div>
+                                    </div>
+                                </AccordionTrigger>
+                                <AccordionContent>
+                                    <ul className="space-y-2 pt-2">
+                                        {dashboardData.filter(c => c.studentId === student.studentId).map(cert => (
+                                            <li key={cert.fileId} className="flex justify-between items-center p-2 rounded-md hover:bg-muted/50">
+                                                <span className="truncate text-sm">{cert.originalName}</span>
+                                                <Button variant="outline" size="sm" asChild><a href={`/api/images/${cert.fileId}`} target="_blank" rel="noopener noreferrer"><View className="mr-2 h-4 w-4"/>View</a></Button>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </AccordionContent>
+                            </AccordionItem>
+                        </Accordion>
+                      ))}
+                    </AccordionContent>
+                </AccordionItem>
+            </Accordion>
+
             <Card>
                 <CardHeader>
                     <CardTitle className="flex items-center"><Search className="mr-2" />Course & Certificate Search</CardTitle>
@@ -482,7 +509,7 @@ function AdminHomePageContent() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                     <Input
-                        placeholder="Search by course name, student name, or email..."
+                        placeholder="Search by course name..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
@@ -493,25 +520,25 @@ function AdminHomePageContent() {
                                 <CardHeader className="pb-2">
                                     <CardTitle className="text-base">Search Summary</CardTitle>
                                 </CardHeader>
-                                <CardContent className="flex flex-col items-center justify-center">
+                                <CardContent className="flex flex-col items-center justify-center p-4">
                                      <ChartContainer config={gaugeChartConfig} className="mx-auto aspect-square h-[150px]">
                                         <RechartsPieChart>
                                             <ChartTooltip content={<ChartTooltipContent hideLabel nameKey="name" />} />
                                             <Pie data={gaugeChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={60} startAngle={180} endAngle={0}>
                                                  {gaugeChartData.map((entry, index) => (
-                                                    <Cell key={`cell-${index}`} fill={index === 0 ? 'hsl(var(--primary))' : 'hsl(var(--muted))'} />
+                                                    <Cell key={`cell-${index}`} fill={entry.fill} />
                                                  ))}
                                             </Pie>
                                         </RechartsPieChart>
                                      </ChartContainer>
-                                     <p className="text-center font-bold text-lg -mt-8">{gaugeChartData[0]?.value || 0} of {totalStudents} students</p>
+                                     <p className="text-center font-bold text-lg -mt-8">{gaugeChartData[0]?.value || 0} of {allStudents.length} students</p>
                                      <p className="text-center text-sm text-muted-foreground">have this certificate.</p>
                                 </CardContent>
                             </Card>
                             <div className="md:col-span-2 flex items-center justify-center">
-                                <Button onClick={handleDownloadZip} disabled={isDownloading || filteredAndSortedData.length === 0} size="lg">
+                                <Button onClick={handleDownloadZip} disabled={isDownloading || searchResults.length === 0} size="lg">
                                     {isDownloading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Download className="mr-2 h-5 w-5" />}
-                                    Download Zip
+                                    Download Certificates
                                 </Button>
                             </div>
                         </div>
@@ -520,55 +547,33 @@ function AdminHomePageContent() {
             </Card>
 
             {searchTerm && (
-                <div className="w-full">
-                   <div className="hidden md:block">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <SortableHeader sortKey="studentName"><div className="flex items-center gap-2"><User className="h-4 w-4" />Name</div></SortableHeader>
-                            <SortableHeader sortKey="studentEmail"><div className="flex items-center gap-2"><Mail className="h-4 w-4" />Email</div></SortableHeader>
-                            <TableHead><div className="flex items-center gap-2"><Hash className="h-4 w-4" />Roll Number</div></TableHead>
-                            <SortableHeader sortKey="originalName"><div className="flex items-center gap-2"><FileTextIcon className="h-4 w-4" />Certificate</div></SortableHeader>
-                            <SortableHeader sortKey="uploadDate"><div className="flex items-center gap-2"><Download className="h-4 w-4" />Uploaded</div></SortableHeader>
-                            <TableHead>Action</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {filteredAndSortedData.map(cert => (
-                                <TableRow key={cert.fileId}>
-                                    <TableCell className="font-medium">{cert.studentName}</TableCell>
-                                    <TableCell className="text-muted-foreground">{cert.studentEmail}</TableCell>
-                                    <TableCell className="text-muted-foreground">{cert.studentRollNo || 'N/A'}</TableCell>
-                                    <TableCell>{cert.originalName}</TableCell>
-                                    <TableCell className="text-muted-foreground">{format(parseISO(cert.uploadDate), 'PPp')}</TableCell>
-                                    <TableCell><Button variant="outline" size="sm" asChild><a href={`/api/images/${cert.fileId}`} target="_blank" rel="noopener noreferrer"><View className="mr-2 h-4 w-4"/>View</a></Button></TableCell>
-                                </TableRow>
-                            ))}
-                        </TableBody>
-                      </Table>
-                  </div>
-                  
-                  <div className="block md:hidden space-y-4">
-                        {filteredAndSortedData.map(cert => (
-                             <Card key={cert.fileId} className="p-4">
-                                <div className="flex justify-between items-start gap-4">
-                                    <div className="flex-grow">
-                                        <CardTitle className="text-base mb-2 flex items-center gap-2"><FileTextIcon className="h-4 w-4 text-primary" /> {cert.originalName}</CardTitle>
-                                        <CardContent className="p-0 space-y-1.5 text-sm">
-                                            <div className="flex items-center"><User className="mr-2 h-4 w-4 text-muted-foreground"/><span className="font-medium">{cert.studentName}</span></div>
-                                            <div className="flex items-center"><Mail className="mr-2 h-4 w-4 text-muted-foreground"/><span className="text-muted-foreground">{cert.studentEmail}</span></div>
-                                            <div className="flex items-center"><Hash className="mr-2 h-4 w-4 text-muted-foreground"/><span>{cert.studentRollNo || 'N/A'}</span></div>
-                                            <div className="text-xs text-muted-foreground pt-2">Uploaded: {format(parseISO(cert.uploadDate), 'PPp')}</div>
-                                        </CardContent>
-                                    </div>
-                                    <Button variant="outline" size="icon" asChild className="shrink-0"><a href={`/api/images/${cert.fileId}`} target="_blank" rel="noopener noreferrer"><View className="h-4 w-4"/><span className="sr-only">View Certificate</span></a></Button>
-                                </div>
-                            </Card>
-                        ))}
-                  </div>
-
-                  {filteredAndSortedData.length === 0 && <p className="text-center text-muted-foreground mt-8">No certificates found matching your search.</p>}
-                </div>
+              <div className="space-y-4">
+                <h3 className="text-xl font-bold font-headline">Search Results for "{searchTerm}"</h3>
+                {searchResults.length > 0 ? (
+                  searchResults.map((student: any) => (
+                    <Card key={student.studentId}>
+                      <CardHeader>
+                        <CardTitle>{student.studentName}</CardTitle>
+                        <CardDescription>
+                          {student.studentEmail} {student.studentRollNo && `| ${student.studentRollNo}`}
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <ul className="space-y-2">
+                          {student.certificates.map((cert: any) => (
+                            <li key={cert.fileId} className="flex justify-between items-center p-2 rounded-md hover:bg-muted/50">
+                              <span className="truncate text-sm">{cert.originalName}</span>
+                              <Button variant="outline" size="sm" asChild><a href={`/api/images/${cert.fileId}`} target="_blank" rel="noopener noreferrer"><View className="mr-2 h-4 w-4"/>View</a></Button>
+                            </li>
+                          ))}
+                        </ul>
+                      </CardContent>
+                    </Card>
+                  ))
+                ) : (
+                  <p className="text-center text-muted-foreground mt-8">No students found with a certificate matching your search.</p>
+                )}
+              </div>
             )}
         </div>
     );
