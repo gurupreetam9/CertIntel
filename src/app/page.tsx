@@ -542,40 +542,40 @@ function AdminHomePageContent() {
                   <div className="mt-6 space-y-3">
                     {filteredData.length > 0 ? (
                         filteredData.map((cert) => (
-                            <Card key={cert.fileId} className="shadow-sm hover:shadow-md transition-shadow duration-200">
-                                <CardContent className="p-3 sm:p-4 flex items-center justify-between gap-4">
-                                    <div className="flex-1 min-w-0">
-                                        <p className="font-semibold text-base text-primary truncate" title={cert.originalName}>
-                                            {cert.originalName}
-                                        </p>
-                                        <div className="mt-1 text-xs text-muted-foreground flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 gap-y-1">
-                                            <span className="flex items-center gap-1.5">
-                                                <Users className="h-3 w-3 shrink-0" />
-                                                <span className="truncate">{cert.studentName}</span>
-                                            </span>
-                                            <span className="flex items-center gap-1.5">
-                                                <Mail className="h-3 w-3 shrink-0" />
-                                                <span className="truncate">{cert.studentEmail}</span>
-                                            </span>
-                                            {cert.studentRollNo && (
-                                                <span className="flex items-center gap-1.5">
-                                                    <Notebook className="h-3 w-3 shrink-0" />
-                                                    <span className="truncate">Roll No: {cert.studentRollNo}</span>
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => openViewModal(cert)}
-                                        className="shrink-0"
-                                    >
-                                        <FileTextIcon className="mr-2 h-4 w-4" />
-                                        View
-                                    </Button>
-                                </CardContent>
-                            </Card>
+                          <Card key={cert.fileId} className="shadow-sm hover:shadow-md transition-shadow duration-200">
+                            <CardContent className="p-3 sm:p-4 flex items-center justify-between gap-4">
+                              <div className="flex-1 min-w-0">
+                                <p className="font-semibold text-base text-primary truncate" title={cert.originalName}>
+                                  {cert.originalName}
+                                </p>
+                                <div className="mt-1 text-xs text-muted-foreground flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 gap-y-1">
+                                  <span className="flex items-center gap-1.5">
+                                    <Users className="h-3 w-3 shrink-0" />
+                                    <span className="truncate">{cert.studentName}</span>
+                                  </span>
+                                  <span className="flex items-center gap-1.5">
+                                    <Mail className="h-3 w-3 shrink-0" />
+                                    <span className="truncate">{cert.studentEmail}</span>
+                                  </span>
+                                  {cert.studentRollNo && (
+                                    <span className="flex items-center gap-1.5">
+                                      <Notebook className="h-3 w-3 shrink-0" />
+                                      <span className="truncate">Roll No: {cert.studentRollNo}</span>
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openViewModal(cert)}
+                                className="shrink-0"
+                              >
+                                <FileTextIcon className="mr-2 h-4 w-4" />
+                                View
+                              </Button>
+                            </CardContent>
+                          </Card>
                         ))
                     ) : (
                         <p className="text-muted-foreground text-center py-8">No certificates match your search.</p>
@@ -587,15 +587,11 @@ function AdminHomePageContent() {
                       {groupedAndSortedData.map(({ studentId, studentName, studentEmail, certificates }) => (
                         <AccordionItem key={studentId} value={studentId} className="border rounded-lg shadow-sm bg-background/50 data-[state=open]:shadow-md">
                            <AccordionTrigger className="p-3 sm:p-4 hover:no-underline text-left">
-                                <div className="grid grid-cols-[1fr_auto] w-full items-center gap-4">
-                                    <div className="min-w-0">
-                                        <p className="font-semibold truncate" title={studentName}>{studentName}</p>
-                                        <p className="text-sm text-muted-foreground truncate" title={studentEmail}>{studentEmail}</p>
-                                    </div>
-                                    <div className="justify-self-end">
-                                        <Badge variant="secondary">{certificates.length} Cert(s)</Badge>
-                                    </div>
-                                </div>
+                              <div className="flex-1 min-w-0 text-left">
+                                <p className="font-semibold truncate text-sm sm:text-base" title={studentName}>{studentName}</p>
+                                <p className="text-xs text-muted-foreground truncate" title={studentEmail}>{studentEmail}</p>
+                              </div>
+                              <Badge variant="secondary" className="ml-4 shrink-0">{certificates.length} Cert(s)</Badge>
                             </AccordionTrigger>
                             <AccordionContent className="px-2 sm:px-4 pb-4">
                                 <ul className="space-y-4 pt-4 border-t">
