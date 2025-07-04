@@ -266,7 +266,12 @@ function AdminHomePageContent() {
             .map(([date, count]) => ({ date, count }))
             .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
         
-        return { pieChartData: pieData, lineChartData: lineData };
+        const barData = Object.entries(courseCounts)
+            .map(([name, value]) => ({ name, value }))
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 10);
+        
+        return { pieChartData: pieData, lineChartData: lineData, barChartData: barData };
     }, [dashboardData]);
 
     const lineChartConfig = {
@@ -275,6 +280,20 @@ function AdminHomePageContent() {
             color: "hsl(var(--chart-1))",
         },
     } satisfies ChartConfig;
+    
+    const barChartConfig = useMemo(() => {
+        if (!chartData.barChartData || chartData.barChartData.length === 0) {
+            return {};
+        }
+        const config: ChartConfig = {};
+        chartData.barChartData.forEach((item, index) => {
+            config[item.name] = {
+                label: item.name,
+                color: `hsl(var(--chart-${(index % 5) + 1}))`,
+            };
+        });
+        return config;
+    }, [chartData.barChartData]);
 
     const pieChartConfig = useMemo(() => {
         if (!chartData.pieChartData || chartData.pieChartData.length === 0) {
@@ -423,14 +442,14 @@ function AdminHomePageContent() {
                             </CardHeader>
                             <CardContent>
                                 <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[250px] sm:h-[400px]">
-                                    <RechartsPieChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                                    <PieChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
                                         <ChartTooltip content={<ChartTooltipContent hideLabel />} />
                                         <Pie 
                                             data={chartData.pieChartData} 
                                             cx="50%" 
                                             cy="50%" 
                                             labelLine={false}
-                                            outerRadius="70%"
+                                            outerRadius="60%"
                                             dataKey="value"
                                             activeIndex={activePieIndex}
                                             activeShape={renderActiveShape}
@@ -440,7 +459,7 @@ function AdminHomePageContent() {
                                                 <Cell key={`cell-${index}`} fill={entry.fill} />
                                             ))}
                                         </Pie>
-                                    </RechartsPieChart>
+                                    </PieChart>
                                 </ChartContainer>
                             </CardContent>
                         </Card>
