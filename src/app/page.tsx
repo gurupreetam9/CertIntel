@@ -606,13 +606,15 @@ function AdminHomePageContent() {
                       {groupedAndSortedData.map(({ studentId, studentName, studentEmail, certificates }) => (
                         <AccordionItem key={studentId} value={studentId} className="border rounded-lg shadow-sm bg-background/50 data-[state=open]:shadow-md">
                             <AccordionTrigger className="p-3 sm:p-4 hover:no-underline text-left">
+                              <div className="flex flex-col sm:flex-row sm:items-center w-full gap-x-4 gap-y-2">
                                 <div className="flex-1 min-w-0">
-                                    <p className="truncate font-semibold text-base">{studentName}</p>
-                                    <p className="truncate text-sm text-muted-foreground">{studentEmail}</p>
+                                  <p className="truncate font-semibold text-base sm:text-sm">{studentName}</p>
+                                  <p className="truncate text-sm text-muted-foreground">{studentEmail}</p>
                                 </div>
-                                <Badge variant="secondary" className="shrink-0 whitespace-nowrap ml-4">
-                                    {certificates.length} Cert(s)
+                                <Badge variant="secondary" className="shrink-0 whitespace-nowrap self-start sm:self-auto">
+                                  {certificates.length} Cert(s)
                                 </Badge>
+                              </div>
                             </AccordionTrigger>
                             <AccordionContent className="px-2 sm:px-4 pb-4">
                                 <ul className="space-y-4 pt-4 border-t">
