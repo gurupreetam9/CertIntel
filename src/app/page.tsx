@@ -17,7 +17,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from '@/components/ui/chart';
-import { PieChart, LineChart as RechartsLineChart, Pie, Line, XAxis, YAxis, CartesianGrid, Cell, Sector, ResponsiveContainer } from 'recharts';
+import { PieChart, LineChart as RechartsLineChart, BarChart as RechartsBarChart, Pie, Line, Bar, XAxis, YAxis, CartesianGrid, Cell, Sector, ResponsiveContainer } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Mail, Hash, View } from 'lucide-react';
@@ -179,6 +179,14 @@ const renderActiveShape = (props: any) => {
   );
 };
 
+const yAxisLabelTruncate = (label: string) => {
+    if (label.length > 15) {
+        return label.substring(0, 15) + '...';
+    }
+    return label;
+};
+
+
 function AdminHomePageContent() {
     const { user } = useAuth();
     const { toast } = useToast();
@@ -257,7 +265,7 @@ function AdminHomePageContent() {
         const lineData = Object.entries(completionTrends)
             .map(([date, count]) => ({ date, count }))
             .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
+        
         return { pieChartData: pieData, lineChartData: lineData };
     }, [dashboardData]);
 
@@ -405,19 +413,24 @@ function AdminHomePageContent() {
                 <AccordionContent>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-4">
                         <Card>
-                            <CardHeader>
-                                <CardTitle className="flex items-center"><PieChartIcon className="mr-2"/>Top 10 Course Certificate Distribution</CardTitle>
+                             <CardHeader>
+                                <CardTitle>
+                                    <div className="flex items-center gap-2">
+                                        <PieChartIcon className="h-6 w-6 shrink-0" />
+                                        <span>Top 10 Course Certificate Distribution</span>
+                                    </div>
+                                </CardTitle>
                             </CardHeader>
-                            <CardContent className="flex justify-center items-center">
+                            <CardContent>
                                 <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[250px] sm:h-[400px]">
-                                    <PieChart margin={{ top: 40, right: 40, bottom: 40, left: 40 }}>
+                                    <RechartsPieChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
                                         <ChartTooltip content={<ChartTooltipContent hideLabel />} />
                                         <Pie 
                                             data={chartData.pieChartData} 
                                             cx="50%" 
                                             cy="50%" 
                                             labelLine={false}
-                                            outerRadius="80%"
+                                            outerRadius="70%"
                                             dataKey="value"
                                             activeIndex={activePieIndex}
                                             activeShape={renderActiveShape}
@@ -427,7 +440,7 @@ function AdminHomePageContent() {
                                                 <Cell key={`cell-${index}`} fill={entry.fill} />
                                             ))}
                                         </Pie>
-                                    </PieChart>
+                                    </RechartsPieChart>
                                 </ChartContainer>
                             </CardContent>
                         </Card>
