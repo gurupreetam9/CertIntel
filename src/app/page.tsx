@@ -140,7 +140,7 @@ function StudentHomePageContent() {
 // ====================================================================================
 const GaugeChart = ({ value, totalValue, label }: { value: number; totalValue: number; label: string }) => {
   const percentage = totalValue > 0 ? (value / totalValue) * 100 : 0;
-  const data = [{ name: 'value', value: percentage }];
+  const data = [{ name: 'value', value: percentage, fill: 'hsl(var(--primary))' }];
 
   return (
     <div className="relative w-full h-32 sm:h-40">
@@ -164,7 +164,6 @@ const GaugeChart = ({ value, totalValue, label }: { value: number; totalValue: n
           <RadialBar
             dataKey="value"
             cornerRadius={10}
-            className="fill-primary"
             angleAxisId={0}
           />
         </RadialBarChart>
@@ -434,12 +433,12 @@ function AdminHomePageContent() {
                 <CardContent className="p-0 pt-4 pr-2 sm:pr-4 h-[250px] sm:h-[300px]">
                     <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--accent))" } }}>
                        <ResponsiveContainer>
-                            <BarChart data={topStudentsData} margin={{ top: 10, right: 10, bottom: 20, left: -10 }}>
-                                <CartesianGrid vertical={false} />
-                                <XAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} tickFormatter={formatXAxisTick} interval={0} />
-                                <YAxis type="number" allowDecimals={false} />
+                            <BarChart data={topStudentsData} layout="vertical" margin={{ top: 10, right: 10, bottom: 20, left: isMobile ? 0 : -10 }}>
+                                <CartesianGrid horizontal={false} />
+                                <YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} tickFormatter={formatXAxisTick} interval={0} width={isMobile ? 60 : 100} />
+                                <XAxis type="number" allowDecimals={false} />
                                 <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
-                                <Bar dataKey="certificates" fill="var(--color-certificates)" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="certificates" fill="var(--color-certificates)" radius={[0, 4, 4, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     </ChartContainer>
@@ -568,7 +567,7 @@ function AdminHomePageContent() {
                       </Card>
                     </div>
                     {filteredData.length > 0 ? (
-                        <div className="border rounded-lg">
+                        <div className="border rounded-lg overflow-x-auto">
                             <Table>
                                 <TableHeader>
                                     <TableRow>
@@ -607,13 +606,15 @@ function AdminHomePageContent() {
                       {groupedAndSortedData.map(({ studentId, studentName, studentEmail, certificates }) => (
                         <AccordionItem key={studentId} value={studentId} className="border rounded-lg shadow-sm bg-background/50 data-[state=open]:shadow-md">
                             <AccordionTrigger className="p-3 sm:p-4 hover:no-underline text-left">
-                                <div className="flex-1 min-w-0">
-                                    <p className="truncate text-lg font-semibold">{studentName}</p>
-                                    <p className="truncate text-sm text-muted-foreground">{studentEmail}</p>
+                                <div className="flex flex-1 items-center min-w-0 gap-4">
+                                  <div className="flex-1 min-w-0">
+                                      <p className="truncate text-lg font-semibold">{studentName}</p>
+                                      <p className="truncate text-sm text-muted-foreground">{studentEmail}</p>
+                                  </div>
+                                  <Badge variant="secondary" className="flex-shrink-0 whitespace-nowrap">
+                                    {certificates.length} Certificate(s)
+                                  </Badge>
                                 </div>
-                                <Badge variant="secondary" className="ml-4 flex-shrink-0 whitespace-nowrap">
-                                  {certificates.length} Certificate(s)
-                                </Badge>
                             </AccordionTrigger>
                             <AccordionContent className="px-2 sm:px-4 pb-4">
                                 <ul className="space-y-4 pt-4 border-t">
