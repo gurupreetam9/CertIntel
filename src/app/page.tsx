@@ -333,8 +333,8 @@ function AdminHomePageContent() {
                                     </CardTitle>
                                     <CardDescription>Click a slice to see details.</CardDescription>
                                 </CardHeader>
-                                <CardContent>
-                                    <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[350px] sm:h-[400px]">
+                                <CardContent className="flex justify-center">
+                                    <ChartContainer config={pieChartConfig} className="aspect-square h-[350px] sm:h-[400px]">
                                         <PieChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
                                             <ChartTooltip content={<ChartTooltipContent hideLabel />} />
                                             <Pie
