@@ -137,45 +137,6 @@ function StudentHomePageContent() {
 // ====================================================================================
 // Admin Home Page Content (New Dashboard)
 // ====================================================================================
-const GaugeChart = ({ value, totalValue, label }: { value: number; totalValue: number; label: string }) => {
-  const percentage = totalValue > 0 ? (value / totalValue) * 100 : 0;
-  const data = [{ name: 'value', value: percentage, fill: 'hsl(var(--primary))' }];
-
-  return (
-    <div className="relative w-full h-32 sm:h-24">
-      <ResponsiveContainer width="100%" height="100%">
-        <RadialBarChart
-          innerRadius="70%"
-          outerRadius="100%"
-          barSize={12}
-          data={data}
-          startAngle={180}
-          endAngle={0}
-        >
-          <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
-          <RadialBar
-            background
-            dataKey="value"
-            cornerRadius={10}
-            className="fill-muted"
-            angleAxisId={0}
-          />
-          <RadialBar
-            dataKey="value"
-            cornerRadius={10}
-            angleAxisId={0}
-          />
-        </RadialBarChart>
-      </ResponsiveContainer>
-      <div className="absolute inset-0 flex flex-col items-center justify-center text-center -translate-y-2">
-        <span className="text-2xl font-bold text-foreground">{value}</span>
-        <span className="text-xs text-muted-foreground">{label}</span>
-      </div>
-    </div>
-  );
-};
-
-
 function AdminHomePageContent() {
     const [allData, setAllData] = useState<AdminDashboardData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -438,12 +399,12 @@ function AdminHomePageContent() {
                 <CardContent className="p-0 pt-4 pr-2 sm:pr-4 h-[250px] sm:h-[300px]">
                    <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--accent))" } }}>
                        <ResponsiveContainer>
-                            <BarChart data={topStudentsData} margin={{ top: 10, right: 10, bottom: isMobile ? 50 : 40, left: 0 }}>
-                                <CartesianGrid vertical={false} />
-                                <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} angle={isMobile ? -45 : 0} textAnchor={isMobile ? "end" : "middle"} height={isMobile ? 60 : 50} tickFormatter={formatXAxisTick} />
-                                <YAxis tickLine={false} axisLine={false} tickMargin={8} allowDecimals={false} width={30}/>
+                            <BarChart data={topStudentsData} layout="vertical" margin={{ top: 10, right: 10, bottom: 20, left: isMobile ? 60 : 80 }}>
+                                <CartesianGrid horizontal={false} />
+                                <XAxis type="number" dataKey="certificates" allowDecimals={false} />
+                                <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tickMargin={5} width={isMobile ? 60 : 80} tickFormatter={formatXAxisTick} />
                                 <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
-                                <Bar dataKey="certificates" fill="var(--color-certificates)" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="certificates" fill="var(--color-certificates)" radius={[0, 4, 4, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     </ChartContainer>
@@ -586,12 +547,14 @@ function AdminHomePageContent() {
                     {groupedAndSortedData.map(({ studentId, studentName, studentEmail, certificates }) => (
                       <AccordionItem value={studentId} key={studentId}>
                         <AccordionTrigger>
-                           <div className="grid grid-cols-[1fr,auto] w-full items-center gap-4">
-                              <div className="min-w-0">
+                           <div className="flex w-full items-center gap-4">
+                              <div className="flex-1 min-w-0">
                                   <p className="font-semibold text-base truncate">{studentName}</p>
                                   <p className="text-sm text-muted-foreground truncate">{studentEmail}</p>
                               </div>
-                              <Badge variant="secondary" className="justify-self-end">{certificates.length} Cert(s)</Badge>
+                              <Badge variant="secondary" className="flex-shrink-0">
+                                  {certificates.length} Cert(s)
+                              </Badge>
                           </div>
                         </AccordionTrigger>
                         <AccordionContent>
