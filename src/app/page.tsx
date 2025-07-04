@@ -391,7 +391,7 @@ function AdminHomePageContent() {
                                           <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
                                           <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={30} />
                                           <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
-                                          <Line type="monotone" dataKey="count" stroke="#8884d8" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
+                                          <Line type="monotone" dataKey="count" stroke="hsl(var(--chart-1))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
                                         </RechartsLineChart>
                                     </ChartContainer>
                                 </CardContent>
@@ -451,14 +451,14 @@ function AdminHomePageContent() {
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>
-                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentName')} className="p-0 hover:bg-transparent">
+                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentName')} className="p-0">
                                                 Student Name
                                                 {sortConfig.key === 'studentName' && (sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-4 w-4" /> : <ArrowDown className="ml-2 h-4 w-4" />)}
                                             </Button>
                                         </TableHead>
                                         <TableHead>Email</TableHead>
                                         <TableHead>
-                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentRollNo')} className="p-0 hover:bg-transparent">
+                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentRollNo')} className="p-0">
                                                 Roll No.
                                                 {sortConfig.key === 'studentRollNo' && (sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-4 w-4" /> : <ArrowDown className="ml-2 h-4 w-4" />)}
                                             </Button>
