@@ -3,7 +3,7 @@
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { useAuth } from '@/hooks/useAuth';
-import { LayoutDashboard, Loader2, AlertCircle, Search, Download, FileText, BarChart2, PieChart as PieChartIcon, LineChart as LineChartIcon, Mail, Hash, View, ArrowUp, ArrowDown } from 'lucide-react';
+import { LayoutDashboard, Loader2, AlertCircle, Search, Download, FileText, BarChart2, PieChart as PieChartIcon, LineChart as LineChartIcon, ArrowUp, ArrowDown, View } from 'lucide-react';
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -266,8 +266,8 @@ function AdminHomePageContent() {
         const studentIdsWithCert = new Set(searchResults.map(item => item.studentId));
         const numStudentsWithCert = studentIdsWithCert.size;
         return [
-            { name: 'has-certificate', value: numStudentsWithCert, fill: 'var(--color-has-certificate)' },
-            { name: 'does-not-have', value: allStudents.length - numStudentsWithCert, fill: 'var(--color-does-not-have)' }
+            { name: 'has-certificate', value: numStudentsWithCert },
+            { name: 'does-not-have', value: allStudents.length - numStudentsWithCert }
         ];
     }, [searchTerm, searchResults, allStudents]);
 
@@ -424,13 +424,10 @@ function AdminHomePageContent() {
                                             <PieChart>
                                                 <ChartTooltip content={<ChartTooltipContent indicator="dot" nameKey="name" />} />
                                                 <Pie data={gaugeChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={60} startAngle={180} endAngle={0}>
-                                                     {gaugeChartData.map((entry, index) => (
-                                                        <Cell key={`cell-${index}`} fill={entry.fill} />
-                                                     ))}
                                                 </Pie>
                                             </PieChart>
                                          </ChartContainer>
-                                         <p className="text-center font-bold text-lg -mt-8">{gaugeChartData[0]?.value || 0} of {allStudents.length} students</p>
+                                         <p className="text-center font-bold text-lg -mt-8">{gaugeChartData.find(d => d.name === 'has-certificate')?.value || 0} of {allStudents.length} students</p>
                                          <p className="text-center text-sm text-muted-foreground">have this certificate.</p>
                                     </CardContent>
                                 </Card>
