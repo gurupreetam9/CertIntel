@@ -17,7 +17,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from '@/components/ui/chart';
-import { PieChart as RechartsPieChart, LineChart as RechartsLineChart, Pie, Line, XAxis, YAxis, CartesianGrid, Cell, Sector } from 'recharts';
+import { PieChart as RechartsPieChart, LineChart as RechartsLineChart, Pie, Line, XAxis, YAxis, CartesianGrid, Cell, Sector, BarChart as RechartsBarChart, Bar, ResponsiveContainer, Tooltip as RechartsTooltip, Legend } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
@@ -135,23 +135,51 @@ const renderActiveShape = (props: any) => {
   const cos = Math.cos(-RADIAN * midAngle);
   const sx = cx + (outerRadius + 10) * cos;
   const sy = cy + (outerRadius + 10) * sin;
-  const mx = cx + (outerRadius + 30) * cos;
-  const my = cy + (outerRadius + 30) * sin;
-  const ex = mx + (cos >= 0 ? 1 : -1) * 22;
+  const mx = cx + (outerRadius + 20) * cos;
+  const my = cy + (outerRadius + 20) * sin;
+  const ex = mx + (cos >= 0 ? 1 : -1) * 12;
   const ey = my;
   const textAnchor = cos >= 0 ? 'start' : 'end';
 
   return (
     <g>
-      <text x={cx} y={cy} dy={8} textAnchor="middle" fill={fill} className="font-bold">{payload.name}</text>
-      <Sector cx={cx} cy={cy} innerRadius={innerRadius} outerRadius={outerRadius} startAngle={startAngle} endAngle={endAngle} fill={fill} />
-      <Sector cx={cx} cy={cy} startAngle={startAngle} endAngle={endAngle} innerRadius={outerRadius + 6} outerRadius={outerRadius + 10} fill={fill} />
+      {/* The active sector is drawn */}
+      <Sector
+        cx={cx}
+        cy={cy}
+        innerRadius={innerRadius}
+        outerRadius={outerRadius}
+        startAngle={startAngle}
+        endAngle={endAngle}
+        fill={fill}
+      />
+      {/* The exploded connector sector */}
+      <Sector
+        cx={cx}
+        cy={cy}
+        startAngle={startAngle}
+        endAngle={endAngle}
+        innerRadius={outerRadius + 4}
+        outerRadius={outerRadius + 8}
+        fill={fill}
+      />
+      {/* The line connecting to the text */}
       <path d={`M${sx},${sy}L${mx},${my}L${ex},${ey}`} stroke={fill} fill="none" />
       <circle cx={ex} cy={ey} r={2} fill={fill} stroke="none" />
-      <text x={ex + (cos >= 0 ? 1 : -1) * 12} y={ey} textAnchor={textAnchor} fill="#333" className="text-sm">{`${value} Certs`}</text>
-      <text x={ex + (cos >= 0 ? 1 : -1) * 12} y={ey} dy={18} textAnchor={textAnchor} fill="#999" className="text-xs">{`(Rate ${(percent * 100).toFixed(2)}%)`}</text>
+      {/* The text block, now outside the pie */}
+      <text x={ex + (cos >= 0 ? 1 : -1) * 8} y={ey} textAnchor={textAnchor} fill="hsl(var(--foreground))" className="text-sm font-semibold">
+        {payload.name}
+      </text>
+      <text x={ex + (cos >= 0 ? 1 : -1) * 8} y={ey} dy={16} textAnchor={textAnchor} fill="hsl(var(--muted-foreground))" className="text-xs">
+        {`${value} Certs (${(percent * 100).toFixed(0)}%)`}
+      </text>
     </g>
   );
+};
+
+const truncateText = (text: string, maxLength: number): string => {
+    if (text.length <= maxLength) return text;
+    return `${text.substring(0, maxLength)}...`;
 };
 
 function AdminHomePageContent() {
@@ -172,7 +200,7 @@ function AdminHomePageContent() {
         const fetchData = async () => {
             if (!user) return;
             setIsLoading(true);
-            setError(null);
+setError(null);
             try {
                 const idToken = await user.getIdToken();
                 const response = await fetch('/api/admin/dashboard-data', {
@@ -214,12 +242,21 @@ function AdminHomePageContent() {
 
     const chartData = useMemo(() => {
         const courseCounts: { [key: string]: number } = {};
+        const studentCountsPerCourse: { [key: string]: Set<string> } = {};
         const completionTrends: { [key: string]: number } = {};
 
         dashboardData.forEach(cert => {
             const courseName = cert.originalName;
+            // Total Certificates per Course
             courseCounts[courseName] = (courseCounts[courseName] || 0) + 1;
             
+            // Unique Students per Course
+            if (!studentCountsPerCourse[courseName]) {
+                studentCountsPerCourse[courseName] = new Set();
+            }
+            studentCountsPerCourse[courseName].add(cert.studentId);
+            
+            // Uploads over time
             const date = format(parseISO(cert.uploadDate), 'yyyy-MM-dd');
             completionTrends[date] = (completionTrends[date] || 0) + 1;
         });
@@ -239,7 +276,7 @@ function AdminHomePageContent() {
     const lineChartConfig = {
         count: {
             label: "Uploads",
-            color: "hsl(var(--primary))",
+            color: "hsl(var(--chart-1))",
         },
     } satisfies ChartConfig;
 
@@ -285,21 +322,24 @@ function AdminHomePageContent() {
         const studentIdsWithCert = new Set(searchResults.map(item => item.studentId));
         const numStudentsWithCert = studentIdsWithCert.size;
         return [
-            { name: 'Has Certificate', value: numStudentsWithCert, fill: 'hsl(var(--primary))' },
+            { name: 'Has Certificate', value: numStudentsWithCert, fill: 'hsl(var(--chart-1))' },
             { name: 'Does Not Have', value: allStudents.length - numStudentsWithCert, fill: 'hsl(var(--muted))' }
         ];
     }, [searchTerm, searchResults, allStudents]);
     
     const gaugeChartConfig = {
+        value: {
+            label: "Students",
+        },
         'Has Certificate': {
           label: 'Has Certificate',
-          color: 'hsl(var(--primary))'
+          color: 'hsl(var(--chart-1))'
         },
         'Does Not Have': {
           label: 'Does Not Have',
           color: 'hsl(var(--muted))'
         },
-      } satisfies ChartConfig;
+    } satisfies ChartConfig;
 
     const handleDownloadZip = async () => {
         const fileIdsToDownload = searchResults.flatMap(student => student.certificates.map((cert: any) => cert.fileId));
@@ -380,8 +420,8 @@ function AdminHomePageContent() {
                             <CardHeader>
                                 <CardTitle className="flex items-center"><PieChart className="mr-2"/>Top 10 Course Certificate Distribution</CardTitle>
                             </CardHeader>
-                            <CardContent>
-                                <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[300px] sm:h-[400px]">
+                            <CardContent className="flex justify-center items-center">
+                                <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[250px] sm:h-[400px]">
                                     <RechartsPieChart>
                                         <ChartTooltip content={<ChartTooltipContent hideLabel />} />
                                         <Pie 
@@ -408,11 +448,11 @@ function AdminHomePageContent() {
                                 <CardTitle className="flex items-center"><LineChart className="mr-2"/>Certificate Uploads Over Time</CardTitle>
                             </CardHeader>
                             <CardContent>
-                               <ChartContainer config={lineChartConfig} className="h-[300px] w-full sm:h-[400px]">
+                               <ChartContainer config={lineChartConfig} className="h-[250px] w-full sm:h-[400px]">
                                     <RechartsLineChart accessibilityLayer data={chartData.lineChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                                       <CartesianGrid strokeDasharray="3 3" />
                                       <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
-                                      <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+                                      <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={30} />
                                       <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
                                       <ChartLegend content={<ChartLegendContent />} />
                                       <Line type="monotone" dataKey="count" stroke="var(--color-count)" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
@@ -446,7 +486,7 @@ function AdminHomePageContent() {
                                 <CardContent className="flex flex-col items-center justify-center p-4">
                                      <ChartContainer config={gaugeChartConfig} className="mx-auto aspect-square h-[150px]">
                                         <RechartsPieChart>
-                                            <ChartTooltip content={<ChartTooltipContent hideLabel nameKey="name" />} />
+                                            <ChartTooltip content={<ChartTooltipContent indicator="dot" nameKey="name" />} />
                                             <Pie data={gaugeChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={60} startAngle={180} endAngle={0}>
                                                  {gaugeChartData.map((entry, index) => (
                                                     <Cell key={`cell-${index}`} fill={entry.fill} />
