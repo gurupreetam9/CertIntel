@@ -403,7 +403,7 @@ function AdminHomePageContent() {
                                 <CardTitle className="flex items-center"><PieChart className="mr-2"/>Top 10 Course Certificate Distribution</CardTitle>
                             </CardHeader>
                             <CardContent>
-                                <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[450px]">
+                                <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[300px] lg:h-[450px]">
                                     <RechartsPieChart>
                                         <ChartTooltip content={<ChartTooltipContent hideLabel />} />
                                         <Pie 
@@ -411,7 +411,7 @@ function AdminHomePageContent() {
                                             cx="50%" 
                                             cy="50%" 
                                             labelLine={false}
-                                            outerRadius={140}
+                                            outerRadius="80%"
                                             dataKey="value"
                                             activeIndex={activePieIndex}
                                             activeShape={renderActiveShape}
@@ -425,16 +425,16 @@ function AdminHomePageContent() {
                                 </ChartContainer>
                             </CardContent>
                         </Card>
-                        <Card>
+                         <Card>
                              <CardHeader>
                                 <CardTitle className="flex items-center"><LineChart className="mr-2"/>Certificate Uploads Over Time</CardTitle>
                             </CardHeader>
                             <CardContent>
-                               <ChartContainer config={lineChartConfig} className="h-[450px] w-full">
-                                    <RechartsLineChart accessibilityLayer data={chartData.lineChartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                               <ChartContainer config={lineChartConfig} className="h-[300px] w-full lg:h-[450px]">
+                                    <RechartsLineChart accessibilityLayer data={chartData.lineChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                                       <CartesianGrid strokeDasharray="3 3" />
                                       <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
-                                      <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+                                      <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={40}/>
                                       <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
                                       <ChartLegend content={<ChartLegendContent />} />
                                       <Line type="monotone" dataKey="count" stroke="var(--color-count)" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
@@ -447,11 +447,11 @@ function AdminHomePageContent() {
                                 <CardTitle className="flex items-center"><Users className="mr-2"/>Top 10 Courses by Student Count</CardTitle>
                             </CardHeader>
                             <CardContent>
-                                <ChartContainer config={barChartConfig} className="min-h-[450px] w-full">
+                                <ChartContainer config={barChartConfig} className="h-[450px] w-full">
                                     <RechartsBarChart accessibilityLayer data={chartData.barChartData} layout="vertical" margin={{ left: 150, right: 30 }}>
                                       <CartesianGrid strokeDasharray="3 3" />
                                       <XAxis type="number" hide />
-                                      <YAxis dataKey="name" type="category" tickLine={false} tickMargin={10} axisLine={false} tick={{ fontSize: 12 }} />
+                                      <YAxis dataKey="name" type="category" tickLine={false} tickMargin={10} axisLine={false} tick={{ fontSize: 12 }} width={200} />
                                       <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
                                       <Bar dataKey="students" fill="var(--color-students)" radius={4} />
                                     </RechartsBarChart>
@@ -463,45 +463,6 @@ function AdminHomePageContent() {
               </AccordionItem>
             </Accordion>
             
-            <Accordion type="single" collapsible className="w-full">
-                <AccordionItem value="item-1">
-                    <AccordionTrigger className="text-xl font-semibold">
-                       <div className="flex items-center gap-2">
-                         <FileTextIcon className="h-6 w-6" /> All Certificates
-                       </div>
-                    </AccordionTrigger>
-                    <AccordionContent className="space-y-4 pt-4">
-                      {allStudents.map(student => (
-                        <Accordion key={student.studentId} type="single" collapsible className="w-full border rounded-md px-4">
-                            <AccordionItem value={student.studentId}>
-                                <AccordionTrigger>
-                                    <div className="flex items-center justify-between w-full">
-                                        <div className="flex-1 min-w-0">
-                                            <p className="font-semibold truncate">{student.studentName}</p>
-                                            <p className="text-sm text-muted-foreground truncate">{student.studentEmail}</p>
-                                        </div>
-                                        <div className="ml-4 shrink-0 bg-muted text-muted-foreground text-xs font-medium px-2 py-1 rounded-md">
-                                            {student.certificateCount} Certs
-                                        </div>
-                                    </div>
-                                </AccordionTrigger>
-                                <AccordionContent>
-                                    <ul className="space-y-2 pt-2">
-                                        {dashboardData.filter(c => c.studentId === student.studentId).map(cert => (
-                                            <li key={cert.fileId} className="flex justify-between items-center p-2 rounded-md hover:bg-muted/50">
-                                                <span className="truncate text-sm">{cert.originalName}</span>
-                                                <Button variant="outline" size="sm" asChild><a href={`/api/images/${cert.fileId}`} target="_blank" rel="noopener noreferrer"><View className="mr-2 h-4 w-4"/>View</a></Button>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </AccordionContent>
-                            </AccordionItem>
-                        </Accordion>
-                      ))}
-                    </AccordionContent>
-                </AccordionItem>
-            </Accordion>
-
             <Card>
                 <CardHeader>
                     <CardTitle className="flex items-center"><Search className="mr-2" />Course & Certificate Search</CardTitle>
@@ -549,27 +510,39 @@ function AdminHomePageContent() {
             {searchTerm && (
               <div className="space-y-4">
                 <h3 className="text-xl font-bold font-headline">Search Results for "{searchTerm}"</h3>
-                {searchResults.length > 0 ? (
-                  searchResults.map((student: any) => (
-                    <Card key={student.studentId}>
-                      <CardHeader>
-                        <CardTitle>{student.studentName}</CardTitle>
-                        <CardDescription>
-                          {student.studentEmail} {student.studentRollNo && `| ${student.studentRollNo}`}
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <ul className="space-y-2">
-                          {student.certificates.map((cert: any) => (
-                            <li key={cert.fileId} className="flex justify-between items-center p-2 rounded-md hover:bg-muted/50">
-                              <span className="truncate text-sm">{cert.originalName}</span>
-                              <Button variant="outline" size="sm" asChild><a href={`/api/images/${cert.fileId}`} target="_blank" rel="noopener noreferrer"><View className="mr-2 h-4 w-4"/>View</a></Button>
-                            </li>
-                          ))}
-                        </ul>
-                      </CardContent>
-                    </Card>
-                  ))
+                 {searchResults.length > 0 ? (
+                    <div className="border rounded-lg">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Student</TableHead>
+                                    <TableHead>Certificate</TableHead>
+                                    <TableHead className="text-right">Action</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {searchResults.map((student: any) =>
+                                    student.certificates.map((cert: any) => (
+                                        <TableRow key={cert.fileId}>
+                                            <TableCell>
+                                                <div className="font-medium">{student.studentName}</div>
+                                                <div className="text-xs text-muted-foreground flex items-center gap-1"><Mail className="h-3 w-3" />{student.studentEmail}</div>
+                                                {student.studentRollNo && <div className="text-xs text-muted-foreground flex items-center gap-1"><Hash className="h-3 w-3" />{student.studentRollNo}</div>}
+                                            </TableCell>
+                                            <TableCell>{cert.originalName}</TableCell>
+                                            <TableCell className="text-right">
+                                                <Button variant="outline" size="sm" asChild>
+                                                    <a href={`/api/images/${cert.fileId}`} target="_blank" rel="noopener noreferrer">
+                                                        <View className="mr-2 h-4 w-4" />View
+                                                    </a>
+                                                </Button>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
                 ) : (
                   <p className="text-center text-muted-foreground mt-8">No students found with a certificate matching your search.</p>
                 )}
