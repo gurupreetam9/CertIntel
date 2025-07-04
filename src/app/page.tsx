@@ -32,6 +32,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 
 // Combined type for admin dashboard data
@@ -183,6 +184,7 @@ function AdminHomePageContent() {
     const [error, setError] = useState<string | null>(null);
     const { user } = useAuth();
     const { toast } = useToast();
+    const isMobile = useIsMobile();
 
     // Filter states
     const [dateRange, setDateRange] = useState<DateRange | undefined>();
@@ -385,7 +387,7 @@ function AdminHomePageContent() {
 
     const formatXAxisTick = (tick: string) => {
         if (typeof tick !== 'string') return tick;
-        const maxLength = 10;
+        const maxLength = isMobile ? 8 : 12; // Shorter length on mobile
         return tick.length > maxLength ? `${tick.substring(0, maxLength)}...` : tick;
     };
 
@@ -416,9 +418,9 @@ function AdminHomePageContent() {
                 <CardContent className="p-0 pt-4 pr-2 sm:pr-4 h-[250px] sm:h-[300px]">
                     <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--primary))" } }}>
                         <ResponsiveContainer>
-                            <BarChart data={monthlyUploads} margin={{ top: 10, right: 10, bottom: 40, left: 0 }}>
+                            <BarChart data={monthlyUploads} margin={{ top: 10, right: 10, bottom: isMobile ? 50 : 40, left: 0 }}>
                                 <CartesianGrid vertical={false} />
-                                <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} angle={-45} textAnchor="end" height={50} />
+                                <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} angle={isMobile ? -45 : 0} textAnchor={isMobile ? "end" : "middle"} height={isMobile ? 60 : 50} tickFormatter={formatXAxisTick} />
                                 <YAxis tickLine={false} axisLine={false} tickMargin={8} allowDecimals={false}/>
                                 <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
                                 <Bar dataKey="certificates" fill="var(--color-certificates)" radius={[4, 4, 0, 0]} />
@@ -432,7 +434,7 @@ function AdminHomePageContent() {
                 <CardContent className="p-0 pt-4 pr-2 sm:pr-4 h-[250px] sm:h-[300px]">
                     <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--accent))" } }}>
                        <ResponsiveContainer>
-                            <BarChart data={topStudentsData} margin={{ top: 10, right: 10, bottom: 20, left: 10 }}>
+                            <BarChart data={topStudentsData} margin={{ top: 10, right: 10, bottom: 20, left: -10 }}>
                                 <CartesianGrid vertical={false} />
                                 <XAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} tickFormatter={formatXAxisTick} interval={0} />
                                 <YAxis type="number" allowDecimals={false} />
@@ -468,7 +470,7 @@ function AdminHomePageContent() {
                           onChange={(e) => setSearchTerm(e.target.value)}
                       />
                     </div>
-                    <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 flex-wrap">
                       <Popover>
                         <PopoverTrigger asChild>
                             <Button variant={"outline"} className="w-full sm:w-auto justify-start text-left font-normal">
@@ -605,11 +607,13 @@ function AdminHomePageContent() {
                       {groupedAndSortedData.map(({ studentId, studentName, studentEmail, certificates }) => (
                         <AccordionItem key={studentId} value={studentId} className="border rounded-lg shadow-sm bg-background/50 data-[state=open]:shadow-md">
                             <AccordionTrigger className="p-3 sm:p-4 hover:no-underline text-left">
-                                <div className="flex-grow">
-                                    <p className="text-lg font-semibold">{studentName}</p>
-                                    <p className="text-sm text-muted-foreground">{studentEmail}</p>
+                                <div className="flex-1 min-w-0">
+                                    <p className="truncate text-lg font-semibold">{studentName}</p>
+                                    <p className="truncate text-sm text-muted-foreground">{studentEmail}</p>
                                 </div>
-                                <Badge variant="secondary" className="ml-4">{certificates.length} Certificate(s)</Badge>
+                                <Badge variant="secondary" className="ml-4 flex-shrink-0 whitespace-nowrap">
+                                  {certificates.length} Certificate(s)
+                                </Badge>
                             </AccordionTrigger>
                             <AccordionContent className="px-2 sm:px-4 pb-4">
                                 <ul className="space-y-4 pt-4 border-t">
