@@ -13,7 +13,7 @@ import UploadFAB from '@/components/home/UploadFAB';
 import AiFAB from '@/components/home/AiFAB';
 
 // --- Admin-specific imports ---
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, AreaChart, Area, RadialBarChart, RadialBar, PolarAngleAxis } from 'recharts';
 import { format, isAfter, isBefore, startOfMonth, endOfMonth } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
 import { ChartContainer, ChartTooltipContent } from "@/components/ui/chart";
@@ -32,7 +32,6 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Progress } from '@/components/ui/progress';
 
 
 // Combined type for admin dashboard data
@@ -138,6 +137,48 @@ function StudentHomePageContent() {
 // ====================================================================================
 // Admin Home Page Content (New Dashboard)
 // ====================================================================================
+
+// --- Reusable Gauge Chart Component for Search Analytics ---
+const GaugeChart = ({ value, totalValue, label }: { value: number; totalValue: number; label: string }) => {
+  const percentage = totalValue > 0 ? (value / totalValue) * 100 : 0;
+  const data = [{ name: 'value', value: percentage }];
+
+  return (
+    <div className="relative w-full h-[120px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <RadialBarChart
+          innerRadius="75%"
+          outerRadius="100%"
+          barSize={12}
+          data={data}
+          startAngle={180}
+          endAngle={0}
+        >
+          <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
+          <RadialBar
+            background
+            dataKey="value"
+            cornerRadius={10}
+            className="fill-muted"
+            angleAxisId={0}
+          />
+          <RadialBar
+            dataKey="value"
+            cornerRadius={10}
+            className="fill-primary"
+            angleAxisId={0}
+          />
+        </RadialBarChart>
+      </ResponsiveContainer>
+      <div className="absolute inset-0 flex flex-col items-center justify-center text-center -translate-y-2">
+        <span className="text-3xl font-bold text-foreground">{value}</span>
+        <span className="text-xs text-muted-foreground">{label}</span>
+      </div>
+    </div>
+  );
+};
+
+
 function AdminHomePageContent() {
     const [allData, setAllData] = useState<AdminDashboardData[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -216,7 +257,6 @@ function AdminHomePageContent() {
     const groupedAndSortedData = useMemo(() => {
       const studentCertificateMap = new Map<string, AdminDashboardData[]>();
   
-      // Group certificates by student from the filtered data
       filteredData.forEach(cert => {
           if (!studentCertificateMap.has(cert.studentId)) {
               studentCertificateMap.set(cert.studentId, []);
@@ -234,12 +274,10 @@ function AdminHomePageContent() {
           };
       });
   
-      // Sort the student groups themselves if requested
       if (sortOrder === 'student') {
           studentArray.sort((a, b) => a.studentName.localeCompare(b.studentName));
       }
       
-      // Sort the certificates *within* each student group, regardless of the group sort order
       studentArray.forEach(student => {
           let certs = [...student.certificates];
           switch (sortOrder) {
@@ -250,7 +288,7 @@ function AdminHomePageContent() {
                 certs.sort((a, b) => a.originalName.localeCompare(b.originalName));
                 break;
               case 'newest':
-              case 'student': // also sort by newest within student group
+              case 'student':
               default:
                 certs.sort((a, b) => new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime());
                 break;
@@ -389,12 +427,12 @@ function AdminHomePageContent() {
                 <CardContent>
                     <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--accent))" } }} className="h-[300px] w-full">
                        <ResponsiveContainer>
-                            <BarChart data={topStudentsData} margin={{ top: 10, right: 10, bottom: 0, left: 10 }}>
-                                <CartesianGrid vertical={false} />
-                                <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} interval={0} />
-                                <YAxis allowDecimals={false} />
+                            <BarChart data={topStudentsData} layout="vertical" margin={{ top: 10, right: 10, bottom: 0, left: 10 }}>
+                                <CartesianGrid horizontal={false} />
+                                <YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={8} width={80} interval={0} />
+                                <XAxis type="number" allowDecimals={false} />
                                 <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
-                                <Bar dataKey="certificates" fill="var(--color-certificates)" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="certificates" fill="var(--color-certificates)" radius={[0, 4, 4, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     </ChartContainer>
@@ -491,47 +529,37 @@ function AdminHomePageContent() {
                 {searchTerm ? (
                   <div className="mt-6 space-y-6">
                     {/* Search Analytics Section */}
-                     <div className="grid gap-6 md:grid-cols-2">
-                        <Card>
-                            <CardHeader className='pb-2'>
-                                <CardTitle className="text-base font-medium">Certificate Matches</CardTitle>
-                                <CardDescription>
-                                Found {filteredData.length} certificates out of {allData.length} total.
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <ChartContainer config={{ value: { color: "hsl(var(--primary))" } }} className="h-[50px] w-full">
-                                    <BarChart 
-                                        data={[{ name: "A", value: filteredData.length }]}
-                                        margin={{ top: 5, right: 5, left: 5, bottom: 0 }}
-                                    >
-                                        <YAxis hide domain={[0, allData.length > 0 ? allData.length : 1]} />
-                                        <XAxis dataKey="name" hide />
-                                        <Bar dataKey="value" fill="var(--color-value)" radius={[4, 4, 0, 0]} />
-                                    </BarChart>
-                                </ChartContainer>
-                            </CardContent>
-                        </Card>
-                        <Card>
-                            <CardHeader className='pb-2'>
-                                <CardTitle className="text-base font-medium">Student Matches</CardTitle>
-                                <CardDescription>
-                                    {new Set(filteredData.map(d => d.studentId)).size} students have certificates matching "{searchTerm}" out of {uniqueStudents.length} total.
-                                </CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <ChartContainer config={{ value: { color: "hsl(var(--primary))" } }} className="h-[50px] w-full">
-                                     <BarChart 
-                                        data={[{ name: "A", value: new Set(filteredData.map(d => d.studentId)).size }]}
-                                        margin={{ top: 5, right: 5, left: 5, bottom: 0 }}
-                                    >
-                                        <YAxis hide domain={[0, uniqueStudents.length > 0 ? uniqueStudents.length : 1]} />
-                                        <XAxis dataKey="name" hide />
-                                        <Bar dataKey="value" fill="var(--color-value)" radius={[4, 4, 0, 0]} />
-                                    </BarChart>
-                                </ChartContainer>
-                            </CardContent>
-                        </Card>
+                    <div className="grid gap-6 md:grid-cols-2">
+                      <Card>
+                          <CardHeader className='pb-2'>
+                              <CardTitle className="text-base font-medium">Certificate Matches</CardTitle>
+                          </CardHeader>
+                          <CardContent className="flex flex-col items-center justify-center gap-2">
+                              <GaugeChart
+                                  value={filteredData.length}
+                                  totalValue={allData.length}
+                                  label={`out of ${allData.length} total`}
+                              />
+                              <CardDescription>
+                                  Found {filteredData.length} certificates matching your search.
+                              </CardDescription>
+                          </CardContent>
+                      </Card>
+                      <Card>
+                          <CardHeader className='pb-2'>
+                              <CardTitle className="text-base font-medium">Student Matches</CardTitle>
+                          </CardHeader>
+                          <CardContent className="flex flex-col items-center justify-center gap-2">
+                              <GaugeChart
+                                  value={new Set(filteredData.map(d => d.studentId)).size}
+                                  totalValue={uniqueStudents.length}
+                                  label={`out of ${uniqueStudents.length} total`}
+                              />
+                              <CardDescription>
+                                  {new Set(filteredData.map(d => d.studentId)).size} students have certificates matching "{searchTerm}".
+                              </CardDescription>
+                          </CardContent>
+                      </Card>
                     </div>
 
                     {/* Results Table */}
@@ -641,3 +669,5 @@ function HomePage() {
 }
 
 export default HomePage;
+
+    
