@@ -7,55 +7,66 @@ if (typeof window !== 'undefined') {
 }
 
 if (!admin.apps.length) {
+  console.log('Firebase Admin SDK: Initializing a new Firebase app...');
+
   try {
     const serviceAccountEnv = process.env.GOOGLE_APPLICATION_CREDENTIALS;
     const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
 
-    if (!projectId) {
-      throw new Error("NEXT_PUBLIC_FIREBASE_PROJECT_ID is not set. Admin SDK cannot be initialized without it.");
-    }
-
-    // This is the most reliable way: service account JSON content is in the env var.
-    if (serviceAccountEnv && serviceAccountEnv.trim().startsWith('{')) {
-      console.log('Firebase Admin SDK: Attempting initialization using JSON content from GOOGLE_APPLICATION_CREDENTIALS.');
-      const serviceAccount = JSON.parse(serviceAccountEnv);
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-        projectId: serviceAccount.project_id || projectId, // Prefer project_id from the key itself
-      });
-      console.log('Firebase Admin SDK: Initialized successfully using JSON content.');
-    
-    // This is the standard for deployed Google Cloud environments (App Hosting, Cloud Run, etc.)
-    // It will also pick up file paths from GOOGLE_APPLICATION_CREDENTIALS for local dev.
+    // Log the state of relevant environment variables for debugging
+    console.log(`Firebase Admin SDK Debug: NEXT_PUBLIC_FIREBASE_PROJECT_ID = "${projectId}"`);
+    if (serviceAccountEnv) {
+      const isJson = serviceAccountEnv.trim().startsWith('{');
+      console.log(`Firebase Admin SDK Debug: GOOGLE_APPLICATION_CREDENTIALS is SET. Length: ${serviceAccountEnv.length}. Is it JSON? ${isJson}.`);
+      if (!isJson) {
+        console.log(`Firebase Admin SDK Debug: GOOGLE_APPLICATION_CREDENTIALS is treated as a file path: "${serviceAccountEnv}"`);
+      }
     } else {
-        console.log('Firebase Admin SDK: GOOGLE_APPLICATION_CREDENTIALS is not a JSON object. Attempting initialization using Application Default Credentials (ADC).');
-        if (serviceAccountEnv) {
-            console.log(`Firebase Admin SDK: The GOOGLE_APPLICATION_CREDENTIALS environment variable is set and will be used by ADC as a file path: '${serviceAccountEnv}'`);
-        } else {
-            console.log('Firebase Admin SDK: The GOOGLE_APPLICATION_CREDENTIALS environment variable is NOT set. ADC will attempt to use ambient credentials from the environment (e.g., metadata server).');
-        }
-
-        admin.initializeApp({
-            credential: admin.credential.applicationDefault(),
-            projectId: projectId,
-        });
-
-        console.log('Firebase Admin SDK: Initialized successfully using Application Default Credentials (ADC). NOTE: Runtime authentication errors can still occur if the ADC environment is not configured correctly (e.g., IAM permissions, network access to metadata server).');
+      console.log('Firebase Admin SDK Debug: GOOGLE_APPLICATION_CREDENTIALS is NOT SET.');
     }
-  } catch (error: any) {
-    console.error('Firebase Admin SDK initialization error:', {
-      message: error.message,
-      code: error.code,
-      stack: error.stack?.substring(0, 400)
+
+    if (!projectId) {
+      throw new Error("CRITICAL: NEXT_PUBLIC_FIREBASE_PROJECT_ID is not set. Admin SDK cannot be initialized without it.");
+    }
+
+    let credential;
+    if (serviceAccountEnv && serviceAccountEnv.trim().startsWith('{')) {
+      console.log('Firebase Admin SDK: Using JSON from GOOGLE_APPLICATION_CREDENTIALS.');
+      const serviceAccount = JSON.parse(serviceAccountEnv);
+      credential = admin.credential.cert(serviceAccount);
+    } else {
+      console.log('Firebase Admin SDK: Using Application Default Credentials (ADC).');
+      credential = admin.credential.applicationDefault();
+    }
+
+    admin.initializeApp({
+      credential,
+      projectId,
     });
+
+    console.log('Firebase Admin SDK: Initialization successful.');
+
+  } catch (error: any) {
+    console.error('CRITICAL: Firebase Admin SDK initialization FAILED.');
+    console.error({
+      errorMessage: error.message,
+      errorCode: error.code,
+      errorStack: error.stack?.substring(0, 500) // Log a portion of the stack
+    });
+    
+    // Add helpful hints based on common errors
     if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === undefined) {
-        console.warn("\n--- Firebase Admin SDK Development Hint ---\nFor local development, the easiest way to authenticate is to run `gcloud auth application-default login` in your terminal. Alternatively, set the GOOGLE_APPLICATION_CREDENTIALS environment variable to the absolute file path of your service account key JSON file.\n------------------------------------------\n");
+      console.warn("\n--- Firebase Admin SDK Development Hint ---\nFor local development with ADC, run `gcloud auth application-default login` in your terminal. Alternatively, set GOOGLE_APPLICATION_CREDENTIALS to the absolute path of your service account JSON file.\n------------------------------------------\n");
     }
-    if (error.message && error.message.includes("ENOENT")) {
-        console.warn("\n--- Firebase Admin SDK HINT (ENOENT) ---\nThe error 'ENOENT' (no such file or directory) usually means the GOOGLE_APPLICATION_CREDENTIALS environment variable is set to a file path that does not exist. Please verify the path is correct and accessible.\n------------------------------------------\n");
+    if (error.message && (error.message.includes("ENOENT") || error.message.includes("no such file or directory"))) {
+      console.warn("\n--- Firebase Admin SDK HINT (ENOENT) ---\nThe error indicates the GOOGLE_APPLICATION_CREDENTIALS file path is incorrect or the file doesn't exist. Please verify the path.\n------------------------------------------\n");
+    }
+     if (error.message && error.message.includes("Permission denied")) {
+      console.warn("\n--- Firebase Admin SDK HINT (Permission Denied) ---\nThe credentials being used do not have sufficient IAM permissions to access Firebase/Google Cloud services. Check the roles of the service account or user associated with your credentials (e.g., `gcloud auth list`).\n------------------------------------------\n");
     }
   }
 }
+
 
 let adminAuthInstance: admin.auth.Auth | undefined;
 let adminFirestoreInstance: admin.firestore.Firestore | undefined;
