@@ -108,7 +108,7 @@ function AdminHomePageContent() {
       direction: 'asc',
     });
 
-    const PRIMARY_CHART_COLOR = "hsl(var(--chart-1))";
+    const PRIMARY_CHART_COLOR = "hsl(45 90% 50%)"; // Correct, direct HSL value
 
 
     useEffect(() => {
@@ -193,7 +193,7 @@ function AdminHomePageContent() {
                 label: item.name,
                 color: COLORS[index % COLORS.length],
             };
-            return { ...item, key, name: item.name, fill: COLORS[index % COLORS.length] };
+            return { ...item, key, name: item.name };
         });
 
         const lineData = Object.entries(completionTrends)
@@ -356,7 +356,7 @@ function AdminHomePageContent() {
                                     <CardDescription>Click a slice to see details.</CardDescription>
                                 </CardHeader>
                                 <CardContent className="flex justify-center">
-                                    <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[350px] md:h-[450px]">
+                                    <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[300px] md:h-[450px]">
                                         <PieChart>
                                             <ChartTooltip content={<ChartTooltipContent nameKey="name" hideLabel />} />
                                             <Pie
@@ -369,13 +369,6 @@ function AdminHomePageContent() {
                                                 onClick={(data) => handlePieClick(data.payload.payload)}
                                                 className="cursor-pointer"
                                             >
-                                              {pieChartData.map((entry, index) => (
-                                                <Cell
-                                                  key={`cell-${index}`}
-                                                  fill={entry.fill}
-                                                  className="focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                                                />
-                                              ))}
                                             </Pie>
                                         </PieChart>
                                     </ChartContainer>
@@ -390,7 +383,7 @@ function AdminHomePageContent() {
                                      <CardDescription>Daily count of new certificate uploads.</CardDescription>
                                 </CardHeader>
                                 <CardContent>
-                                   <ChartContainer config={lineChartConfig} className="h-[350px] md:h-[450px] w-full">
+                                   <ChartContainer config={lineChartConfig} className="h-[300px] md:h-[450px] w-full">
                                         <RechartsLineChart accessibilityLayer data={lineChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                                           <CartesianGrid strokeDasharray="3 3" />
                                           <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
@@ -459,13 +452,13 @@ function AdminHomePageContent() {
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>
-                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentName')} className="p-0 text-primary hover:bg-transparent hover:text-primary/80">
+                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentName')} className="p-0 h-auto text-primary hover:bg-transparent hover:text-primary">
                                                 Student Name
                                                 {sortConfig.key === 'studentName' && (sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-4 w-4" /> : <ArrowDown className="ml-2 h-4 w-4" />)}
                                             </Button>
                                         </TableHead>
                                         <TableHead>
-                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentRollNo')} className="p-0 text-primary hover:bg-transparent hover:text-primary/80">
+                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentRollNo')} className="p-0 h-auto text-primary hover:bg-transparent hover:text-primary">
                                                 Roll No.
                                                 {sortConfig.key === 'studentRollNo' && (sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-4 w-4" /> : <ArrowDown className="ml-2 h-4 w-4" />)}
                                             </Button>
