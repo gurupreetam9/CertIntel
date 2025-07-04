@@ -144,12 +144,12 @@ const GaugeChart = ({ value, totalValue, label }: { value: number; totalValue: n
   const data = [{ name: 'value', value: percentage }];
 
   return (
-    <div className="relative w-full h-[180px]">
+    <div className="relative w-full h-[160px] sm:h-[180px]">
       <ResponsiveContainer width="100%" height="100%">
         <RadialBarChart
           innerRadius="75%"
           outerRadius="100%"
-          barSize={16}
+          barSize={12}
           data={data}
           startAngle={180}
           endAngle={0}
@@ -171,8 +171,8 @@ const GaugeChart = ({ value, totalValue, label }: { value: number; totalValue: n
         </RadialBarChart>
       </ResponsiveContainer>
       <div className="absolute inset-0 flex flex-col items-center justify-center text-center -translate-y-2">
-        <span className="text-3xl font-bold text-foreground">{value}</span>
-        <span className="text-sm text-muted-foreground">{label}</span>
+        <span className="text-2xl sm:text-3xl font-bold text-foreground">{value}</span>
+        <span className="text-xs sm:text-sm text-muted-foreground">{label}</span>
       </div>
     </div>
   );
@@ -409,7 +409,7 @@ function AdminHomePageContent() {
             <Card className="lg:col-span-3">
                 <CardHeader><CardTitle>Certificate Uploads Over Time</CardTitle></CardHeader>
                 <CardContent className="pl-2">
-                    <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--primary))" } }} className="h-[300px] w-full">
+                    <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--primary))" } }} className="h-[250px] w-full lg:h-[300px]">
                         <ResponsiveContainer>
                             <BarChart data={monthlyUploads} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
                                 <CartesianGrid vertical={false} />
@@ -425,11 +425,11 @@ function AdminHomePageContent() {
             <Card className="lg:col-span-2">
                 <CardHeader><CardTitle>Top Students by Certificate Count</CardTitle><CardDescription>Top 5 students in the filtered range.</CardDescription></CardHeader>
                 <CardContent>
-                    <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--accent))" } }} className="h-[300px] w-full">
+                    <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--accent))" } }} className="h-[250px] w-full lg:h-[300px]">
                        <ResponsiveContainer>
                             <BarChart data={topStudentsData} layout="vertical" margin={{ top: 10, right: 10, bottom: 0, left: 10 }}>
                                 <CartesianGrid horizontal={false} />
-                                <YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={8} width={80} interval={0} />
+                                <YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={8} width={80} />
                                 <XAxis type="number" allowDecimals={false} />
                                 <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
                                 <Bar dataKey="certificates" fill="var(--color-certificates)" radius={[0, 4, 4, 0]} />
@@ -529,7 +529,7 @@ function AdminHomePageContent() {
                 {searchTerm ? (
                   <div className="mt-6 space-y-6">
                     {/* Search Analytics Section */}
-                    <div className="grid gap-6 md:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                       <Card>
                           <CardHeader className='pb-2'>
                               <CardTitle className="text-base font-medium">Certificate Matches</CardTitle>
@@ -568,9 +568,9 @@ function AdminHomePageContent() {
                             <Table>
                                 <TableHeader>
                                     <TableRow>
-                                    <TableHead className="w-1/3 sm:w-[200px]">Student Name</TableHead>
-                                    <TableHead className="hidden md:table-cell">Email</TableHead>
-                                    <TableHead className="hidden lg:table-cell">Roll No</TableHead>
+                                    <TableHead>Student</TableHead>
+                                    <TableHead className="hidden sm:table-cell">Email</TableHead>
+                                    <TableHead className="hidden md:table-cell">Roll No</TableHead>
                                     <TableHead>Certificate</TableHead>
                                     </TableRow>
                                 </TableHeader>
@@ -578,8 +578,8 @@ function AdminHomePageContent() {
                                     {filteredData.map((cert) => (
                                     <TableRow key={cert.fileId}>
                                         <TableCell className="font-medium p-2 md:p-4">{cert.studentName}</TableCell>
-                                        <TableCell className="hidden md:table-cell p-2 md:p-4">{cert.studentEmail}</TableCell>
-                                        <TableCell className="hidden lg:table-cell p-2 md:p-4">{cert.studentRollNo || 'N/A'}</TableCell>
+                                        <TableCell className="hidden sm:table-cell p-2 md:p-4">{cert.studentEmail}</TableCell>
+                                        <TableCell className="hidden md:table-cell p-2 md:p-4">{cert.studentRollNo || 'N/A'}</TableCell>
                                         <TableCell className="p-2 md:p-4">
                                         <div className="flex flex-col gap-2 items-start">
                                             <span className="font-medium">{cert.originalName}</span>
@@ -669,3 +669,5 @@ function HomePage() {
 }
 
 export default HomePage;
+
+    
