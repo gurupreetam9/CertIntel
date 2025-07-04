@@ -3,7 +3,7 @@
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { useAuth } from '@/hooks/useAuth';
-import { Loader2, FileText as FileTextIcon, Search, Download, AlertCircle, BarChart2, PieChart, LineChart, Users, View, User, Mail, Hash } from 'lucide-react';
+import { Loader2, AlertCircle, Search, Download, FileText, BarChart2, PieChart as PieChartIcon, LineChart as LineChartIcon } from 'lucide-react';
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 
 // --- Student-specific imports ---
@@ -13,13 +13,14 @@ import UploadFAB from '@/components/home/UploadFAB';
 import AiFAB from '@/components/home/AiFAB';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from '@/components/ui/chart';
-import { PieChart as RechartsPieChart, LineChart as RechartsLineChart, Pie, Line, XAxis, YAxis, CartesianGrid, Cell, Sector, BarChart as RechartsBarChart, Bar, ResponsiveContainer, Tooltip as RechartsTooltip, Legend } from 'recharts';
+import { PieChart, LineChart as RechartsLineChart, Pie, Line, XAxis, YAxis, CartesianGrid, Cell, Sector, ResponsiveContainer } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Mail, Hash, View } from 'lucide-react';
 
 // ====================================================================================
 // Student Home Page Content
@@ -127,6 +128,11 @@ interface DashboardData {
     studentRollNo?: string;
 }
 
+const truncateText = (text: string, maxLength: number): string => {
+    if (text.length <= maxLength) return text;
+    return `${text.substring(0, maxLength)}...`;
+};
+
 // Active Shape for Pie Chart
 const renderActiveShape = (props: any) => {
   const RADIAN = Math.PI / 180;
@@ -135,15 +141,14 @@ const renderActiveShape = (props: any) => {
   const cos = Math.cos(-RADIAN * midAngle);
   const sx = cx + (outerRadius + 10) * cos;
   const sy = cy + (outerRadius + 10) * sin;
-  const mx = cx + (outerRadius + 20) * cos;
-  const my = cy + (outerRadius + 20) * sin;
-  const ex = mx + (cos >= 0 ? 1 : -1) * 12;
+  const mx = cx + (outerRadius + 30) * cos;
+  const my = cy + (outerRadius + 30) * sin;
+  const ex = mx + (cos >= 0 ? 1 : -1) * 22;
   const ey = my;
   const textAnchor = cos >= 0 ? 'start' : 'end';
 
   return (
     <g>
-      {/* The active sector is drawn */}
       <Sector
         cx={cx}
         cy={cy}
@@ -153,33 +158,25 @@ const renderActiveShape = (props: any) => {
         endAngle={endAngle}
         fill={fill}
       />
-      {/* The exploded connector sector */}
       <Sector
         cx={cx}
         cy={cy}
         startAngle={startAngle}
         endAngle={endAngle}
-        innerRadius={outerRadius + 4}
-        outerRadius={outerRadius + 8}
+        innerRadius={outerRadius + 6}
+        outerRadius={outerRadius + 10}
         fill={fill}
       />
-      {/* The line connecting to the text */}
       <path d={`M${sx},${sy}L${mx},${my}L${ex},${ey}`} stroke={fill} fill="none" />
       <circle cx={ex} cy={ey} r={2} fill={fill} stroke="none" />
-      {/* The text block, now outside the pie */}
-      <text x={ex + (cos >= 0 ? 1 : -1) * 8} y={ey} textAnchor={textAnchor} fill="hsl(var(--foreground))" className="text-sm font-semibold">
-        {payload.name}
+      <text x={ex + (cos >= 0 ? 1 : -1) * 12} y={ey} textAnchor={textAnchor} fill="hsl(var(--foreground))" className="text-sm font-semibold">
+        {truncateText(payload.name, 25)}
       </text>
-      <text x={ex + (cos >= 0 ? 1 : -1) * 8} y={ey} dy={16} textAnchor={textAnchor} fill="hsl(var(--muted-foreground))" className="text-xs">
+      <text x={ex + (cos >= 0 ? 1 : -1) * 12} y={ey} dy={18} textAnchor={textAnchor} fill="hsl(var(--muted-foreground))" className="text-xs">
         {`${value} Certs (${(percent * 100).toFixed(0)}%)`}
       </text>
     </g>
   );
-};
-
-const truncateText = (text: string, maxLength: number): string => {
-    if (text.length <= maxLength) return text;
-    return `${text.substring(0, maxLength)}...`;
 };
 
 function AdminHomePageContent() {
@@ -200,7 +197,7 @@ function AdminHomePageContent() {
         const fetchData = async () => {
             if (!user) return;
             setIsLoading(true);
-setError(null);
+            setError(null);
             try {
                 const idToken = await user.getIdToken();
                 const response = await fetch('/api/admin/dashboard-data', {
@@ -242,21 +239,12 @@ setError(null);
 
     const chartData = useMemo(() => {
         const courseCounts: { [key: string]: number } = {};
-        const studentCountsPerCourse: { [key: string]: Set<string> } = {};
         const completionTrends: { [key: string]: number } = {};
 
         dashboardData.forEach(cert => {
             const courseName = cert.originalName;
-            // Total Certificates per Course
             courseCounts[courseName] = (courseCounts[courseName] || 0) + 1;
             
-            // Unique Students per Course
-            if (!studentCountsPerCourse[courseName]) {
-                studentCountsPerCourse[courseName] = new Set();
-            }
-            studentCountsPerCourse[courseName].add(cert.studentId);
-            
-            // Uploads over time
             const date = format(parseISO(cert.uploadDate), 'yyyy-MM-dd');
             completionTrends[date] = (completionTrends[date] || 0) + 1;
         });
@@ -418,11 +406,11 @@ setError(null);
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-4">
                         <Card>
                             <CardHeader>
-                                <CardTitle className="flex items-center"><PieChart className="mr-2"/>Top 10 Course Certificate Distribution</CardTitle>
+                                <CardTitle className="flex items-center"><PieChartIcon className="mr-2"/>Top 10 Course Certificate Distribution</CardTitle>
                             </CardHeader>
                             <CardContent className="flex justify-center items-center">
                                 <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[250px] sm:h-[400px]">
-                                    <RechartsPieChart>
+                                    <PieChart margin={{ top: 40, right: 40, bottom: 40, left: 40 }}>
                                         <ChartTooltip content={<ChartTooltipContent hideLabel />} />
                                         <Pie 
                                             data={chartData.pieChartData} 
@@ -439,13 +427,13 @@ setError(null);
                                                 <Cell key={`cell-${index}`} fill={entry.fill} />
                                             ))}
                                         </Pie>
-                                    </RechartsPieChart>
+                                    </PieChart>
                                 </ChartContainer>
                             </CardContent>
                         </Card>
                          <Card>
                              <CardHeader>
-                                <CardTitle className="flex items-center"><LineChart className="mr-2"/>Certificate Uploads Over Time</CardTitle>
+                                <CardTitle className="flex items-center"><LineChartIcon className="mr-2"/>Certificate Uploads Over Time</CardTitle>
                             </CardHeader>
                             <CardContent>
                                <ChartContainer config={lineChartConfig} className="h-[250px] w-full sm:h-[400px]">
@@ -485,14 +473,14 @@ setError(null);
                                 </CardHeader>
                                 <CardContent className="flex flex-col items-center justify-center p-4">
                                      <ChartContainer config={gaugeChartConfig} className="mx-auto aspect-square h-[150px]">
-                                        <RechartsPieChart>
+                                        <PieChart>
                                             <ChartTooltip content={<ChartTooltipContent indicator="dot" nameKey="name" />} />
                                             <Pie data={gaugeChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={60} startAngle={180} endAngle={0}>
                                                  {gaugeChartData.map((entry, index) => (
                                                     <Cell key={`cell-${index}`} fill={entry.fill} />
                                                  ))}
                                             </Pie>
-                                        </RechartsPieChart>
+                                        </PieChart>
                                      </ChartContainer>
                                      <p className="text-center font-bold text-lg -mt-8">{gaugeChartData[0]?.value || 0} of {allStudents.length} students</p>
                                      <p className="text-center text-sm text-muted-foreground">have this certificate.</p>
