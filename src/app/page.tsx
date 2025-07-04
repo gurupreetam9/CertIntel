@@ -583,41 +583,35 @@ function AdminHomePageContent() {
                   </div>
                 ) : (
                   groupedAndSortedData.length > 0 ? (
-                    <Accordion type="single" collapsible className="w-full space-y-2">
+                    <div className="mt-4 space-y-4">
                       {groupedAndSortedData.map(({ studentId, studentName, studentEmail, certificates }) => (
-                        <AccordionItem key={studentId} value={studentId} className="border rounded-lg shadow-sm bg-background/50 data-[state=open]:shadow-md">
-                           <AccordionTrigger className="p-3 sm:p-4 hover:no-underline text-left">
-                              <div className="flex-1 min-w-0 text-left">
-                                <p className="font-semibold truncate text-sm sm:text-base" title={studentName}>{studentName}</p>
-                                <p className="text-xs text-muted-foreground truncate" title={studentEmail}>{studentEmail}</p>
-                              </div>
-                              <Badge variant="secondary" className="ml-4 shrink-0">{certificates.length} Cert(s)</Badge>
-                            </AccordionTrigger>
-                            <AccordionContent className="px-2 sm:px-4 pb-4">
-                                <ul className="space-y-4 pt-4 border-t">
+                         <Card key={studentId} className="shadow-sm">
+                            <CardHeader className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4">
+                                <div>
+                                    <CardTitle className="text-lg">{studentName}</CardTitle>
+                                    <CardDescription>{studentEmail}</CardDescription>
+                                </div>
+                                <Badge variant="secondary" className="mt-2 sm:mt-0">{certificates.length} Cert(s)</Badge>
+                            </CardHeader>
+                            <CardContent className="p-4 pt-0">
+                                <ul className="space-y-2">
                                     {certificates.map((cert) => (
-                                      <li key={cert.fileId} className="border rounded-lg p-3 sm:p-4 shadow-sm bg-card">
-                                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-                                          <div className="flex-grow">
-                                            <p className="text-base font-semibold text-primary">{cert.originalName}</p>
-                                            <div className="mt-1 space-y-0.5 text-sm text-muted-foreground">
-                                              <p><span className="font-medium text-foreground/80">Uploaded:</span> {format(new Date(cert.uploadDate), "PPP")}</p>
+                                        <li key={cert.fileId} className="flex items-center justify-between gap-4 p-2 border rounded-md bg-background/50">
+                                            <div className='min-w-0'>
+                                                <p className="text-sm font-medium truncate" title={cert.originalName}>{cert.originalName}</p>
+                                                <p className="text-xs text-muted-foreground">Uploaded: {format(new Date(cert.uploadDate), "PP")}</p>
                                             </div>
-                                          </div>
-                                          <div className="mt-2 flex-shrink-0 sm:mt-0 flex flex-wrap items-center gap-2">
                                             <Button size="sm" variant="outline" onClick={() => openViewModal(cert)}>
-                                              <FileTextIcon className="mr-2 h-4 w-4" />
-                                              View Certificate
+                                                <FileTextIcon className="mr-2 h-4 w-4" />
+                                                View
                                             </Button>
-                                          </div>
-                                        </div>
-                                      </li>
+                                        </li>
                                     ))}
                                 </ul>
-                            </AccordionContent>
-                        </AccordionItem>
+                            </CardContent>
+                        </Card>
                       ))}
-                    </Accordion>
+                    </div>
                   ) : (
                     <p className="text-muted-foreground text-center py-8">No students or certificates match your criteria.</p>
                   )
