@@ -13,7 +13,7 @@ import UploadFAB from '@/components/home/UploadFAB';
 import AiFAB from '@/components/home/AiFAB';
 
 // --- Admin-specific imports ---
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, AreaChart, Area, RadialBarChart, RadialBar, PolarAngleAxis } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, RadialBarChart, RadialBar, PolarAngleAxis } from 'recharts';
 import { format, isAfter, isBefore, startOfMonth, endOfMonth } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
 import { ChartContainer, ChartTooltipContent } from "@/components/ui/chart";
@@ -144,7 +144,7 @@ const GaugeChart = ({ value, totalValue, label }: { value: number; totalValue: n
   const data = [{ name: 'value', value: percentage }];
 
   return (
-    <div className="relative w-full h-[160px] sm:h-[180px]">
+    <div className="relative w-full h-32 sm:h-40">
       <ResponsiveContainer width="100%" height="100%">
         <RadialBarChart
           innerRadius="75%"
@@ -385,6 +385,15 @@ function AdminHomePageContent() {
         setIsViewModalOpen(true);
     };
 
+    const formatYAxisTick = (tick: string) => {
+        if (typeof tick !== 'string') return tick;
+        const maxLength = 12; // Max length for student names on chart axis
+        if (tick.length > maxLength) {
+            return `${tick.substring(0, maxLength)}...`;
+        }
+        return tick;
+    };
+
     if (isLoading) {
         return <div className="flex h-screen items-center justify-center bg-background"><Loader2 className="h-16 w-16 animate-spin text-primary" /><p className="ml-4 text-lg">Loading Admin Dashboard...</p></div>;
     }
@@ -408,10 +417,10 @@ function AdminHomePageContent() {
           <div className="grid gap-4 lg:grid-cols-5 mb-6">
             <Card className="lg:col-span-3">
                 <CardHeader><CardTitle>Certificate Uploads Over Time</CardTitle></CardHeader>
-                <CardContent className="pl-2">
-                    <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--primary))" } }} className="h-[250px] w-full lg:h-[300px]">
+                <CardContent className="p-0 pt-4 pr-2 sm:pr-4">
+                    <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--primary))" } }} className="h-[250px] w-full sm:h-[300px]">
                         <ResponsiveContainer>
-                            <BarChart data={monthlyUploads} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
+                            <BarChart data={monthlyUploads} margin={{ top: 10, right: 10, bottom: 40, left: 0 }}>
                                 <CartesianGrid vertical={false} />
                                 <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} angle={-45} textAnchor="end" height={50} />
                                 <YAxis tickLine={false} axisLine={false} tickMargin={8} allowDecimals={false}/>
@@ -424,12 +433,12 @@ function AdminHomePageContent() {
             </Card>
             <Card className="lg:col-span-2">
                 <CardHeader><CardTitle>Top Students by Certificate Count</CardTitle><CardDescription>Top 5 students in the filtered range.</CardDescription></CardHeader>
-                <CardContent>
-                    <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--accent))" } }} className="h-[250px] w-full lg:h-[300px]">
+                <CardContent className="p-0 pt-4 pr-2 sm:pr-4">
+                    <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--accent))" } }} className="h-[250px] w-full sm:h-[300px]">
                        <ResponsiveContainer>
-                            <BarChart data={topStudentsData} layout="vertical" margin={{ top: 10, right: 10, bottom: 0, left: 10 }}>
+                            <BarChart data={topStudentsData} layout="vertical" margin={{ top: 5, right: 10, bottom: 5, left: 10 }}>
                                 <CartesianGrid horizontal={false} />
-                                <YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={8} />
+                                <YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} tickFormatter={formatYAxisTick} />
                                 <XAxis type="number" allowDecimals={false} />
                                 <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
                                 <Bar dataKey="certificates" fill="var(--color-certificates)" radius={[0, 4, 4, 0]} />
