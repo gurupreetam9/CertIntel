@@ -17,7 +17,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from '@/components/ui/chart';
-import { PieChart, LineChart as RechartsLineChart, BarChart as RechartsBarChart, Pie, Line, Bar, XAxis, YAxis, CartesianGrid, Cell, Sector, ResponsiveContainer } from 'recharts';
+import { PieChart, LineChart as RechartsLineChart, Pie, Line, XAxis, YAxis, CartesianGrid, Cell, Sector, ResponsiveContainer } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Mail, Hash, View } from 'lucide-react';
@@ -317,16 +317,6 @@ function AdminHomePageContent() {
         return [allStudents, studentsWithCert];
     }, [searchTerm, dashboardData, allStudents]);
 
-    const gaugeChartData = useMemo(() => {
-        if (!searchTerm.trim() || allStudents.length === 0) return [];
-        const studentIdsWithCert = new Set(searchResults.map(item => item.studentId));
-        const numStudentsWithCert = studentIdsWithCert.size;
-        return [
-            { name: 'Has Certificate', value: numStudentsWithCert, fill: 'hsl(var(--chart-1))' },
-            { name: 'Does Not Have', value: allStudents.length - numStudentsWithCert, fill: 'hsl(var(--muted))' }
-        ];
-    }, [searchTerm, searchResults, allStudents]);
-    
     const gaugeChartConfig = {
         value: {
             label: "Students",
@@ -340,6 +330,16 @@ function AdminHomePageContent() {
           color: 'hsl(var(--muted))'
         },
     } satisfies ChartConfig;
+    
+    const gaugeChartData = useMemo(() => {
+        if (!searchTerm.trim() || allStudents.length === 0) return [];
+        const studentIdsWithCert = new Set(searchResults.map(item => item.studentId));
+        const numStudentsWithCert = studentIdsWithCert.size;
+        return [
+            { name: 'Has Certificate', value: numStudentsWithCert, fill: 'var(--color-Has-Certificate)' },
+            { name: 'Does Not Have', value: allStudents.length - numStudentsWithCert, fill: 'var(--color-Does-Not-Have)' }
+        ];
+    }, [searchTerm, searchResults, allStudents]);
 
     const handleDownloadZip = async () => {
         const fileIdsToDownload = searchResults.flatMap(student => student.certificates.map((cert: any) => cert.fileId));
@@ -417,20 +417,22 @@ function AdminHomePageContent() {
                 <AccordionContent>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-4">
                         <Card>
-                            <CardContent className="p-4 sm:p-6 space-y-4">
-                                <div className="flex items-center gap-2">
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2 text-lg">
                                     <PieChartIcon className="h-6 w-6 shrink-0" />
-                                    <span className="font-semibold text-lg">Top 10 Course Certificate Distribution</span>
-                                </div>
-                                <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[300px] sm:h-[400px]">
-                                    <PieChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                                    Top 10 Course Certificate Distribution
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[250px] sm:h-[400px]">
+                                    <PieChart margin={{ top: 40, right: 40, bottom: 40, left: 40 }}>
                                         <ChartTooltip content={<ChartTooltipContent hideLabel />} />
                                         <Pie 
                                             data={chartData.pieChartData} 
                                             cx="50%" 
                                             cy="50%" 
                                             labelLine={false}
-                                            outerRadius="80%"
+                                            outerRadius="70%"
                                             dataKey="value"
                                             activeIndex={activePieIndex}
                                             activeShape={renderActiveShape}
@@ -444,13 +446,15 @@ function AdminHomePageContent() {
                                 </ChartContainer>
                             </CardContent>
                         </Card>
-                         <Card>
-                            <CardContent className="p-4 sm:p-6 space-y-4">
-                               <div className="flex items-center gap-2">
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2 text-lg">
                                     <LineChartIcon className="h-6 w-6 shrink-0" />
-                                    <span className="font-semibold text-lg">Certificate Uploads Over Time</span>
-                                </div>
-                               <ChartContainer config={lineChartConfig} className="h-[300px] w-full sm:h-[400px]">
+                                    Certificate Uploads Over Time
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                               <ChartContainer config={lineChartConfig} className="h-[250px] w-full sm:h-[400px]">
                                     <RechartsLineChart accessibilityLayer data={chartData.lineChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                                       <CartesianGrid strokeDasharray="3 3" />
                                       <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
