@@ -173,13 +173,7 @@ function AdminHomePageContent() {
             const date = format(parseISO(cert.uploadDate), 'yyyy-MM-dd');
             completionTrends[date] = (completionTrends[date] || 0) + 1;
         });
-
-        const rawPieData = Object.entries(courseCounts)
-            .map(([name, value]) => ({ name, value }))
-            .sort((a, b) => b.value - a.value)
-            .slice(0, 10);
-            
-        const config: ChartConfig = {};
+        
         const COLORS = [
           "hsl(var(--chart-1))",
           "hsl(var(--chart-2))",
@@ -187,13 +181,20 @@ function AdminHomePageContent() {
           "hsl(var(--chart-4))",
           "hsl(var(--chart-5))",
         ];
+        
+        const rawPieData = Object.entries(courseCounts)
+            .map(([name, value]) => ({ name, value }))
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 10);
+
+        const config: ChartConfig = {};
         const finalPieData = rawPieData.map((item, index) => {
             const key = `course-${index}`;
             config[key] = {
                 label: item.name,
                 color: COLORS[index % COLORS.length],
             };
-            return { ...item, key, fill: COLORS[index % COLORS.length] };
+            return { ...item, key, name: item.name, fill: COLORS[index % COLORS.length] };
         });
 
         const lineData = Object.entries(completionTrends)
@@ -206,7 +207,7 @@ function AdminHomePageContent() {
     const lineChartConfig = {
         count: {
             label: "Uploads",
-            color: "hsl(var(--primary))",
+            color: "hsl(var(--chart-1))",
         },
     } satisfies ChartConfig;
     
@@ -253,7 +254,7 @@ function AdminHomePageContent() {
     const gaugeChartConfig = {
         'has-certificate': {
           label: 'Has Certificate',
-          color: 'hsl(var(--primary))'
+          color: 'hsl(var(--chart-1))'
         },
         'does-not-have': {
           label: 'Does Not Have',
@@ -266,7 +267,7 @@ function AdminHomePageContent() {
         const studentIdsWithCert = new Set(searchResults.map(item => item.studentId));
         const numStudentsWithCert = studentIdsWithCert.size;
         return [
-            { name: 'has-certificate', value: numStudentsWithCert, fill: 'hsl(var(--primary))' },
+            { name: 'has-certificate', value: numStudentsWithCert, fill: 'hsl(var(--chart-1))' },
             { name: 'does-not-have', value: allStudents.length - numStudentsWithCert, fill: 'hsl(var(--muted))' }
         ];
     }, [searchTerm, searchResults, allStudents]);
@@ -356,7 +357,7 @@ function AdminHomePageContent() {
                                     <CardDescription>Click a slice to see details.</CardDescription>
                                 </CardHeader>
                                 <CardContent className="flex justify-center">
-                                    <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[450px]">
+                                    <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[350px] md:h-[450px]">
                                         <PieChart>
                                             <ChartTooltip content={<ChartTooltipContent nameKey="name" hideLabel />} />
                                             <Pie
@@ -369,9 +370,9 @@ function AdminHomePageContent() {
                                                 onClick={(data) => handlePieClick(data.payload.payload)}
                                                 className="cursor-pointer"
                                             >
-                                              {pieChartData.map((entry) => (
+                                              {pieChartData.map((entry, index) => (
                                                 <Cell
-                                                  key={`cell-${entry.key}`}
+                                                  key={`cell-${index}`}
                                                   fill={entry.fill}
                                                   className="focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                                                 />
@@ -390,13 +391,13 @@ function AdminHomePageContent() {
                                      <CardDescription>Daily count of new certificate uploads.</CardDescription>
                                 </CardHeader>
                                 <CardContent>
-                                   <ChartContainer config={lineChartConfig} className="h-[450px] w-full">
+                                   <ChartContainer config={lineChartConfig} className="h-[350px] md:h-[450px] w-full">
                                         <RechartsLineChart accessibilityLayer data={lineChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                                           <CartesianGrid strokeDasharray="3 3" />
                                           <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
                                           <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={30} />
                                           <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
-                                          <Line type="monotone" dataKey="count" stroke={lineChartConfig.count.color} strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
+                                          <Line type="monotone" dataKey="count" stroke="hsl(var(--chart-1))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
                                         </RechartsLineChart>
                                     </ChartContainer>
                                 </CardContent>
@@ -429,7 +430,7 @@ function AdminHomePageContent() {
                                             <PieChart>
                                                 <ChartTooltip content={<ChartTooltipContent indicator="dot" nameKey="name" />} />
                                                 <Pie data={gaugeChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={60} startAngle={180} endAngle={0}>
-                                                   {gaugeChartData.map((entry) => (
+                                                    {gaugeChartData.map((entry) => (
                                                         <Cell key={`cell-gauge-${entry.name}`} fill={entry.fill} />
                                                     ))}
                                                 </Pie>
@@ -459,13 +460,13 @@ function AdminHomePageContent() {
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>
-                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentName')} className="p-0 hover:bg-transparent text-foreground hover:text-primary">
+                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentName')} className="p-0 hover:bg-transparent hover:text-primary">
                                                 Student Name
                                                 {sortConfig.key === 'studentName' && (sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-4 w-4" /> : <ArrowDown className="ml-2 h-4 w-4" />)}
                                             </Button>
                                         </TableHead>
                                         <TableHead>
-                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentRollNo')} className="p-0 hover:bg-transparent text-foreground hover:text-primary">
+                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentRollNo')} className="p-0 hover:bg-transparent hover:text-primary">
                                                 Roll No.
                                                 {sortConfig.key === 'studentRollNo' && (sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-4 w-4" /> : <ArrowDown className="ml-2 h-4 w-4" />)}
                                             </Button>
