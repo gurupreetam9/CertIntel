@@ -358,21 +358,24 @@ function AdminHomePageContent() {
                                 <CardContent className="flex justify-center">
                                     <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[450px]">
                                         <PieChart>
-                                            <ChartTooltip content={<ChartTooltipContent hideLabel />} />
+                                            <ChartTooltip content={<ChartTooltipContent nameKey="name" hideLabel />} />
                                             <Pie
                                                 data={chartData.pieChartData}
+                                                dataKey="value"
+                                                nameKey="name"
                                                 cx="50%"
                                                 cy="50%"
                                                 outerRadius={"80%"}
-                                                dataKey="value"
                                                 onClick={(data) => handlePieClick(data.payload.payload)}
                                                 className="cursor-pointer"
                                             >
-                                                {chartData.pieChartData.map((entry, index) => {
-                                                    const configEntry = pieChartConfig[entry.name as keyof typeof pieChartConfig];
-                                                    const color = configEntry?.color || `hsl(var(--chart-${(index % 5) + 1}))`;
-                                                    return <Cell key={`cell-${index}`} fill={color} />;
-                                                })}
+                                              {chartData.pieChartData.map((entry, index) => (
+                                                <Cell
+                                                  key={`cell-${index}`}
+                                                  fill={`var(--color-${entry.name})`}
+                                                  className="focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                                                />
+                                              ))}
                                             </Pie>
                                         </PieChart>
                                     </ChartContainer>
@@ -393,7 +396,7 @@ function AdminHomePageContent() {
                                           <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
                                           <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={30} />
                                           <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
-                                          <Line type="monotone" dataKey="count" stroke={lineChartConfig.count.color} strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
+                                          <Line type="monotone" dataKey="count" stroke="var(--color-count)" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
                                         </RechartsLineChart>
                                     </ChartContainer>
                                 </CardContent>
@@ -426,12 +429,9 @@ function AdminHomePageContent() {
                                             <PieChart>
                                                 <ChartTooltip content={<ChartTooltipContent indicator="dot" nameKey="name" />} />
                                                 <Pie data={gaugeChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={60} startAngle={180} endAngle={0}>
-                                                  {gaugeChartData.map((entry) => (
-                                                    <Cell
-                                                      key={`cell-${entry.name}`}
-                                                      fill={gaugeChartConfig[entry.name as keyof typeof gaugeChartConfig]?.color}
-                                                    />
-                                                  ))}
+                                                   {gaugeChartData.map((entry) => (
+                                                        <Cell key={`cell-gauge-${entry.name}`} fill={gaugeChartConfig[entry.name as keyof typeof gaugeChartConfig]?.color} />
+                                                    ))}
                                                 </Pie>
                                             </PieChart>
                                          </ChartContainer>
