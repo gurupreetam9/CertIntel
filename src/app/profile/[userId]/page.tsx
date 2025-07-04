@@ -2,7 +2,6 @@
 import { getPublicProfileData_SERVER } from '@/lib/services/userService.server';
 import ImageGrid from '@/components/home/ImageGrid';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import AppLogo from '@/components/common/AppLogo';
 import Link from 'next/link';
 import { ShieldX, FileWarning } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -71,19 +70,7 @@ export default async function PublicProfilePage({ params }: { params: { userId: 
 
   return (
     <>
-        {/* Public Header */}
-        <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-            <div className="container flex h-16 max-w-screen-2xl items-center justify-between">
-                <Link href="/" aria-label="CertIntel Home">
-                    <AppLogo size={7} />
-                </Link>
-                <Button asChild variant="outline">
-                    <Link href="/login">Login / Register</Link>
-                </Button>
-            </div>
-        </header>
-
-        {/* Main Content */}
+        {/* Main Content - The custom header that was here has been removed */}
         <main className="container mx-auto px-4 py-8 md:px-6 lg:px-8">
             <section className="mb-12 flex flex-col md:flex-row items-center gap-6">
                 <Avatar className="h-24 w-24 md:h-32 md:w-32 text-4xl border-4 border-primary">

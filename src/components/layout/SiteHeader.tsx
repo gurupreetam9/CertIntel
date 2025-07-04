@@ -1,3 +1,4 @@
+
 'use client';
 
 import Link from 'next/link';
@@ -72,28 +73,16 @@ export default function SiteHeader() {
           </Link>
           
           <div className="flex items-center gap-2">
-            {user && userProfile?.role === 'admin' && (
+            {user ? (
               <>
-                {/* Button for medium screens and up */}
-                <Button variant="ghost" asChild size="sm" className="hidden md:flex relative">
-                  <Link href="/admin/dashboard">
-                    <LayoutDashboard className="mr-2 h-4 w-4" />
-                    Admin Dashboard
-                    {hasPendingRequests && (
-                      <span className="absolute top-1 right-1 flex h-3 w-3">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-3 w-3 bg-accent"></span>
-                      </span>
-                    )}
-                  </Link>
-                </Button>
-                {/* Icon-only button for mobile screens with Tooltip */}
-                <Tooltip open={isDashboardTooltipOpen} onOpenChange={setIsDashboardTooltipOpen}>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" asChild size="icon" className="md:hidden relative">
-                      <Link href="/admin/dashboard" aria-label="Admin Dashboard">
-                        <LayoutDashboard className="h-5 w-5" />
-                         {hasPendingRequests && (
+                {userProfile?.role === 'admin' && (
+                  <>
+                    {/* Button for medium screens and up */}
+                    <Button variant="ghost" asChild size="sm" className="hidden md:flex relative">
+                      <Link href="/admin/dashboard">
+                        <LayoutDashboard className="mr-2 h-4 w-4" />
+                        Admin Dashboard
+                        {hasPendingRequests && (
                           <span className="absolute top-1 right-1 flex h-3 w-3">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
                             <span className="relative inline-flex rounded-full h-3 w-3 bg-accent"></span>
@@ -101,14 +90,34 @@ export default function SiteHeader() {
                         )}
                       </Link>
                     </Button>
-                  </TooltipTrigger>
-                  <TooltipContent className="bg-primary text-primary-foreground border-transparent">
-                    <p>Admin Dashboard {hasPendingRequests && <span className="text-accent-foreground/80">(New Requests)</span>}</p>
-                  </TooltipContent>
-                </Tooltip>
+                    {/* Icon-only button for mobile screens with Tooltip */}
+                    <Tooltip open={isDashboardTooltipOpen} onOpenChange={setIsDashboardTooltipOpen}>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" asChild size="icon" className="md:hidden relative">
+                          <Link href="/admin/dashboard" aria-label="Admin Dashboard">
+                            <LayoutDashboard className="h-5 w-5" />
+                            {hasPendingRequests && (
+                              <span className="absolute top-1 right-1 flex h-3 w-3">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-3 w-3 bg-accent"></span>
+                              </span>
+                            )}
+                          </Link>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent className="bg-primary text-primary-foreground border-transparent">
+                        <p>Admin Dashboard {hasPendingRequests && <span className="text-accent-foreground/80">(New Requests)</span>}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </>
+                )}
+                <ProfileDropdown />
               </>
+            ) : (
+               <Button asChild variant="outline">
+                  <Link href="/login">Login / Register</Link>
+               </Button>
             )}
-            {user && <ProfileDropdown />}
           </div>
         </div>
       </header>
