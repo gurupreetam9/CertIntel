@@ -25,6 +25,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import ViewImageModal from '@/components/home/ViewImageModal';
+import type { UserImage } from '@/components/home/ImageGrid';
 
 // ====================================================================================
 // Student Home Page Content
@@ -84,9 +86,13 @@ interface DashboardData {
     studentName: string;
     studentEmail: string;
     studentRollNo?: string;
+    contentType: string;
+    size: number;
 }
 
 type SortableKeys = 'studentName' | 'studentRollNo';
+
+const LINE_CHART_STROKE_COLOR = 'hsl(45 90% 50%)'; // Explicit Gold color for line chart
 
 function AdminHomePageContent() {
     const { user } = useAuth();
@@ -101,6 +107,9 @@ function AdminHomePageContent() {
     
     const [isChartModalOpen, setIsChartModalOpen] = useState(false);
     const [selectedChartData, setSelectedChartData] = useState<{ name: string; value: number } | null>(null);
+    const [imageToViewInModal, setImageToViewInModal] = useState<UserImage | null>(null);
+    const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+
 
     const [isDownloading, setIsDownloading] = useState(false);
     const [sortConfig, setSortConfig] = useState<{ key: SortableKeys; direction: 'asc' | 'desc' }>({
@@ -156,22 +165,51 @@ function AdminHomePageContent() {
         }
         setSortConfig({ key, direction });
     };
+    
+    const handleOpenViewModal = (cert: DashboardData) => {
+        setImageToViewInModal(cert as UserImage);
+        setIsViewModalOpen(true);
+    };
 
     const handlePieClick = useCallback((data: any) => {
         setSelectedChartData({ name: data.name, value: data.value });
         setIsChartModalOpen(true);
     }, []);
+    
+    const searchResults = useMemo(() => {
+        if (!searchTerm) {
+            return [];
+        }
+        const lowercasedFilter = searchTerm.toLowerCase();
+        
+        const certs = dashboardData.filter(item =>
+            item.originalName.toLowerCase().includes(lowercasedFilter)
+        );
 
-    const { pieChartData, lineChartData, pieChartConfig } = useMemo(() => {
+        const sortedData = [...certs].sort((a, b) => {
+            const key = sortConfig.key;
+            const aVal = a[key as keyof typeof a] || '';
+            const bVal = b[key as keyof typeof b] || '';
+    
+            if (key === 'studentRollNo') {
+                return sortConfig.direction === 'asc' 
+                    ? String(aVal).localeCompare(String(bVal), undefined, { numeric: true }) 
+                    : String(bVal).localeCompare(String(aVal), undefined, { numeric: true });
+            }
+
+            return sortConfig.direction === 'asc'
+                ? String(aVal).localeCompare(String(bVal))
+                : String(bVal).localeCompare(String(aVal));
+        });
+
+        return sortedData;
+    }, [searchTerm, dashboardData, sortConfig]);
+
+    const { pieChartData, pieChartConfig } = useMemo(() => {
         const courseCounts: { [key: string]: number } = {};
-        const completionTrends: { [key: string]: number } = {};
-
         dashboardData.forEach(cert => {
             const courseName = cert.originalName?.trim() || 'Unnamed Certificate';
             courseCounts[courseName] = (courseCounts[courseName] || 0) + 1;
-            
-            const date = format(parseISO(cert.uploadDate), 'yyyy-MM-dd');
-            completionTrends[date] = (completionTrends[date] || 0) + 1;
         });
         
         const COLORS = [
@@ -191,25 +229,34 @@ function AdminHomePageContent() {
                 label: item.name,
                 color: COLORS[index % COLORS.length],
             };
-            return { ...item, key, name: item.name, fill: COLORS[index % COLORS.length] };
+            return { ...item, name: key, fill: COLORS[index % COLORS.length] };
+        });
+        
+        return { pieChartData: finalPieData, pieChartConfig: config };
+    }, [dashboardData]);
+
+     const { lineChartData, lineChartConfig } = useMemo(() => {
+        const completionTrends: { [key: string]: number } = {};
+        dashboardData.forEach(cert => {
+            const date = format(parseISO(cert.uploadDate), 'yyyy-MM-dd');
+            completionTrends[date] = (completionTrends[date] || 0) + 1;
         });
 
         const lineData = Object.entries(completionTrends)
             .map(([date, count]) => ({ date, count }))
             .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-        
-        return { pieChartData: finalPieData, lineChartData: lineData, pieChartConfig: config };
+
+        const config = {
+            count: {
+                label: "Uploads",
+                color: "var(--color-count)",
+            },
+        } satisfies ChartConfig;
+
+        return { lineChartData: lineData, lineChartConfig: config };
     }, [dashboardData]);
 
-    const lineChartConfig = {
-        count: {
-            label: "Uploads",
-            color: "hsl(var(--primary))",
-        },
-    } satisfies ChartConfig;
 
-    const LINE_CHART_STROKE_COLOR = 'hsl(var(--primary))';
-    
     const gaugeChartConfig = {
         'has-certificate': {
           label: 'Has Certificate',
@@ -221,49 +268,9 @@ function AdminHomePageContent() {
         },
     } satisfies ChartConfig;
     
-    const searchResults = useMemo(() => {
-        if (!searchTerm) {
-            return [];
-        }
-        const lowercasedFilter = searchTerm.toLowerCase();
-        
-        const certs = dashboardData.filter(item =>
-            item.originalName.toLowerCase().includes(lowercasedFilter)
-        );
-
-        const studentsWithCert = Array.from(new Set(certs.map(item => item.studentId)))
-            .map(id => {
-                const studentProfile = allStudents.find(s => s.studentId === id);
-                const relevantCerts = certs.filter(c => c.studentId === id);
-                return {
-                    ...studentProfile,
-                    certificates: relevantCerts
-                };
-            });
-        
-        const sortedData = [...studentsWithCert].sort((a, b) => {
-            const key = sortConfig.key;
-            const aVal = a[key] || '';
-            const bVal = b[key] || '';
-    
-            if (key === 'studentRollNo') {
-                return sortConfig.direction === 'asc' 
-                    ? String(aVal).localeCompare(String(bVal), undefined, { numeric: true }) 
-                    : String(bVal).localeCompare(String(aVal), undefined, { numeric: true });
-            }
-
-            return sortConfig.direction === 'asc'
-                ? String(aVal).localeCompare(String(bVal))
-                : String(bVal).localeCompare(String(aVal));
-        });
-
-        return sortedData;
-
-    }, [searchTerm, dashboardData, allStudents, sortConfig]);
-
     const gaugeChartData = useMemo(() => {
         if (!searchTerm.trim() || allStudents.length === 0) return [];
-        const studentIdsWithCert = new Set(searchResults.map(item => item.studentId));
+        const studentIdsWithCert = new Set(searchResults.map(cert => cert.studentId));
         const numStudentsWithCert = studentIdsWithCert.size;
         return [
             { name: 'has-certificate', value: numStudentsWithCert, fill: 'hsl(var(--chart-1))' },
@@ -272,7 +279,7 @@ function AdminHomePageContent() {
     }, [searchTerm, searchResults, allStudents]);
 
     const handleDownloadZip = async () => {
-        const fileIdsToDownload = searchResults.flatMap(student => student.certificates.map((cert: any) => cert.fileId));
+        const fileIdsToDownload = searchResults.map(cert => cert.fileId);
         
         if (fileIdsToDownload.length === 0) {
             toast({ title: 'No certificates to download for this search', variant: 'destructive' });
@@ -370,7 +377,7 @@ function AdminHomePageContent() {
                                                 className="cursor-pointer"
                                             >
                                               {pieChartData.map((entry, index) => (
-                                                  <Cell key={`cell-${index}`} fill={entry.fill} />
+                                                  <Cell key={`cell-${index}`} fill={entry.fill} name={pieChartConfig[entry.name]?.label} />
                                               ))}
                                             </Pie>
                                         </PieChart>
@@ -472,23 +479,15 @@ function AdminHomePageContent() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {searchResults.map((student: any) => (
-                                         <TableRow key={student.studentId}>
-                                            <TableCell className="font-medium">{student.studentName}</TableCell>
-                                            <TableCell>{student.studentRollNo || 'N/A'}</TableCell>
-                                            <TableCell>{student.studentEmail}</TableCell>
-                                            <TableCell>
-                                                <ul className="list-disc pl-4">
-                                                    {student.certificates.map((cert: any) => (
-                                                        <li key={cert.fileId}>{cert.originalName}</li>
-                                                    ))}
-                                                </ul>
-                                            </TableCell>
+                                    {searchResults.map((cert: DashboardData) => (
+                                         <TableRow key={cert.fileId}>
+                                            <TableCell className="font-medium">{cert.studentName}</TableCell>
+                                            <TableCell>{cert.studentRollNo || 'N/A'}</TableCell>
+                                            <TableCell>{cert.studentEmail}</TableCell>
+                                            <TableCell>{cert.originalName}</TableCell>
                                             <TableCell className="text-right">
-                                                 <Button variant="outline" size="sm" asChild>
-                                                    <a href={`/api/images/${student.certificates[0].fileId}`} target="_blank" rel="noopener noreferrer">
-                                                        <View className="mr-2 h-4 w-4" />View
-                                                    </a>
+                                                 <Button variant="outline" size="sm" onClick={() => handleOpenViewModal(cert)}>
+                                                    <View className="mr-2 h-4 w-4" />View
                                                 </Button>
                                             </TableCell>
                                         </TableRow>
@@ -525,6 +524,17 @@ function AdminHomePageContent() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
+
+            {imageToViewInModal && (
+              <ViewImageModal
+                isOpen={isViewModalOpen}
+                onClose={() => {
+                    setIsViewModalOpen(false);
+                    setImageToViewInModal(null);
+                }}
+                image={imageToViewInModal}
+              />
+            )}
         </>
     );
 }
