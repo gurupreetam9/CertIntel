@@ -2,10 +2,12 @@
 // NO 'use client'; directive
 import { getAdminFirestore } from '@/lib/firebase/adminConfig'; // Use Admin SDK via getter
 import type { UserProfile, AdminProfile, UserRole, StudentLinkRequest } from '@/lib/models/user';
-import { Timestamp, FieldValue } from 'firebase-admin/firestore'; 
+import { Timestamp as AdminTimestamp, FieldValue } from 'firebase-admin/firestore'; 
 import { v4 as uuidv4 } from 'uuid';
 import { connectToDb } from '@/lib/mongodb';
 import type { UserImage } from '@/components/home/ImageGrid';
+import { firestore } from '@/lib/firebase/config'; // Client SDK
+import { doc, getDoc, Timestamp } from 'firebase/firestore'; // Client SDK functions
 
 
 const USERS_COLLECTION = 'users';
@@ -20,7 +22,7 @@ export const createUserProfileDocument_SERVER = async (
 ): Promise<UserProfile> => {
   const adminFirestore = getAdminFirestore(); // Get instance
   const userDocRef = adminFirestore.collection(USERS_COLLECTION).doc(userId);
-  const now = Timestamp.now();
+  const now = AdminTimestamp.now();
   console.log(`[SERVICE_SERVER/createUserProfileDocument_SERVER] - START. Target UID: ${userId}. Role: ${role}. AdditionalData:`, JSON.stringify(additionalData));
 
   let initialLinkStatus: UserProfile['linkRequestStatus'] = 'none';
@@ -45,8 +47,8 @@ export const createUserProfileDocument_SERVER = async (
     role,
     displayName: additionalData.displayName || email.split('@')[0] || userId,
     isPublicProfileEnabled: false, // Default public profile to false
-    createdAt: now,
-    updatedAt: now,
+    createdAt: now as unknown as Timestamp, // Cast from admin to client timestamp type
+    updatedAt: now as unknown as Timestamp, // Cast from admin to client timestamp type
     rollNo: (role === 'student' && additionalData.rollNo) ? additionalData.rollNo : undefined,
     linkRequestStatus: (role === 'student') ? initialLinkStatus : undefined,
     associatedAdminFirebaseId: (role === 'student') ? associatedAdminFirebaseIdToSet : undefined,
@@ -79,7 +81,7 @@ export const createUserProfileDocument_SERVER = async (
 export const createAdminProfile_SERVER = async (userId: string, email: string): Promise<AdminProfile> => {
   // const adminFirestore = getAdminFirestore(); // Not directly used here, createUserProfileDocument_SERVER will get it
   const adminUniqueId = uuidv4().substring(0, 8).toUpperCase();
-  const now = Timestamp.now();
+  const now = AdminTimestamp.now();
   console.log(`[SERVICE_SERVER/createAdminProfile_SERVER] - START. Target UID: ${userId}. Email: ${email}. Generated AdminUniqueId: ${adminUniqueId}`);
 
   await createUserProfileDocument_SERVER(userId, email, 'admin', { adminUniqueId });
@@ -89,7 +91,7 @@ export const createAdminProfile_SERVER = async (userId: string, email: string): 
     userId,
     adminUniqueId,
     email,
-    createdAt: now,
+    createdAt: now as unknown as Timestamp,
   };
 };
 
@@ -134,7 +136,7 @@ export const createStudentLinkRequest_SERVER = async (
 ): Promise<StudentLinkRequest> => {
   const adminFirestore = getAdminFirestore(); // Get instance
   const requestDocRef = adminFirestore.collection(STUDENT_LINK_REQUESTS_COLLECTION).doc(); 
-  const now = Timestamp.now();
+  const now = AdminTimestamp.now();
   const studentRollNoCleaned = (studentRollNo && studentRollNo.trim() !== '') ? studentRollNo.trim() : null;
 
   const linkRequest: StudentLinkRequest = {
@@ -146,7 +148,7 @@ export const createStudentLinkRequest_SERVER = async (
     adminUniqueIdTargeted: targetAdminUniqueId,
     adminFirebaseId: targetAdminFirebaseId,
     status: 'pending',
-    requestedAt: now,
+    requestedAt: now as unknown as Timestamp,
   };
 
   console.log(`[SERVICE_SERVER/createStudentLinkRequest_SERVER] - Creating link request document for StudentUID: ${studentUserId}, TargetAdminUID: ${targetAdminFirebaseId}`);
@@ -160,18 +162,17 @@ export const createStudentLinkRequest_SERVER = async (
   }
 };
 
-// NEW SERVER-SIDE function to fetch data for the public showcase profile
+// SERVER-SIDE function to fetch data for the public showcase profile
 export const getPublicProfileData_SERVER = async (
   userId: string
 ): Promise<{ profile: UserProfile; images: UserImage[] } | { error: string; status: number }> => {
-  const adminFirestore = getAdminFirestore();
-  console.log(`[SERVICE_SERVER/getPublicProfileData_SERVER] - Fetching data for public profile UID: ${userId}`);
+  console.log(`[SERVICE_SERVER/getPublicProfileData_SERVER] - Fetching data for public profile UID: ${userId} using CLIENT SDK for unauthenticated access.`);
   
-  // 1. Fetch user profile
-  const userDocRef = adminFirestore.collection(USERS_COLLECTION).doc(userId);
-  const userDocSnap = await userDocRef.get();
+  // 1. Fetch user profile using CLIENT SDK (respects security rules)
+  const userDocRef = doc(firestore, USERS_COLLECTION, userId);
+  const userDocSnap = await getDoc(userDocRef);
 
-  if (!userDocSnap.exists) {
+  if (!userDocSnap.exists()) {
     console.log(`[SERVICE_SERVER/getPublicProfileData_SERVER] - Profile not found for UID: ${userId}`);
     return { error: 'User profile not found.', status: 404 };
   }
