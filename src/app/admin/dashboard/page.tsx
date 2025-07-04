@@ -192,7 +192,7 @@ function AdminDashboardPageContent() {
               <Button asChild variant="outline" size="icon" aria-label="Back to Home">
                   <Link href="/"><ArrowLeft className="h-5 w-5" /></Link>
               </Button>
-              <h1 className="text-3xl font-bold font-headline">Admin Dashboard</h1>
+              <h1 className="text-2xl sm:text-3xl font-bold font-headline">Admin Dashboard</h1>
           </div>
         </div>
         
@@ -270,7 +270,7 @@ function AdminDashboardPageContent() {
               ) : (
                 <ul className="space-y-4">
                   {acceptedStudents.map(student => (
-                    <li key={student.uid} className="border rounded-lg p-4 shadow-sm bg-card">
+                    <li key={student.uid} className="border rounded-lg p-3 sm:p-4 shadow-sm bg-card">
                       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                         <div className="flex-grow">
                           <p className="text-lg font-semibold text-foreground">{student.displayName}</p>
@@ -279,8 +279,8 @@ function AdminDashboardPageContent() {
                             {student.rollNo && (<p>Roll No: {student.rollNo}</p>)}
                           </div>
                         </div>
-                        <div className="mt-2 flex-shrink-0 sm:mt-0 flex flex-wrap items-center gap-2">
-                          <Button size="sm" variant="outline" asChild>
+                        <div className="mt-2 flex-shrink-0 sm:mt-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                          <Button size="sm" variant="outline" asChild className="w-full sm:w-auto">
                             <Link href={`/admin/student-certificates/${student.uid}`}>
                               <FileText className="mr-2 h-4 w-4" />
                               View Certificates
@@ -291,6 +291,7 @@ function AdminDashboardPageContent() {
                             variant="destructive"
                             onClick={() => setStudentToRemove(student)}
                             disabled={isProcessingRequest !== null || isRemovingStudent}
+                            className="w-full sm:w-auto"
                           >
                             <Trash2 className="mr-2 h-4 w-4" /> Remove
                           </Button>

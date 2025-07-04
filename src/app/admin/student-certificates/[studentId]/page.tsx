@@ -132,7 +132,7 @@ function StudentCertificatesPageContent() {
                 <Link href="/admin/dashboard"><ArrowLeft className="h-5 w-5" /></Link>
             </Button>
             <div>
-                <h1 className="text-3xl md:text-4xl font-bold font-headline mb-1 flex items-center">
+                <h1 className="text-2xl sm:text-3xl font-bold font-headline mb-1 flex items-center">
                     <UserIcon className="mr-3 h-8 w-8 text-primary" />
                     {studentNameDisplay}'s Certificates
                 </h1>

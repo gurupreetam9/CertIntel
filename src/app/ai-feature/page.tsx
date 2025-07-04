@@ -498,7 +498,7 @@ function AiFeaturePageContent() {
             <Button asChild variant="outline" size="icon" aria-label="Go back to Home">
               <Link href="/"><ArrowLeft className="h-5 w-5" /></Link>
             </Button>
-            <h1 className="text-3xl font-bold font-headline">Certificate Insights &amp; Recommendations</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold font-headline">Certificate Insights &amp; Recommendations</h1>
           </div>
         </div>
         
@@ -527,7 +527,7 @@ function AiFeaturePageContent() {
                 />
               </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 mb-6">
                 {canProcessNew && (
                     <Button
                         onClick={() => handleInitiateOcrProcessing('new')}
@@ -548,7 +548,7 @@ function AiFeaturePageContent() {
                     className="w-full"
                 >
                     <ListChecks className="mr-2 h-5 w-5" />
-                    Process All Certificates &amp; Manual Courses
+                    Process All Certificates
                 </Button>
 
                 {canGetManualSuggestions && (
@@ -557,7 +557,7 @@ function AiFeaturePageContent() {
                         disabled={isLoadingOcr || isLoadingSuggestions || !user}
                         size="lg"
                         variant="outline"
-                        className="w-full md:col-span-1 lg:col-auto" 
+                        className="w-full" 
                     >
                         <Sparkles className="mr-2 h-5 w-5" />
                         Get Suggestions for Manual Courses
@@ -569,7 +569,7 @@ function AiFeaturePageContent() {
                         disabled={isLoadingOcr || isLoadingSuggestions || !user || !canProceedToSuggestionsAfterOcr}
                         size="lg"
                         variant="default"
-                        className="w-full md:col-span-2 lg:col-span-1" 
+                        className="w-full sm:col-span-2" 
                     >
                         <BrainCircuit className="mr-2 h-5 w-5" />
                         Get AI Suggestions ({allKnownCoursesForProceedButton.length} Course(s))
@@ -691,14 +691,14 @@ function AiFeaturePageContent() {
                         searchableData={aiFeatureSearchableResults}
                     />
                 </div>
-                <div className="border border-border rounded-lg shadow-md p-4 bg-card space-y-6">
+                <div className="border border-border rounded-lg shadow-md p-2 sm:p-4 bg-card space-y-4 md:space-y-6">
                   <h2 className="text-2xl font-headline mb-4 border-b pb-2">Processed Result &amp; AI Suggestions:</h2>
                   {finalResult.processedAt && <p className="text-xs text-muted-foreground mb-3">Results from: {new Date(finalResult.processedAt).toLocaleString()}</p>}
 
                   {finalResult.associated_image_file_ids && finalResult.associated_image_file_ids.length > 0 && (
                     <div className="mb-6">
                       <h3 className="text-lg font-semibold mb-3 font-headline">Certificate Images Associated with these Suggestions:</h3>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 sm:gap-3">
                         {finalResult.associated_image_file_ids.map(fileId => {
                             const imgMeta = allUserImageMetas.find(m => m.fileId === fileId);
                             return (
@@ -721,7 +721,7 @@ function AiFeaturePageContent() {
                   {finalResult.llm_error_summary && ( <Card className="border-amber-500 bg-amber-500/10"><CardHeader className="flex-row items-center gap-2"><AlertTriangle className="w-5 h-5 text-amber-700" /><CardTitle className="text-amber-700 text-lg">LLM Warning</CardTitle></CardHeader><CardContent><p className="text-amber-700">{finalResult.llm_error_summary}</p></CardContent></Card> )}
 
                   {filteredFinalResults && filteredFinalResults.length > 0 ? (
-                    <div className="space-y-6">
+                    <div className="space-y-4 md:space-y-6">
                       <h3 className="text-lg font-semibold font-headline">Identified Courses &amp; AI Suggestions:</h3>
                       {filteredFinalResults.map((identifiedCourseData) => {
                         const originalName = identifiedCourseData.identified_course_name;
@@ -798,23 +798,3 @@ export default function AiFeaturePage() {
     </ProtectedPage>
   );
 }
-    
-    
-
-    
-    
-
-    
-
-    
-
-    
-    
-
-
-
-
-
-
-
-

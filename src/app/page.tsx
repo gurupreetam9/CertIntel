@@ -114,7 +114,7 @@ function StudentHomePageContent() {
          <Input
             type="search"
             placeholder="Search certificates by name or filename..."
-            className="w-full text-base"
+            className="w-full"
             value={searchTerm}
             onChange={handleSearch}
           />
@@ -144,12 +144,12 @@ const GaugeChart = ({ value, totalValue, label }: { value: number; totalValue: n
   const data = [{ name: 'value', value: percentage }];
 
   return (
-    <div className="relative w-full h-[160px]">
+    <div className="relative w-full h-[180px]">
       <ResponsiveContainer width="100%" height="100%">
         <RadialBarChart
           innerRadius="75%"
           outerRadius="100%"
-          barSize={14}
+          barSize={16}
           data={data}
           startAngle={180}
           endAngle={0}
@@ -172,7 +172,7 @@ const GaugeChart = ({ value, totalValue, label }: { value: number; totalValue: n
       </ResponsiveContainer>
       <div className="absolute inset-0 flex flex-col items-center justify-center text-center -translate-y-2">
         <span className="text-3xl font-bold text-foreground">{value}</span>
-        <span className="text-xs text-muted-foreground">{label}</span>
+        <span className="text-sm text-muted-foreground">{label}</span>
       </div>
     </div>
   );
@@ -394,30 +394,30 @@ function AdminHomePageContent() {
     }
 
     return (
-        <main className="flex-1 p-6 overflow-y-auto bg-background">
+        <main className="flex-1 p-2 sm:p-4 md:p-6 overflow-y-auto bg-background">
           <div className="flex items-center justify-between mb-6 gap-4">
-            <h1 className="text-3xl font-bold font-headline">Admin Dashboard</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold font-headline">Admin Dashboard</h1>
           </div>
 
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-6">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 mb-6">
               <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Total Students</CardTitle><Users className="h-5 w-5 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{kpiStats.totalStudents}</div><p className="text-xs text-muted-foreground">{uniqueStudents.length > 0 ? `${((kpiStats.totalStudents / uniqueStudents.length) * 100).toFixed(0)}% of total students in filter` : '0% of total'}</p></CardContent></Card>
               <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Total Certificates</CardTitle><FileTextIcon className="h-5 w-5 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{kpiStats.totalCerts}</div><p className="text-xs text-muted-foreground">in current filter</p></CardContent></Card>
               <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-sm font-medium">Avg. Certs / Student</CardTitle><Divide className="h-5 w-5 text-muted-foreground" /></CardHeader><CardContent><div className="text-2xl font-bold">{kpiStats.avgCertsPerStudent}</div><p className="text-xs text-muted-foreground">in current filter</p></CardContent></Card>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-5 mb-6">
+          <div className="grid gap-4 lg:grid-cols-5 mb-6">
             <Card className="lg:col-span-3">
                 <CardHeader><CardTitle>Certificate Uploads Over Time</CardTitle></CardHeader>
                 <CardContent className="pl-2">
                     <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--primary))" } }} className="h-[300px] w-full">
                         <ResponsiveContainer>
-                            <AreaChart data={monthlyUploads} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                            <BarChart data={monthlyUploads} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
                                 <CartesianGrid vertical={false} />
-                                <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
+                                <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} angle={-45} textAnchor="end" height={50} />
                                 <YAxis tickLine={false} axisLine={false} tickMargin={8} allowDecimals={false}/>
                                 <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
-                                <Area type="monotone" dataKey="certificates" stroke="var(--color-certificates)" fill="var(--color-certificates)" fillOpacity={0.4} />
-                            </AreaChart>
+                                <Bar dataKey="certificates" fill="var(--color-certificates)" radius={[4, 4, 0, 0]} />
+                            </BarChart>
                         </ResponsiveContainer>
                     </ChartContainer>
                 </CardContent>
@@ -568,19 +568,19 @@ function AdminHomePageContent() {
                             <Table>
                                 <TableHeader>
                                     <TableRow>
-                                    <TableHead className="w-[200px]">Student Name</TableHead>
-                                    <TableHead>Email</TableHead>
-                                    <TableHead>Roll No</TableHead>
+                                    <TableHead className="w-1/3 sm:w-[200px]">Student Name</TableHead>
+                                    <TableHead className="hidden md:table-cell">Email</TableHead>
+                                    <TableHead className="hidden lg:table-cell">Roll No</TableHead>
                                     <TableHead>Certificate</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {filteredData.map((cert) => (
                                     <TableRow key={cert.fileId}>
-                                        <TableCell className="font-medium">{cert.studentName}</TableCell>
-                                        <TableCell>{cert.studentEmail}</TableCell>
-                                        <TableCell>{cert.studentRollNo || 'N/A'}</TableCell>
-                                        <TableCell>
+                                        <TableCell className="font-medium p-2 md:p-4">{cert.studentName}</TableCell>
+                                        <TableCell className="hidden md:table-cell p-2 md:p-4">{cert.studentEmail}</TableCell>
+                                        <TableCell className="hidden lg:table-cell p-2 md:p-4">{cert.studentRollNo || 'N/A'}</TableCell>
+                                        <TableCell className="p-2 md:p-4">
                                         <div className="flex flex-col gap-2 items-start">
                                             <span className="font-medium">{cert.originalName}</span>
                                             <Button variant="outline" size="sm" onClick={() => openViewModal(cert)} className="h-8">
@@ -603,17 +603,17 @@ function AdminHomePageContent() {
                     <Accordion type="single" collapsible className="w-full space-y-2">
                       {groupedAndSortedData.map(({ studentId, studentName, studentEmail, certificates }) => (
                         <AccordionItem key={studentId} value={studentId} className="border rounded-lg shadow-sm bg-background/50 data-[state=open]:shadow-md">
-                            <AccordionTrigger className="p-4 hover:no-underline text-left">
+                            <AccordionTrigger className="p-3 sm:p-4 hover:no-underline text-left">
                                 <div className="flex-grow">
                                     <p className="text-lg font-semibold">{studentName}</p>
                                     <p className="text-sm text-muted-foreground">{studentEmail}</p>
                                 </div>
                                 <Badge variant="secondary" className="ml-4">{certificates.length} Certificate(s)</Badge>
                             </AccordionTrigger>
-                            <AccordionContent className="px-4 pb-4">
+                            <AccordionContent className="px-2 sm:px-4 pb-4">
                                 <ul className="space-y-4 pt-4 border-t">
                                     {certificates.map((cert) => (
-                                      <li key={cert.fileId} className="border rounded-lg p-4 shadow-sm bg-card">
+                                      <li key={cert.fileId} className="border rounded-lg p-3 sm:p-4 shadow-sm bg-card">
                                         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                                           <div className="flex-grow">
                                             <p className="text-base font-semibold text-primary">{cert.originalName}</p>
@@ -669,5 +669,3 @@ function HomePage() {
 }
 
 export default HomePage;
-
-    
