@@ -28,48 +28,76 @@ import {
 import ViewImageModal from '@/components/home/ViewImageModal';
 import type { UserImage } from '@/components/home/ImageGrid';
 
+// NEW - Imports for Student View
+import ImageGrid from '@/components/home/ImageGrid';
+import UploadFAB from '@/components/home/UploadFAB';
+import AiFAB from '@/components/home/AiFAB';
+
+
 // ====================================================================================
 // Student Home Page Content
 // ====================================================================================
 function StudentHomePageContent() {
-  const router = useRouter(); // For future use if needed
+  const { user, userId, loading: authLoading } = useAuth();
+  const { toast } = useToast();
+  const [images, setImages] = useState<UserImage[]>([]);
+  const [isLoadingImages, setIsLoadingImages] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  // Redirect to a more appropriate student dashboard if one exists, or just show this content.
-  // For now, this is the main student view.
-  
+  const triggerRefresh = useCallback(() => {
+    setRefreshKey(prevKey => prevKey + 1);
+  }, []);
+
+  useEffect(() => {
+    if (authLoading || !user || !userId) {
+      if (!authLoading) setIsLoadingImages(false);
+      return;
+    }
+
+    const fetchImages = async () => {
+      setIsLoadingImages(true);
+      setError(null);
+      try {
+        const idToken = await user.getIdToken();
+        const response = await fetch(`/api/user-images?userId=${userId}`, {
+          headers: { 'Authorization': `Bearer ${idToken}` }
+        });
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ message: 'Failed to fetch images' }));
+          throw new Error(errorData.message);
+        }
+        const data: UserImage[] = await response.json();
+        setImages(data);
+      } catch (err: any) {
+        setError(err.message);
+        toast({ title: 'Error Loading Images', description: err.message, variant: 'destructive' });
+      } finally {
+        setIsLoadingImages(false);
+      }
+    };
+
+    fetchImages();
+  }, [user, userId, toast, refreshKey, authLoading]);
+
   return (
-    <div className="container mx-auto p-4 md:p-8">
-      <h1 className="text-3xl font-bold font-headline mb-4">Welcome, Student!</h1>
-      <p className="text-muted-foreground mb-6">This is your main dashboard. Your certificates should be managed through the floating action buttons.</p>
-      
-       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card className="hover:shadow-lg transition-shadow">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="text-primary"/> Manage Your Certificates
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
-              Use the <span className="inline-flex items-center justify-center bg-primary text-primary-foreground w-6 h-6 rounded-full mx-1">+</span> button at the bottom-right to upload new image or PDF certificates.
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="hover:shadow-lg transition-shadow">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BarChart2 className="text-accent" /> Certificate Analysis
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-             <p className="text-sm text-muted-foreground">
-              Use the <span className="inline-flex items-center justify-center bg-accent text-accent-foreground w-6 h-6 rounded-full mx-1">AI</span> button to navigate to the AI feature page for certificate insights and recommendations.
-            </p>
-          </CardContent>
-        </Card>
+    <>
+      <div className="container mx-auto p-4 md:p-8">
+        <h1 className="text-3xl font-bold font-headline mb-2">Your Certificate Hub</h1>
+        <p className="text-muted-foreground mb-6">
+          View your uploaded certificates below. Use the floating buttons to upload new files or get AI insights.
+        </p>
+        <ImageGrid
+          images={images}
+          isLoading={isLoadingImages}
+          error={error}
+          onImageDeleted={triggerRefresh}
+          currentUserId={userId}
+        />
       </div>
-
-    </div>
+      <UploadFAB onUploadSuccess={triggerRefresh} />
+      <AiFAB />
+    </>
   );
 }
 
@@ -92,7 +120,7 @@ interface DashboardData {
 
 type SortableKeys = 'studentName' | 'studentRollNo';
 
-const LINE_CHART_STROKE_COLOR = 'hsl(45 90% 50%)'; // Explicit Gold color for line chart
+const LINE_CHART_STROKE_COLOR = 'hsl(45 90% 50%)';
 
 function AdminHomePageContent() {
     const { user, userProfile } = useAuth();
@@ -597,22 +625,7 @@ function AdminHomePageContent() {
 // ====================================================================================
 function HomePage() {
   const { user, userProfile, loading } = useAuth();
-  const router = useRouter();
   
-  useEffect(() => {
-    if (!loading && user && userProfile?.role === 'student') {
-        // This logic replaces the <StudentHomePageContent /> component
-        // and redirects students to manage their certificates on the main grid view page
-        // which now has the FABs for uploading and AI features.
-        // We will show a simple placeholder while redirecting or if they land here briefly.
-        // The main view for students will now be this home page itself, where they see their certificates.
-        
-        // This is a temporary setup. The ideal solution would be a separate /student/dashboard page.
-        // For now, we'll assume the main page IS the student dashboard.
-    }
-  }, [user, userProfile, loading, router]);
-
-
   if (loading) {
     return (
       <div className="flex h-[calc(100vh-var(--header-height,4rem))] items-center justify-center">
@@ -621,31 +634,12 @@ function HomePage() {
     );
   }
 
-  // The logic to redirect students has been removed.
-  // Instead, the page now conditionally renders content based on role.
-  // The FAB buttons are part of the student's view and not on this page anymore.
-  // TODO: Refactor HomePage to move student grid and FABs to a separate component/page.
-  // For now, we keep the student logic in `page.tsx` for simplicity.
-  const studentViewNeedsImplementing = true;
-
   return (
     <ProtectedPage>
       {userProfile?.role === 'admin' ? (
         <AdminHomePageContent />
       ) : (
-        // This is the student's view, now directly on the homepage.
-        // This section should contain the student's certificate grid.
-        // Redirecting to `/` from within itself doesn't make sense.
-        // We'll show a simple placeholder for now as per the user's focus on the admin view.
-        <div className="container mx-auto p-4 md:p-8">
-            <h1 className="text-3xl font-bold font-headline mb-4">Your Certificate Hub</h1>
-            <p className="text-muted-foreground mb-6">
-                This is your dashboard. Soon you will see your certificate grid here. 
-                For now, use the <span className="inline-flex items-center justify-center bg-primary text-primary-foreground w-6 h-6 rounded-full mx-1">+</span> button to upload 
-                and the <span className="inline-flex items-center justify-center bg-accent text-accent-foreground w-6 h-6 rounded-full mx-1">AI</span> button for insights.
-            </p>
-            {/* The actual ImageGrid and FABs for students will be handled by a separate component or refactoring later */}
-        </div>
+        <StudentHomePageContent />
       )}
     </ProtectedPage>
   );
