@@ -221,16 +221,6 @@ function AdminHomePageContent() {
         },
     } satisfies ChartConfig;
     
-    const gaugeChartData = useMemo(() => {
-        if (!searchTerm.trim() || allStudents.length === 0) return [];
-        const studentIdsWithCert = new Set(searchResults.map(item => item.studentId));
-        const numStudentsWithCert = studentIdsWithCert.size;
-        return [
-            { name: 'has-certificate', value: numStudentsWithCert, fill: 'hsl(var(--chart-1))' },
-            { name: 'does-not-have', value: allStudents.length - numStudentsWithCert, fill: 'hsl(var(--muted))' }
-        ];
-    }, [searchTerm, searchResults, allStudents]);
-
     const searchResults = useMemo(() => {
         if (!searchTerm) {
             return [];
@@ -270,6 +260,16 @@ function AdminHomePageContent() {
         return sortedData;
 
     }, [searchTerm, dashboardData, allStudents, sortConfig]);
+
+    const gaugeChartData = useMemo(() => {
+        if (!searchTerm.trim() || allStudents.length === 0) return [];
+        const studentIdsWithCert = new Set(searchResults.map(item => item.studentId));
+        const numStudentsWithCert = studentIdsWithCert.size;
+        return [
+            { name: 'has-certificate', value: numStudentsWithCert, fill: 'hsl(var(--chart-1))' },
+            { name: 'does-not-have', value: allStudents.length - numStudentsWithCert, fill: 'hsl(var(--muted))' }
+        ];
+    }, [searchTerm, searchResults, allStudents]);
 
     const handleDownloadZip = async () => {
         const fileIdsToDownload = searchResults.flatMap(student => student.certificates.map((cert: any) => cert.fileId));
