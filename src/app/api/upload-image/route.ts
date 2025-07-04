@@ -214,6 +214,7 @@ export async function POST(request: NextRequest) {
         sourceContentType: fileType, 
         explicitContentType: fileType, 
         reqIdParent: reqId,
+        visibility: 'public', // Default to public
       };
 
       try {

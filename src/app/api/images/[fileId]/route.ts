@@ -196,10 +196,7 @@ export async function PATCH(
     return NextResponse.json({ message: 'Invalid request body. Expected JSON.' }, { status: 400 });
   }
   
-  const { newName } = body;
-  if (!newName || typeof newName !== 'string' || newName.trim().length === 0) {
-    return NextResponse.json({ message: 'Invalid or missing newName in request body.' }, { status: 400 });
-  }
+  const { newName, visibility } = body;
 
   // fileId validation
   if (!fileId || !ObjectId.isValid(fileId)) {
@@ -221,20 +218,37 @@ export async function PATCH(
     }
 
     // Perform update
+    const updateFields: { [key: string]: any } = {};
+
+    if (newName && typeof newName === 'string' && newName.trim().length > 0) {
+      updateFields['metadata.originalName'] = newName.trim();
+      updateFields['filename'] = newName.trim();
+    }
+    
+    if (visibility && (visibility === 'public' || visibility === 'private')) {
+      updateFields['metadata.visibility'] = visibility;
+    }
+
+    if (Object.keys(updateFields).length === 0) {
+      return NextResponse.json({ message: 'No valid fields to update (provide newName or visibility).' }, { status: 400 });
+    }
+    
+    updateFields['metadata.updatedAt'] = new Date().toISOString();
+
     const updateResult = await filesCollection.updateOne(
       { _id: objectId },
-      { $set: { 'metadata.originalName': newName.trim(), filename: newName.trim(), 'metadata.updatedAt': new Date().toISOString() } }
+      { $set: updateFields }
     );
     
     if (updateResult.modifiedCount === 0) {
         if (updateResult.matchedCount === 1) {
-            return NextResponse.json({ message: 'File name is already up to date.' }, { status: 200 });
+            return NextResponse.json({ message: 'File data is already up to date.' }, { status: 200 });
         }
         throw new Error('Failed to update the document in the database.');
     }
 
     console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): File ${fileId} updated successfully.`);
-    return NextResponse.json({ message: 'File name updated successfully.' }, { status: 200 });
+    return NextResponse.json({ message: 'File updated successfully.' }, { status: 200 });
 
   } catch (error: any) {
     console.error(`API Route /api/images/[fileId] (Req ID: ${reqId}): Error updating image for fileId ${fileId}:`, {

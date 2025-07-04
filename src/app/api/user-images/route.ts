@@ -129,7 +129,13 @@ export async function GET(request: NextRequest) {
     console.log(`API Route /api/user-images (Req ID: ${reqId}): DB connected. Accessing 'images.files' for user ${finalTargetUserId}.`);
 
     const filesCollection = db.collection('images.files');
-    const query = { 'metadata.userId': finalTargetUserId }; 
+    const query: { [key: string]: any } = { 'metadata.userId': finalTargetUserId };
+    
+    // If an admin is requesting, only show public certificates
+    if (adminIdFromQuery) {
+      query['metadata.visibility'] = { '$ne': 'private' };
+    }
+    
     console.log(`API Route /api/user-images (Req ID: ${reqId}): Querying 'images.files' with:`, query);
 
     const userImages = await filesCollection.find(
@@ -156,7 +162,8 @@ export async function GET(request: NextRequest) {
       originalName: img.metadata?.originalName || img.filename,
       dataAiHint: img.metadata?.dataAiHint || '',
       size: img.length || 0,
-      userId: img.metadata?.userId, 
+      userId: img.metadata?.userId,
+      visibility: img.metadata?.visibility || 'public', // Default to public if not set
     }));
 
     return NextResponse.json(formattedImages, { status: 200 });

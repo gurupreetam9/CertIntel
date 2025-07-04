@@ -3,7 +3,7 @@
 
 import Image from 'next/image';
 import { Card, CardContent, CardDescription } from '@/components/ui/card';
-import { ImageIcon, Loader2, Eye, Trash2, ExternalLink, Download, FileText, Bot, Sparkles, Pencil } from 'lucide-react';
+import { ImageIcon, Loader2, Eye, Trash2, ExternalLink, Download, FileText, Bot, Sparkles, Pencil, Lock, Unlock } from 'lucide-react';
 import { useState, useCallback } from 'react';
 import ViewImageModal from './ViewImageModal';
 import {
@@ -40,6 +40,7 @@ export interface UserImage {
   dataAiHint?: string;
   size: number;
   userId?: string;
+  visibility?: 'public' | 'private';
 }
 
 interface ImageGridProps {
@@ -82,6 +83,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
   const [newName, setNewName] = useState('');
   
   const [generatingDescriptionFor, setGeneratingDescriptionFor] = useState<string | null>(null);
+  const [togglingVisibilityFor, setTogglingVisibilityFor] = useState<string | null>(null);
 
   const canEdit = loggedInUserId === currentUserId;
 
@@ -150,6 +152,43 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
         });
     } finally {
         setIsUpdatingName(false);
+    }
+  };
+
+  const handleToggleVisibility = async (image: UserImage) => {
+    if (!user) return;
+    setTogglingVisibilityFor(image.fileId);
+    const newVisibility = image.visibility === 'private' ? 'public' : 'private';
+
+    try {
+      const idToken = await user.getIdToken();
+      const response = await fetch(`/api/images/${image.fileId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ visibility: newVisibility }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to update visibility.');
+      }
+
+      toast({
+        title: 'Visibility Updated',
+        description: `"${image.originalName}" is now ${newVisibility}.`,
+      });
+      onImageDeleted(); // This just refreshes the grid
+    } catch (err: any) {
+      toast({
+        title: 'Update Failed',
+        description: err.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setTogglingVisibilityFor(null);
     }
   };
 
@@ -272,11 +311,18 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
           const imageSrc = `/api/images/${image.fileId}`;
           const isPdf = image.contentType === 'application/pdf';
           const imageFitClass = 'object-contain'; 
+          const isPrivate = image.visibility === 'private';
 
           return (
             <Card key={image.fileId} className="overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 group relative flex flex-col">
               <CardContent className="p-0 cursor-pointer flex-shrink-0" onClick={() => openViewModal(image)}>
                 <div className="aspect-square w-full relative flex items-center justify-center">
+                  {isPrivate && (
+                    <div className="absolute inset-0 bg-black/30 backdrop-blur-sm z-10 flex flex-col items-center justify-center text-white p-2">
+                        <Lock className="w-8 h-8"/>
+                        <p className="text-xs font-semibold mt-1">Private</p>
+                    </div>
+                  )}
                   {isPdf ? (
                      <FileText className="w-1/2 h-1/2 text-muted-foreground" />
                   ) : (
@@ -296,13 +342,31 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
                   )}
                 </div>
               </CardContent>
-              <div className="absolute top-2 right-2 flex flex-col space-y-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-10">
+              <div className="absolute top-2 right-2 flex flex-col space-y-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-20">
                 <Button variant="ghost" size="icon" className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white" onClick={(e) => { e.stopPropagation(); openViewModal(image);}} title="View File">
                   <Eye className="h-4 w-4" />
                 </Button>
                 {canEdit && (
                   <Button variant="ghost" size="icon" className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white" onClick={(e) => { e.stopPropagation(); openEditModal(image);}} title="Edit Name">
                     <Pencil className="h-4 w-4" />
+                  </Button>
+                )}
+                {canEdit && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white"
+                    onClick={(e) => { e.stopPropagation(); handleToggleVisibility(image); }}
+                    title={isPrivate ? 'Make Public' : 'Make Private'}
+                    disabled={togglingVisibilityFor === image.fileId}
+                  >
+                    {togglingVisibilityFor === image.fileId ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : isPrivate ? (
+                      <Lock className="h-4 w-4" />
+                    ) : (
+                      <Unlock className="h-4 w-4" />
+                    )}
                   </Button>
                 )}
                 <Button variant="ghost" size="icon" className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white" onClick={(e) => { e.stopPropagation(); handleImageLinkOpen(image.fileId); }} title="Open File in New Tab">

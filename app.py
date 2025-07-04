@@ -311,7 +311,16 @@ def convert_pdf_to_images_route():
             base_pdf_name_secure = secure_filename(os.path.splitext(original_pdf_name)[0])
             gridfs_filename = f"{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{base_pdf_name_secure}_page_{page_number}.png"
             img_byte_arr = io.BytesIO(); image_pil.save(img_byte_arr, format='PNG'); img_byte_arr_val = img_byte_arr.getvalue()
-            metadata_for_gridfs = {"originalName": f"{original_pdf_name} (Page {page_number})", "userId": user_id, "uploadedAt": datetime.now(timezone.utc).isoformat(), "sourceContentType": "application/pdf", "convertedTo": "image/png", "pageNumber": page_number, "reqIdParent": req_id}
+            metadata_for_gridfs = {
+                "originalName": f"{original_pdf_name} (Page {page_number})", 
+                "userId": user_id, 
+                "uploadedAt": datetime.now(timezone.utc).isoformat(), 
+                "sourceContentType": "application/pdf", 
+                "convertedTo": "image/png", 
+                "pageNumber": page_number, 
+                "reqIdParent": req_id,
+                "visibility": "public" # Default to public
+            }
             file_id_obj = fs_images.put(img_byte_arr_val, filename=gridfs_filename, contentType='image/png', metadata=metadata_for_gridfs)
             converted_files_metadata.append({"originalName": metadata_for_gridfs["originalName"], "fileId": str(file_id_obj), "filename": gridfs_filename, "contentType": 'image/png', "pageNumber": page_number})
             app.logger.info(f"Flask (Req ID: {req_id}): Stored page {page_number} with GridFS ID: {str(file_id_obj)}. Metadata: {json.dumps(metadata_for_gridfs)}")
