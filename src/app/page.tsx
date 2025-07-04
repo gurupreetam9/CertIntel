@@ -425,7 +425,7 @@ function AdminHomePageContent() {
                             <BarChart data={monthlyUploads} margin={{ top: 10, right: 10, bottom: isMobile ? 50 : 40, left: 0 }}>
                                 <CartesianGrid vertical={false} />
                                 <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} angle={isMobile ? -45 : 0} textAnchor={isMobile ? "end" : "middle"} height={isMobile ? 60 : 50} tickFormatter={formatXAxisTick} />
-                                <YAxis tickLine={false} axisLine={false} tickMargin={8} allowDecimals={false}/>
+                                <YAxis tickLine={false} axisLine={false} tickMargin={8} allowDecimals={false} width={30}/>
                                 <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
                                 <Bar dataKey="certificates" fill="var(--color-certificates)" radius={[4, 4, 0, 0]} />
                             </BarChart>
@@ -582,39 +582,37 @@ function AdminHomePageContent() {
                     )}
                   </div>
                 ) : (
-                  groupedAndSortedData.length > 0 ? (
-                    <div className="mt-4 space-y-4">
-                      {groupedAndSortedData.map(({ studentId, studentName, studentEmail, certificates }) => (
-                         <Card key={studentId} className="shadow-sm">
-                            <CardHeader className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-4">
-                                <div>
-                                    <CardTitle className="text-lg">{studentName}</CardTitle>
-                                    <CardDescription>{studentEmail}</CardDescription>
-                                </div>
-                                <Badge variant="secondary" className="mt-2 sm:mt-0">{certificates.length} Cert(s)</Badge>
-                            </CardHeader>
-                            <CardContent className="p-4 pt-0">
-                                <ul className="space-y-2">
-                                    {certificates.map((cert) => (
-                                        <li key={cert.fileId} className="flex items-center justify-between gap-4 p-2 border rounded-md bg-background/50">
-                                            <div className='min-w-0'>
-                                                <p className="text-sm font-medium truncate" title={cert.originalName}>{cert.originalName}</p>
-                                                <p className="text-xs text-muted-foreground">Uploaded: {format(new Date(cert.uploadDate), "PP")}</p>
-                                            </div>
-                                            <Button size="sm" variant="outline" onClick={() => openViewModal(cert)}>
-                                                <FileTextIcon className="mr-2 h-4 w-4" />
-                                                View
-                                            </Button>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-muted-foreground text-center py-8">No students or certificates match your criteria.</p>
-                  )
+                  <Accordion type="multiple" className="w-full">
+                    {groupedAndSortedData.map(({ studentId, studentName, studentEmail, certificates }) => (
+                      <AccordionItem value={studentId} key={studentId}>
+                        <AccordionTrigger>
+                           <div className="grid grid-cols-[1fr,auto] w-full items-center gap-4">
+                              <div className="min-w-0">
+                                  <p className="font-semibold text-base truncate">{studentName}</p>
+                                  <p className="text-sm text-muted-foreground truncate">{studentEmail}</p>
+                              </div>
+                              <Badge variant="secondary" className="justify-self-end">{certificates.length} Cert(s)</Badge>
+                          </div>
+                        </AccordionTrigger>
+                        <AccordionContent>
+                           <ul className="space-y-2 pl-4">
+                                {certificates.map((cert) => (
+                                    <li key={cert.fileId} className="flex items-center justify-between gap-4 p-2 border-l-2 border-primary/20">
+                                        <div className='min-w-0'>
+                                            <p className="text-sm font-medium truncate" title={cert.originalName}>{cert.originalName}</p>
+                                            <p className="text-xs text-muted-foreground">Uploaded: {format(new Date(cert.uploadDate), "PP")}</p>
+                                        </div>
+                                        <Button size="sm" variant="ghost" onClick={() => openViewModal(cert)}>
+                                            <FileTextIcon className="mr-2 h-4 w-4" />
+                                            View
+                                        </Button>
+                                    </li>
+                                ))}
+                            </ul>
+                        </AccordionContent>
+                      </AccordionItem>
+                    ))}
+                  </Accordion>
                 )}
               </CardContent>
           </Card>
