@@ -438,12 +438,12 @@ function AdminHomePageContent() {
                 <CardContent className="p-0 pt-4 pr-2 sm:pr-4 h-[250px] sm:h-[300px]">
                    <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--accent))" } }}>
                        <ResponsiveContainer>
-                            <BarChart data={topStudentsData} layout="vertical" margin={{ top: 10, right: 10, bottom: isMobile ? 50 : 40, left: isMobile ? 0 : 20 }}>
-                                <CartesianGrid horizontal={false} />
-                                <XAxis type="number" hide />
-                                <YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={8} width={isMobile ? 60 : 80} tickFormatter={formatXAxisTick} />
+                            <BarChart data={topStudentsData} margin={{ top: 10, right: 10, bottom: isMobile ? 50 : 40, left: 0 }}>
+                                <CartesianGrid vertical={false} />
+                                <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} angle={isMobile ? -45 : 0} textAnchor={isMobile ? "end" : "middle"} height={isMobile ? 60 : 50} tickFormatter={formatXAxisTick} />
+                                <YAxis tickLine={false} axisLine={false} tickMargin={8} allowDecimals={false} width={30}/>
                                 <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
-                                <Bar dataKey="certificates" fill="var(--color-certificates)" radius={[0, 4, 4, 0]} />
+                                <Bar dataKey="certificates" fill="var(--color-certificates)" radius={[4, 4, 0, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     </ChartContainer>
@@ -539,78 +539,44 @@ function AdminHomePageContent() {
               </CardHeader>
               <CardContent>
                 {searchTerm ? (
-                  <div className="mt-6 space-y-6">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
-                       <Card>
-                          <CardHeader className='pb-2'>
-                              <CardTitle className="text-base font-medium">Certificate Matches</CardTitle>
-                          </CardHeader>
-                          <CardContent className="flex flex-col items-center justify-center gap-2">
-                              <GaugeChart
-                                  value={filteredData.length}
-                                  totalValue={allData.length}
-                                  label={`out of ${allData.length} total`}
-                              />
-                              <CardDescription>
-                                  Found {filteredData.length} certificates matching your search.
-                              </CardDescription>
-                          </CardContent>
-                      </Card>
-                      <Card>
-                          <CardHeader className='pb-2'>
-                              <CardTitle className="text-base font-medium">Student Matches</CardTitle>
-                          </CardHeader>
-                          <CardContent className="flex flex-col items-center justify-center gap-2">
-                              <GaugeChart
-                                  value={new Set(filteredData.map(d => d.studentId)).size}
-                                  totalValue={uniqueStudents.length}
-                                  label={`out of ${uniqueStudents.length} total`}
-                              />
-                              <CardDescription>
-                                  {new Set(filteredData.map(d => d.studentId)).size} students have certificates matching your search.
-                              </CardDescription>
-                          </CardContent>
-                      </Card>
-                    </div>
+                  <div className="mt-6 space-y-3">
                     {filteredData.length > 0 ? (
-                        <div className="mt-4 space-y-3">
-                            {filteredData.map((cert) => (
-                                <Card key={cert.fileId} className="shadow-sm hover:shadow-md transition-shadow duration-200">
-                                    <CardContent className="p-3 sm:p-4 flex items-center justify-between gap-4">
-                                        <div className="flex-1 min-w-0">
-                                            <p className="font-semibold text-base text-primary truncate" title={cert.originalName}>
-                                                {cert.originalName}
-                                            </p>
-                                            <div className="mt-1 text-xs text-muted-foreground flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 gap-y-1">
+                        filteredData.map((cert) => (
+                            <Card key={cert.fileId} className="shadow-sm hover:shadow-md transition-shadow duration-200">
+                                <CardContent className="p-3 sm:p-4 flex items-center justify-between gap-4">
+                                    <div className="flex-1 min-w-0">
+                                        <p className="font-semibold text-base text-primary truncate" title={cert.originalName}>
+                                            {cert.originalName}
+                                        </p>
+                                        <div className="mt-1 text-xs text-muted-foreground flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 gap-y-1">
+                                            <span className="flex items-center gap-1.5">
+                                                <Users className="h-3 w-3 shrink-0" />
+                                                <span className="truncate">{cert.studentName}</span>
+                                            </span>
+                                            <span className="flex items-center gap-1.5">
+                                                <Mail className="h-3 w-3 shrink-0" />
+                                                <span className="truncate">{cert.studentEmail}</span>
+                                            </span>
+                                            {cert.studentRollNo && (
                                                 <span className="flex items-center gap-1.5">
-                                                    <Users className="h-3 w-3 shrink-0" />
-                                                    <span className="truncate">{cert.studentName}</span>
+                                                    <Notebook className="h-3 w-3 shrink-0" />
+                                                    <span className="truncate">Roll No: {cert.studentRollNo}</span>
                                                 </span>
-                                                <span className="flex items-center gap-1.5">
-                                                    <Mail className="h-3 w-3 shrink-0" />
-                                                    <span className="truncate">{cert.studentEmail}</span>
-                                                </span>
-                                                {cert.studentRollNo && (
-                                                    <span className="flex items-center gap-1.5">
-                                                        <Notebook className="h-3 w-3 shrink-0" />
-                                                        <span className="truncate">Roll No: {cert.studentRollNo}</span>
-                                                    </span>
-                                                )}
-                                            </div>
+                                            )}
                                         </div>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => openViewModal(cert)}
-                                            className="shrink-0"
-                                        >
-                                            <FileTextIcon className="mr-2 h-4 w-4" />
-                                            View
-                                        </Button>
-                                    </CardContent>
-                                </Card>
-                            ))}
-                        </div>
+                                    </div>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => openViewModal(cert)}
+                                        className="shrink-0"
+                                    >
+                                        <FileTextIcon className="mr-2 h-4 w-4" />
+                                        View
+                                    </Button>
+                                </CardContent>
+                            </Card>
+                        ))
                     ) : (
                         <p className="text-muted-foreground text-center py-8">No certificates match your search.</p>
                     )}
@@ -621,22 +587,13 @@ function AdminHomePageContent() {
                       {groupedAndSortedData.map(({ studentId, studentName, studentEmail, certificates }) => (
                         <AccordionItem key={studentId} value={studentId} className="border rounded-lg shadow-sm bg-background/50 data-[state=open]:shadow-md">
                             <AccordionTrigger className="p-3 sm:p-4 hover:no-underline text-left">
-                              <div className="flex items-center justify-between w-full gap-x-4">
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-x-2">
-                                      <p className="truncate font-semibold text-base sm:text-sm">{studentName}</p>
-                                      <Badge variant="secondary" className="hidden sm:inline-flex shrink-0 whitespace-nowrap">
-                                          {certificates.length} Cert(s)
-                                      </Badge>
+                               <div className="flex flex-1 items-center gap-x-4 min-w-0">
+                                  <div className="flex-1 min-w-0">
+                                    <p className="font-semibold truncate">{studentName}</p>
+                                    <p className="text-sm text-muted-foreground truncate">{studentEmail}</p>
                                   </div>
-                                  <p className="truncate text-sm text-muted-foreground">{studentEmail}</p>
-                                  <div className="mt-2 sm:hidden">
-                                    <Badge variant="secondary" className="shrink-0 whitespace-nowrap">
-                                      {certificates.length} Cert(s)
-                                    </Badge>
-                                  </div>
+                                  <Badge variant="secondary" className="shrink-0">{certificates.length} Cert(s)</Badge>
                                 </div>
-                              </div>
                             </AccordionTrigger>
                             <AccordionContent className="px-2 sm:px-4 pb-4">
                                 <ul className="space-y-4 pt-4 border-t">
@@ -697,3 +654,5 @@ function HomePage() {
 }
 
 export default HomePage;
+
+    
