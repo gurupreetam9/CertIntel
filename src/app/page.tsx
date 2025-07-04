@@ -3,7 +3,7 @@
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { useAuth } from '@/hooks/useAuth';
-import { LayoutDashboard, Loader2, AlertCircle, Search, Download, FileText, BarChart2, PieChart as PieChartIcon, LineChart as LineChartIcon, Mail, Hash, View } from 'lucide-react';
+import { LayoutDashboard, Loader2, AlertCircle, Search, Download, FileText, BarChart2, PieChart as PieChartIcon, LineChart as LineChartIcon, Mail, Hash, View, ArrowUp, ArrowDown } from 'lucide-react';
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -14,7 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
-import { PieChart, Pie, Cell, LineChart as RechartsLineChart, XAxis, YAxis, CartesianGrid, Line } from 'recharts';
+import { PieChart, Pie, Cell, Line, XAxis, YAxis, CartesianGrid, LineChart as RechartsLineChart } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
@@ -101,6 +101,8 @@ function AdminHomePageContent() {
     const [selectedChartData, setSelectedChartData] = useState<{ name: string; value: number } | null>(null);
 
     const [isDownloading, setIsDownloading] = useState(false);
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+
 
     useEffect(() => {
         const fetchData = async () => {
@@ -212,9 +214,16 @@ function AdminHomePageContent() {
                 };
             });
         
-        // Sort the results by student name
-        return studentsWithCert.sort((a, b) => a.studentName.localeCompare(b.studentName));
-    }, [searchTerm, dashboardData, allStudents]);
+        // Sort the results by student name based on sortOrder
+        const sortedStudents = studentsWithCert.sort((a, b) => {
+            if (sortOrder === 'asc') {
+                return a.studentName.localeCompare(b.studentName);
+            } else {
+                return b.studentName.localeCompare(a.studentName);
+            }
+        });
+        return sortedStudents;
+    }, [searchTerm, dashboardData, allStudents, sortOrder]);
 
     const gaugeChartConfig = {
         value: {
@@ -422,7 +431,12 @@ function AdminHomePageContent() {
                             <Table>
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead>Student Name</TableHead>
+                                        <TableHead>
+                                            <Button variant="ghost" size="sm" onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')} className="p-0 hover:bg-transparent">
+                                                Student Name
+                                                {sortOrder === 'asc' ? <ArrowUp className="ml-2 h-4 w-4" /> : <ArrowDown className="ml-2 h-4 w-4" />}
+                                            </Button>
+                                        </TableHead>
                                         <TableHead>Email</TableHead>
                                         <TableHead>Roll No.</TableHead>
                                         <TableHead>Certificate</TableHead>
