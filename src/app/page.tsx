@@ -14,7 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
-import { PieChart, LineChart, Line, XAxis, YAxis, CartesianGrid, Cell, Sector } from 'recharts';
+import { PieChart, Pie, LineChart, Line, XAxis, YAxis, CartesianGrid, Cell, Sector } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
@@ -86,6 +86,12 @@ interface DashboardData {
     studentRollNo?: string;
 }
 
+const truncateText = (text: string, maxLength: number) => {
+  if (text.length <= maxLength) return text;
+  return `${text.substring(0, maxLength)}...`;
+};
+
+
 function AdminHomePageContent() {
     const { user } = useAuth();
     const { toast } = useToast();
@@ -101,6 +107,7 @@ function AdminHomePageContent() {
     const [selectedChartData, setSelectedChartData] = useState<{ name: string; value: number } | null>(null);
 
     const [isDownloading, setIsDownloading] = useState(false);
+    const [activePieIndex, setActivePieIndex] = useState(-1);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -142,10 +149,10 @@ function AdminHomePageContent() {
         fetchData();
     }, [user, toast]);
     
-    const handlePieClick = (data: any) => {
+    const handlePieClick = useCallback((data: any) => {
         setSelectedChartData({ name: data.name, value: data.value });
         setIsChartModalOpen(true);
-    };
+    }, []);
 
     const chartData = useMemo(() => {
         const courseCounts: { [key: string]: number } = {};
@@ -327,7 +334,7 @@ function AdminHomePageContent() {
                                     <CardDescription>Click a slice to see details.</CardDescription>
                                 </CardHeader>
                                 <CardContent>
-                                    <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[350px] sm:h-[400px]">
+                                    <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[300px] sm:h-[400px]">
                                         <PieChart margin={{ top: 40, right: 40, bottom: 40, left: 40 }}>
                                             <ChartTooltip content={<ChartTooltipContent hideLabel />} />
                                             <Pie 
@@ -354,6 +361,7 @@ function AdminHomePageContent() {
                                         <LineChartIcon className="h-5 w-5 shrink-0" />
                                         Certificate Uploads Over Time
                                     </CardTitle>
+                                     <CardDescription>Daily count of new certificate uploads.</CardDescription>
                                 </CardHeader>
                                 <CardContent>
                                    <ChartContainer config={lineChartConfig} className="h-[300px] w-full sm:h-[400px]">
@@ -391,7 +399,7 @@ function AdminHomePageContent() {
                                         <CardTitle className="text-base">Search Summary</CardTitle>
                                     </CardHeader>
                                     <CardContent className="flex flex-col items-center justify-center p-4">
-                                        <ChartContainer config={gaugeChartConfig} className="mx-auto aspect-square h-[150px]">
+                                         <ChartContainer config={gaugeChartConfig} className="mx-auto aspect-square h-[150px]">
                                             <PieChart>
                                                 <ChartTooltip content={<ChartTooltipContent indicator="dot" nameKey="name" />} />
                                                 <Pie data={gaugeChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={60} startAngle={180} endAngle={0}>
