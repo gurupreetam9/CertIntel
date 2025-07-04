@@ -6,7 +6,7 @@ import { useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, Save, KeyRound, UserCircle, Copy, Link2, Link2Off, AlertTriangle, Trash2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Save, KeyRound, UserCircle, Copy, Link2, Link2Off, AlertTriangle, Trash2, Globe } from 'lucide-react';
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { Button } from '@/components/ui/button';
@@ -27,6 +27,7 @@ import type { UserProfile } from '@/lib/models/user';
 import { doc, getDoc } from 'firebase/firestore';
 import { firestore, auth as firebaseAuth } from '@/lib/firebase/config'; // Import firebaseAuth for direct SDK access
 import { initiateAccountDeletion } from '@/ai/flows/initiate-account-deletion';
+import { Switch } from '@/components/ui/switch';
 
 
 const profileFormSchema = z.object({
@@ -52,6 +53,10 @@ function ProfileSettingsPageContent() {
   const [isSubmittingLinkRequest, setIsSubmittingLinkRequest] = useState(false);
   const [isRemovingLink, setIsRemovingLink] = useState(false);
   const [linkedAdminName, setLinkedAdminName] = useState<string | null>(null);
+  
+  const [isUpdatingPublicProfile, setIsUpdatingPublicProfile] = useState(false);
+  const publicProfileUrl = user ? `${process.env.NEXT_PUBLIC_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : '')}/profile/${user.uid}` : '';
+
 
   const profileForm = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
@@ -274,6 +279,21 @@ function ProfileSettingsPageContent() {
     }
   };
 
+  const handleTogglePublicProfile = async (isEnabled: boolean) => {
+    if (!user) return;
+    setIsUpdatingPublicProfile(true);
+
+    const result = await updateUserProfileDocument(user.uid, { isPublicProfileEnabled: isEnabled });
+
+    if (result.success) {
+      toast({ title: 'Public Profile Updated', description: `Your showcase profile is now ${isEnabled ? 'enabled' : 'disabled'}.` });
+      refreshUserProfile();
+    } else {
+      toast({ title: 'Update Failed', description: result.message || "Could not update public profile setting.", variant: 'destructive' });
+    }
+    setIsUpdatingPublicProfile(false);
+  };
+
 
   if (authLoading || (!user && !authLoading)) {
     return (
@@ -456,6 +476,43 @@ function ProfileSettingsPageContent() {
                     </Button>
                   </form>
                 </Form>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {userProfile?.role === 'student' && (
+          <Card id="public-profile">
+            <CardHeader>
+              <CardTitle className="text-xl font-headline flex items-center"><Globe className="mr-2" /> Public Showcase Profile</CardTitle>
+              <CardDescription>Create a public URL to showcase your public certificates to others.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between p-3 border rounded-md bg-background hover:bg-muted/50 transition-colors">
+                <Label htmlFor="public-profile-switch" className="flex flex-col gap-1 cursor-pointer">
+                  <span>Enable Public Profile</span>
+                  <span className="text-xs font-normal text-muted-foreground">
+                    Allows anyone with the link to see your public certificates.
+                  </span>
+                </Label>
+                <Switch
+                  id="public-profile-switch"
+                  checked={!!userProfile.isPublicProfileEnabled}
+                  onCheckedChange={handleTogglePublicProfile}
+                  disabled={isUpdatingPublicProfile}
+                  aria-label="Toggle public profile"
+                />
+              </div>
+              {userProfile.isPublicProfileEnabled && (
+                <div className="space-y-2 pt-2">
+                  <Label htmlFor="public-url">Your Public Profile URL</Label>
+                  <div className="flex items-center gap-2">
+                    <Input id="public-url" type="text" value={publicProfileUrl} readOnly className="bg-muted/50" />
+                    <Button type="button" variant="outline" size="icon" onClick={() => navigator.clipboard.writeText(publicProfileUrl).then(() => toast({ title: 'URL Copied!' }))} title="Copy URL">
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
               )}
             </CardContent>
           </Card>
