@@ -14,7 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
-import { PieChart, Pie, Line, XAxis, YAxis, CartesianGrid, Cell, LineChart as RechartsLineChart } from 'recharts';
+import { PieChart, Pie, Cell, LineChart as RechartsLineChart, XAxis, YAxis, CartesianGrid, Line } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
@@ -86,12 +86,6 @@ interface DashboardData {
     studentRollNo?: string;
 }
 
-const truncateText = (text: string, maxLength: number) => {
-  if (text.length <= maxLength) return text;
-  return `${text.substring(0, maxLength)}...`;
-};
-
-
 function AdminHomePageContent() {
     const { user } = useAuth();
     const { toast } = useToast();
@@ -107,7 +101,6 @@ function AdminHomePageContent() {
     const [selectedChartData, setSelectedChartData] = useState<{ name: string; value: number } | null>(null);
 
     const [isDownloading, setIsDownloading] = useState(false);
-    const [activePieIndex, setActivePieIndex] = useState(-1);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -159,7 +152,6 @@ function AdminHomePageContent() {
         const completionTrends: { [key: string]: number } = {};
 
         dashboardData.forEach(cert => {
-            // Use originalName which is more descriptive than filename
             const courseName = cert.originalName || cert.fileId;
             courseCounts[courseName] = (courseCounts[courseName] || 0) + 1;
             
@@ -167,13 +159,11 @@ function AdminHomePageContent() {
             completionTrends[date] = (completionTrends[date] || 0) + 1;
         });
 
-        // For Pie chart, get top 10 courses
         const pieData = Object.entries(courseCounts)
             .map(([name, value], index) => ({ name, value, fill: `hsl(var(--chart-${(index % 5) + 1}))` }))
             .sort((a, b) => b.value - a.value)
             .slice(0, 10);
             
-        // For Line chart, sort dates
         const lineData = Object.entries(completionTrends)
             .map(([date, count]) => ({ date, count }))
             .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -202,9 +192,9 @@ function AdminHomePageContent() {
         return config;
     }, [chartData.pieChartData]);
     
-    const [allCertsFiltered, searchResults] = useMemo(() => {
+    const searchResults = useMemo(() => {
         if (!searchTerm) {
-            return [allStudents, []];
+            return [];
         }
         const lowercasedFilter = searchTerm.toLowerCase();
         
@@ -222,7 +212,7 @@ function AdminHomePageContent() {
                 };
             });
         
-        return [allStudents, studentsWithCert];
+        return studentsWithCert;
     }, [searchTerm, dashboardData, allStudents]);
 
     const gaugeChartConfig = {
