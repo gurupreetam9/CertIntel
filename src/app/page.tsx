@@ -16,7 +16,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
-import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart';
+import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from '@/components/ui/chart';
 import { BarChart as RechartsBarChart, PieChart as RechartsPieChart, LineChart as RechartsLineChart, Bar, Pie, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend as RechartsLegend, ResponsiveContainer, Cell, Sector } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -212,27 +212,7 @@ function AdminHomePageContent() {
         setActivePieIndex(index);
     }, []);
 
-    const filteredAndSortedData = useMemo(() => {
-        let filtered = dashboardData;
-        if (searchTerm) {
-            filtered = dashboardData.filter(item =>
-                item.originalName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                item.studentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                item.studentEmail.toLowerCase().includes(searchTerm.toLowerCase())
-            );
-        }
-
-        return [...filtered].sort((a, b) => {
-            const valA = a[sortKey];
-            const valB = b[sortKey];
-
-            if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
-            if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
-            return 0;
-        });
-    }, [dashboardData, searchTerm, sortKey, sortDirection]);
-
-    const chartData = useMemo(() => {
+    const { pieChartData, barChartData, lineChartData } = useMemo(() => {
         const courseCounts: { [key: string]: number } = {};
         const studentCourseCounts: { [key: string]: Set<string> } = {};
         const completionTrends: { [key: string]: number } = {};
@@ -253,22 +233,70 @@ function AdminHomePageContent() {
             completionTrends[date] = (completionTrends[date] || 0) + 1;
         });
 
-        const pieChartData = Object.entries(courseCounts)
-            .map(([name, value]) => ({ name, value }))
+        const pieData = Object.entries(courseCounts)
+            .map(([name, value], index) => ({ name, value, fill: `hsl(var(--chart-${(index % 5) + 1}))` }))
             .sort((a, b) => b.value - a.value)
-            .slice(0, 10); // Top 10 courses
+            .slice(0, 10);
 
-        const barChartData = Object.entries(studentCourseCounts)
+        const barData = Object.entries(studentCourseCounts)
             .map(([name, students]) => ({ name, students: students.size }))
             .sort((a, b) => b.students - a.students)
             .slice(0, 10);
             
-        const lineChartData = Object.entries(completionTrends)
+        const lineData = Object.entries(completionTrends)
             .map(([date, count]) => ({ date, count }))
             .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-        return { pieChartData, barChartData, lineChartData };
+        return { pieChartData: pieData, barChartData: barData, lineChartData: lineData };
     }, [dashboardData]);
+
+    const barChartConfig = {
+      students: {
+        label: "Students",
+        color: "hsl(var(--primary))",
+      },
+    } satisfies ChartConfig;
+
+    const lineChartConfig = {
+        count: {
+            label: "Uploads",
+            color: "hsl(var(--primary))",
+        },
+    } satisfies ChartConfig;
+
+    const pieChartConfig = useMemo(() => {
+        if (!pieChartData || pieChartData.length === 0) {
+          return {};
+        }
+        const config: ChartConfig = {};
+        pieChartData.forEach((item) => {
+            config[item.name] = {
+                label: item.name,
+                color: item.fill,
+            };
+        });
+        return config;
+    }, [pieChartData]);
+
+    const filteredAndSortedData = useMemo(() => {
+        let filtered = dashboardData;
+        if (searchTerm) {
+            filtered = dashboardData.filter(item =>
+                item.originalName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                item.studentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                item.studentEmail.toLowerCase().includes(searchTerm.toLowerCase())
+            );
+        }
+
+        return [...filtered].sort((a, b) => {
+            const valA = a[sortKey];
+            const valB = b[sortKey];
+
+            if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
+            if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
+            return 0;
+        });
+    }, [dashboardData, searchTerm, sortKey, sortDirection]);
     
     const totalStudents = useMemo(() => {
        const studentIds = new Set(dashboardData.map(item => item.studentId));
@@ -348,10 +376,14 @@ function AdminHomePageContent() {
     }
 
     const SortableHeader = ({ sortKey: key, children }: { sortKey: SortKey, children: React.ReactNode }) => (
-        <TableHead onClick={() => handleSort(key)} className="cursor-pointer">
-            <div className="flex items-center">
+        <TableHead onClick={() => handleSort(key)} className="cursor-pointer group">
+            <div className="flex items-center gap-2">
                 {children}
-                {sortKey === key && (sortDirection === 'asc' ? <ChevronUp className="ml-2 h-4 w-4"/> : <ChevronDown className="ml-2 h-4 w-4"/>)}
+                {sortKey === key ? (
+                    sortDirection === 'asc' ? <ChevronUp className="h-4 w-4"/> : <ChevronDown className="h-4 w-4"/>
+                ) : (
+                    <ChevronDown className="h-4 w-4 opacity-0 group-hover:opacity-50" />
+                )}
             </div>
         </TableHead>
     );
@@ -362,7 +394,11 @@ function AdminHomePageContent() {
 
             <Accordion type="single" collapsible defaultValue="item-1" className="w-full">
               <AccordionItem value="item-1">
-                <AccordionTrigger className="text-xl font-semibold">Student & Course Analysis</AccordionTrigger>
+                <AccordionTrigger className="text-xl font-semibold">
+                  <div className="flex items-center gap-2">
+                    <BarChart2 className="h-6 w-6"/> Student & Course Analysis
+                  </div>
+                </AccordionTrigger>
                 <AccordionContent>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-4">
                         <Card>
@@ -370,43 +406,42 @@ function AdminHomePageContent() {
                                 <CardTitle className="flex items-center"><PieChart className="mr-2"/>Top 10 Course Certificate Distribution</CardTitle>
                             </CardHeader>
                             <CardContent>
-                                <ResponsiveContainer width="100%" height={300}>
+                                <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-full w-full">
                                     <RechartsPieChart>
-                                        <RechartsTooltip content={<ChartTooltipContent hideLabel />} />
+                                        <ChartTooltip content={<ChartTooltipContent hideLabel />} />
                                         <Pie 
-                                            data={chartData.pieChartData} 
+                                            data={pieChartData} 
                                             cx="50%" 
                                             cy="50%" 
                                             labelLine={false}
                                             outerRadius={80} 
-                                            fill="#8884d8" 
                                             dataKey="value"
                                             activeIndex={activePieIndex}
                                             activeShape={renderActiveShape}
                                             onMouseEnter={onPieEnter}
                                         >
-                                            {chartData.pieChartData.map((entry, index) => (
-                                                <Cell key={`cell-${index}`} fill={`hsl(var(--chart-${(index % 5) + 1}))`} />
+                                            {pieChartData.map((entry, index) => (
+                                                <Cell key={`cell-${index}`} fill={entry.fill} />
                                             ))}
                                         </Pie>
                                     </RechartsPieChart>
-                                </ResponsiveContainer>
+                                </ChartContainer>
                             </CardContent>
                         </Card>
                         <Card>
                             <CardHeader>
-                                <CardTitle className="flex items-center"><BarChart2 className="mr-2"/>Top 10 Courses by Student Count</CardTitle>
+                                <CardTitle className="flex items-center"><Users className="mr-2"/>Top 10 Courses by Student Count</CardTitle>
                             </CardHeader>
                             <CardContent>
-                                <ResponsiveContainer width="100%" height={300}>
-                                    <RechartsBarChart data={chartData.barChartData} layout="vertical" margin={{ left: 20, right: 20 }}>
+                                <ChartContainer config={barChartConfig} className="min-h-[300px] w-full">
+                                    <RechartsBarChart accessibilityLayer data={barChartData} layout="vertical" margin={{ left: 10, right: 10 }}>
                                       <CartesianGrid strokeDasharray="3 3" />
                                       <XAxis type="number" hide />
-                                      <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 12 }} />
-                                      <RechartsTooltip cursor={{ fill: 'hsl(var(--muted))' }} content={<ChartTooltipContent indicator="line" />} />
-                                      <Bar dataKey="students" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
+                                      <YAxis dataKey="name" type="category" tickLine={false} tickMargin={10} axisLine={false} tickFormatter={(value) => value.length > 20 ? `${value.slice(0, 20)}...` : value} width={120} />
+                                      <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
+                                      <Bar dataKey="students" fill="var(--color-students)" radius={4} />
                                     </RechartsBarChart>
-                                </ResponsiveContainer>
+                                </ChartContainer>
                             </CardContent>
                         </Card>
                         <Card className="lg:col-span-2">
@@ -414,16 +449,16 @@ function AdminHomePageContent() {
                                 <CardTitle className="flex items-center"><LineChart className="mr-2"/>Certificate Uploads Over Time</CardTitle>
                             </CardHeader>
                             <CardContent>
-                               <ResponsiveContainer width="100%" height={300}>
-                                    <RechartsLineChart data={chartData.lineChartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                               <ChartContainer config={lineChartConfig} className="min-h-[300px] w-full">
+                                    <RechartsLineChart accessibilityLayer data={lineChartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                                       <CartesianGrid strokeDasharray="3 3" />
                                       <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
                                       <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                                      <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
-                                      <RechartsLegend content={<ChartLegendContent />} />
-                                      <Line type="monotone" dataKey="count" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} />
+                                      <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
+                                      <ChartLegend content={<ChartLegendContent />} />
+                                      <Line type="monotone" dataKey="count" stroke="var(--color-count)" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
                                     </RechartsLineChart>
-                                </ResponsiveContainer>
+                                </ChartContainer>
                             </CardContent>
                         </Card>
                     </div>
@@ -481,22 +516,22 @@ function AdminHomePageContent() {
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <SortableHeader sortKey="studentName">Name</SortableHeader>
-                            <SortableHeader sortKey="studentEmail">Email</SortableHeader>
-                            <TableHead>Roll Number</TableHead>
-                            <SortableHeader sortKey="originalName">Certificate</SortableHeader>
-                            <SortableHeader sortKey="uploadDate">Uploaded</SortableHeader>
+                            <SortableHeader sortKey="studentName"><div className="flex items-center gap-2"><User className="h-4 w-4" />Name</div></SortableHeader>
+                            <SortableHeader sortKey="studentEmail"><div className="flex items-center gap-2"><Mail className="h-4 w-4" />Email</div></SortableHeader>
+                            <TableHead><div className="flex items-center gap-2"><Hash className="h-4 w-4" />Roll Number</div></TableHead>
+                            <SortableHeader sortKey="originalName"><div className="flex items-center gap-2"><FileTextIcon className="h-4 w-4" />Certificate</div></SortableHeader>
+                            <SortableHeader sortKey="uploadDate"><div className="flex items-center gap-2"><Download className="h-4 w-4" />Uploaded</div></SortableHeader>
                             <TableHead>Action</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                             {filteredAndSortedData.map(cert => (
                                 <TableRow key={cert.fileId}>
-                                    <TableCell>{cert.studentName}</TableCell>
-                                    <TableCell>{cert.studentEmail}</TableCell>
-                                    <TableCell>{cert.studentRollNo || 'N/A'}</TableCell>
+                                    <TableCell className="font-medium">{cert.studentName}</TableCell>
+                                    <TableCell className="text-muted-foreground">{cert.studentEmail}</TableCell>
+                                    <TableCell className="text-muted-foreground">{cert.studentRollNo || 'N/A'}</TableCell>
                                     <TableCell>{cert.originalName}</TableCell>
-                                    <TableCell>{format(parseISO(cert.uploadDate), 'PPp')}</TableCell>
+                                    <TableCell className="text-muted-foreground">{format(parseISO(cert.uploadDate), 'PPp')}</TableCell>
                                     <TableCell><Button variant="outline" size="sm" asChild><a href={`/api/images/${cert.fileId}`} target="_blank" rel="noopener noreferrer"><View className="mr-2 h-4 w-4"/>View</a></Button></TableCell>
                                 </TableRow>
                             ))}
@@ -506,12 +541,12 @@ function AdminHomePageContent() {
 
                   <div className="block md:hidden space-y-4">
                         {filteredAndSortedData.map(cert => (
-                            <Card key={cert.fileId} className="p-4">
-                                <CardTitle className="text-lg mb-2">{cert.originalName}</CardTitle>
-                                <CardContent className="p-0 space-y-2">
-                                    <div className="flex items-center text-sm"><User className="mr-2 h-4 w-4 text-muted-foreground"/><span className="font-medium">{cert.studentName}</span></div>
-                                    <div className="flex items-center text-sm"><Mail className="mr-2 h-4 w-4 text-muted-foreground"/><span className="text-muted-foreground">{cert.studentEmail}</span></div>
-                                    <div className="flex items-center text-sm"><Hash className="mr-2 h-4 w-4 text-muted-foreground"/><span>{cert.studentRollNo || 'N/A'}</span></div>
+                             <Card key={cert.fileId} className="p-4">
+                                <CardTitle className="text-lg mb-2 flex items-center gap-2"><FileTextIcon className="h-5 w-5 text-primary" /> {cert.originalName}</CardTitle>
+                                <CardContent className="p-0 space-y-2 text-sm">
+                                    <div className="flex items-center"><User className="mr-2 h-4 w-4 text-muted-foreground"/><span className="font-medium">{cert.studentName}</span></div>
+                                    <div className="flex items-center"><Mail className="mr-2 h-4 w-4 text-muted-foreground"/><span className="text-muted-foreground">{cert.studentEmail}</span></div>
+                                    <div className="flex items-center"><Hash className="mr-2 h-4 w-4 text-muted-foreground"/><span>{cert.studentRollNo || 'N/A'}</span></div>
                                     <div className="text-xs text-muted-foreground pt-2">Uploaded: {format(parseISO(cert.uploadDate), 'PPp')}</div>
                                 </CardContent>
                                 <CardFooter className="p-0 pt-4">
