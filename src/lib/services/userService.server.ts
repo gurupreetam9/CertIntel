@@ -1,14 +1,13 @@
 
 // NO 'use client'; directive
-import { getAdminFirestore } from '@/lib/firebase/adminConfig'; // Use Admin SDK via getter
-import type { UserProfile, AdminProfile, UserRole, StudentLinkRequest } from '@/lib/models/user';
-import { Timestamp as AdminTimestamp, FieldValue } from 'firebase-admin/firestore'; 
+import { FieldValue, Timestamp as AdminTimestamp } from 'firebase-admin/firestore';
 import { v4 as uuidv4 } from 'uuid';
-import { connectToDb } from '@/lib/mongodb';
-import type { UserImage } from '@/components/home/ImageGrid';
-import { firestore } from '@/lib/firebase/config'; // Client SDK
-import { doc, getDoc, Timestamp } from 'firebase/firestore'; // Client SDK functions
 
+import { firestore } from '@/lib/firebase/config'; // Client SDK
+import type { UserImage } from '@/components/home/ImageGrid';
+import { doc, getDoc, Timestamp } from 'firebase/firestore'; // Client SDK functions
+import { connectToDb } from '@/lib/mongodb';
+import type { AdminProfile, StudentLinkRequest, UserProfile, UserRole } from '@/lib/models/user';
 
 const USERS_COLLECTION = 'users';
 const STUDENT_LINK_REQUESTS_COLLECTION = 'studentLinkRequests';
@@ -20,6 +19,7 @@ export const createUserProfileDocument_SERVER = async (
   role: UserRole,
   additionalData: Partial<UserProfile> = {}
 ): Promise<UserProfile> => {
+  const { getAdminFirestore } = await import('@/lib/firebase/adminConfig');
   const adminFirestore = getAdminFirestore(); // Get instance
   const userDocRef = adminFirestore.collection(USERS_COLLECTION).doc(userId);
   const now = AdminTimestamp.now();
@@ -97,6 +97,7 @@ export const createAdminProfile_SERVER = async (userId: string, email: string): 
 
 // SERVER-SIDE function to get admin details by their unique shareable ID
 export const getAdminByUniqueId_SERVER = async (adminUniqueId: string): Promise<{ userId: string; email: string; adminUniqueId: string; displayName?: string | null } | null> => {
+  const { getAdminFirestore } = await import('@/lib/firebase/adminConfig');
   const adminFirestore = getAdminFirestore(); // Get instance
   console.log(`[SERVICE_SERVER/getAdminByUniqueId_SERVER] - Querying USERS_COLLECTION for adminUniqueId: ${adminUniqueId}`);
   const usersCollectionRef = adminFirestore.collection(USERS_COLLECTION);
@@ -134,6 +135,7 @@ export const createStudentLinkRequest_SERVER = async (
   targetAdminUniqueId: string,
   targetAdminFirebaseId: string
 ): Promise<StudentLinkRequest> => {
+  const { getAdminFirestore } = await import('@/lib/firebase/adminConfig');
   const adminFirestore = getAdminFirestore(); // Get instance
   const requestDocRef = adminFirestore.collection(STUDENT_LINK_REQUESTS_COLLECTION).doc(); 
   const now = AdminTimestamp.now();
@@ -163,6 +165,7 @@ export const createStudentLinkRequest_SERVER = async (
 };
 
 // SERVER-SIDE function to fetch data for the public showcase profile
+// THIS FUNCTION DOES NOT USE THE ADMIN SDK and is safe for public pages.
 export const getPublicProfileData_SERVER = async (
   userId: string
 ): Promise<{ profile: UserProfile; images: UserImage[] } | { error: string; status: number }> => {
