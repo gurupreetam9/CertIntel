@@ -1,4 +1,3 @@
-
 'use client';
 
 import Link from 'next/link';
@@ -14,10 +13,12 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useState, useEffect } from 'react';
+import { getStudentLinkRequestsForAdminRealtime } from '@/lib/services/userService';
 
 export default function SiteHeader() {
   const { user, userProfile } = useAuth();
   const [isDashboardTooltipOpen, setIsDashboardTooltipOpen] = useState(false);
+  const [hasPendingRequests, setHasPendingRequests] = useState(false);
 
   // Effect to show tooltip on admin login
   useEffect(() => {
@@ -40,6 +41,25 @@ export default function SiteHeader() {
     }
   }, [user, userProfile]);
 
+  // Effect to listen for pending link requests for the admin
+  useEffect(() => {
+    if (user && userProfile?.role === 'admin') {
+      const unsubscribe = getStudentLinkRequestsForAdminRealtime(
+        user.uid,
+        (requests) => {
+          setHasPendingRequests(requests.length > 0);
+        },
+        (error) => {
+          console.error("SiteHeader: Error fetching pending requests for notification:", error);
+          setHasPendingRequests(false);
+        }
+      );
+      // Clean up the listener when the component unmounts or user changes
+      return () => unsubscribe();
+    }
+  }, [user, userProfile]);
+
+
   return (
     <TooltipProvider>
       <header 
@@ -55,23 +75,35 @@ export default function SiteHeader() {
             {user && userProfile?.role === 'admin' && (
               <>
                 {/* Button for medium screens and up */}
-                <Button variant="ghost" asChild size="sm" className="hidden md:flex">
+                <Button variant="ghost" asChild size="sm" className="hidden md:flex relative">
                   <Link href="/admin/dashboard">
                     <LayoutDashboard className="mr-2 h-4 w-4" />
                     Admin Dashboard
+                    {hasPendingRequests && (
+                      <span className="absolute top-1 right-1 flex h-3 w-3">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-accent"></span>
+                      </span>
+                    )}
                   </Link>
                 </Button>
                 {/* Icon-only button for mobile screens with Tooltip */}
                 <Tooltip open={isDashboardTooltipOpen} onOpenChange={setIsDashboardTooltipOpen}>
                   <TooltipTrigger asChild>
-                    <Button variant="ghost" asChild size="icon" className="md:hidden">
+                    <Button variant="ghost" asChild size="icon" className="md:hidden relative">
                       <Link href="/admin/dashboard" aria-label="Admin Dashboard">
                         <LayoutDashboard className="h-5 w-5" />
+                         {hasPendingRequests && (
+                          <span className="absolute top-1 right-1 flex h-3 w-3">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-3 w-3 bg-accent"></span>
+                          </span>
+                        )}
                       </Link>
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent className="bg-primary text-primary-foreground border-transparent">
-                    <p>Admin Dashboard</p>
+                    <p>Admin Dashboard {hasPendingRequests && <span className="text-accent-foreground/80">(New Requests)</span>}</p>
                   </TooltipContent>
                 </Tooltip>
               </>
