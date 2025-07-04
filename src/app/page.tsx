@@ -253,7 +253,7 @@ function AdminHomePageContent() {
         },
         'has-certificate': {
           label: 'Has Certificate',
-          color: 'hsl(var(--chart-1))'
+          color: 'hsl(var(--primary))'
         },
         'does-not-have': {
           label: 'Does Not Have',
@@ -356,7 +356,7 @@ function AdminHomePageContent() {
                                     <CardDescription>Click a slice to see details.</CardDescription>
                                 </CardHeader>
                                 <CardContent className="flex justify-center">
-                                    <ChartContainer config={pieChartConfig} className="aspect-square h-[350px] sm:h-[400px]">
+                                    <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[400px] sm:h-[450px]">
                                         <PieChart>
                                             <ChartTooltip content={<ChartTooltipContent hideLabel />} />
                                             <Pie
@@ -385,13 +385,13 @@ function AdminHomePageContent() {
                                      <CardDescription>Daily count of new certificate uploads.</CardDescription>
                                 </CardHeader>
                                 <CardContent>
-                                   <ChartContainer config={lineChartConfig} className="h-[350px] w-full sm:h-[400px]">
+                                   <ChartContainer config={lineChartConfig} className="h-[400px] w-full sm:h-[450px]">
                                         <RechartsLineChart accessibilityLayer data={chartData.lineChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                                           <CartesianGrid strokeDasharray="3 3" />
                                           <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
                                           <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={30} />
                                           <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
-                                          <Line type="monotone" dataKey="count" stroke="hsl(var(--chart-1))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
+                                          <Line type="monotone" dataKey="count" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
                                         </RechartsLineChart>
                                     </ChartContainer>
                                 </CardContent>
