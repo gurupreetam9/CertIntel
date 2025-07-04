@@ -207,7 +207,30 @@ function AdminHomePageContent() {
             color: "hsl(var(--primary))",
         },
     } satisfies ChartConfig;
+
+    const LINE_CHART_STROKE_COLOR = 'hsl(var(--primary))';
     
+    const gaugeChartConfig = {
+        'has-certificate': {
+          label: 'Has Certificate',
+          color: 'hsl(var(--chart-1))'
+        },
+        'does-not-have': {
+          label: 'Does Not Have',
+          color: 'hsl(var(--muted))'
+        },
+    } satisfies ChartConfig;
+    
+    const gaugeChartData = useMemo(() => {
+        if (!searchTerm.trim() || allStudents.length === 0) return [];
+        const studentIdsWithCert = new Set(searchResults.map(item => item.studentId));
+        const numStudentsWithCert = studentIdsWithCert.size;
+        return [
+            { name: 'has-certificate', value: numStudentsWithCert, fill: 'hsl(var(--chart-1))' },
+            { name: 'does-not-have', value: allStudents.length - numStudentsWithCert, fill: 'hsl(var(--muted))' }
+        ];
+    }, [searchTerm, searchResults, allStudents]);
+
     const searchResults = useMemo(() => {
         if (!searchTerm) {
             return [];
@@ -247,27 +270,6 @@ function AdminHomePageContent() {
         return sortedData;
 
     }, [searchTerm, dashboardData, allStudents, sortConfig]);
-
-    const gaugeChartConfig = {
-        'has-certificate': {
-          label: 'Has Certificate',
-          color: 'hsl(var(--chart-1))'
-        },
-        'does-not-have': {
-          label: 'Does Not Have',
-          color: 'hsl(var(--muted))'
-        },
-    } satisfies ChartConfig;
-    
-    const gaugeChartData = useMemo(() => {
-        if (!searchTerm.trim() || allStudents.length === 0) return [];
-        const studentIdsWithCert = new Set(searchResults.map(item => item.studentId));
-        const numStudentsWithCert = studentIdsWithCert.size;
-        return [
-            { name: 'has-certificate', value: numStudentsWithCert, fill: 'hsl(var(--chart-1))' },
-            { name: 'does-not-have', value: allStudents.length - numStudentsWithCert, fill: 'hsl(var(--muted))' }
-        ];
-    }, [searchTerm, searchResults, allStudents]);
 
     const handleDownloadZip = async () => {
         const fileIdsToDownload = searchResults.flatMap(student => student.certificates.map((cert: any) => cert.fileId));
@@ -390,7 +392,7 @@ function AdminHomePageContent() {
                                           <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
                                           <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={30} />
                                           <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
-                                          <Line type="monotone" dataKey="count" stroke="var(--color-count)" strokeWidth={2} dot={{ r: 4, fill: "var(--color-count)" }} activeDot={{ r: 8, stroke: "var(--color-background)" }} name="Uploads"/>
+                                          <Line type="monotone" dataKey="count" stroke={LINE_CHART_STROKE_COLOR} strokeWidth={2} dot={{ r: 4, fill: LINE_CHART_STROKE_COLOR }} activeDot={{ r: 8, stroke: "var(--color-background)" }} name="Uploads"/>
                                         </RechartsLineChart>
                                     </ChartContainer>
                                 </CardContent>
@@ -423,8 +425,8 @@ function AdminHomePageContent() {
                                             <PieChart>
                                                 <ChartTooltip content={<ChartTooltipContent indicator="dot" nameKey="name" />} />
                                                 <Pie data={gaugeChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={60} startAngle={180} endAngle={0}>
-                                                    {gaugeChartData.map((entry) => (
-                                                        <Cell key={`cell-gauge-${entry.name}`} fill={entry.fill} />
+                                                    {gaugeChartData.map((entry, index) => (
+                                                        <Cell key={`cell-gauge-${index}`} fill={entry.fill} />
                                                     ))}
                                                 </Pie>
                                             </PieChart>
