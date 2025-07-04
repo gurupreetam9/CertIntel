@@ -263,7 +263,7 @@ function AdminHomePageContent() {
           studentCertificateMap.get(cert.studentId)!.push(cert);
       });
   
-      const studentArray = Array.from(studentCertificateMap.entries()).map(([studentId, certs]) => {
+      let studentArray = Array.from(studentCertificateMap.entries()).map(([studentId, certs]) => {
           const studentInfo = certs[0]; 
           return {
               studentId,
@@ -275,6 +275,13 @@ function AdminHomePageContent() {
   
       if (sortOrder === 'student') {
           studentArray.sort((a, b) => a.studentName.localeCompare(b.studentName));
+      } else {
+           // When not sorting by student name, sort the outer array by the date of the newest certificate in each group
+           studentArray.sort((a, b) => {
+              const newestA = Math.max(...a.certificates.map(c => new Date(c.uploadDate).getTime()));
+              const newestB = Math.max(...b.certificates.map(c => new Date(c.uploadDate).getTime()));
+              return newestB - newestA;
+           });
       }
       
       studentArray.forEach(student => {
@@ -287,7 +294,6 @@ function AdminHomePageContent() {
                 certs.sort((a, b) => a.originalName.localeCompare(b.originalName));
                 break;
               case 'newest':
-              case 'student':
               default:
                 certs.sort((a, b) => new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime());
                 break;
@@ -524,8 +530,9 @@ function AdminHomePageContent() {
                         <FilterX className="mr-2 h-4 w-4" />
                         Clear
                       </Button>
-                       <Button onClick={handleDownloadZip} disabled={isDownloading || filteredData.length === 0} size="icon" title="Download Visible Results as ZIP">
-                          {isDownloading ? <Loader2 className="h-4 w-4 animate-spin"/> : <Download className="h-4 w-4"/>}
+                       <Button onClick={handleDownloadZip} disabled={isDownloading || filteredData.length === 0} title="Download Visible Results as ZIP">
+                          {isDownloading ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Download className="mr-2 h-4 w-4"/>}
+                          Download Zip
                       </Button>
                     </div>
                   </div>
@@ -606,14 +613,23 @@ function AdminHomePageContent() {
                       {groupedAndSortedData.map(({ studentId, studentName, studentEmail, certificates }) => (
                         <AccordionItem key={studentId} value={studentId} className="border rounded-lg shadow-sm bg-background/50 data-[state=open]:shadow-md">
                             <AccordionTrigger className="p-3 sm:p-4 hover:no-underline text-left">
-                              <div className="flex flex-col sm:flex-row sm:items-center w-full gap-x-4 gap-y-2">
+                              <div className="flex items-center w-full gap-x-4">
                                 <div className="flex-1 min-w-0">
-                                  <p className="truncate font-semibold text-base sm:text-sm">{studentName}</p>
-                                  <p className="truncate text-sm text-muted-foreground">{studentEmail}</p>
+                                  <div className="flex flex-col sm:flex-row sm:items-baseline sm:gap-x-2 items-start">
+                                      <p className="truncate font-semibold text-base sm:text-sm">{studentName}</p>
+                                      <p className="truncate text-sm text-muted-foreground">{studentEmail}</p>
+                                  </div>
+                                  <div className="mt-2 sm:hidden">
+                                      <Badge variant="secondary" className="shrink-0 whitespace-nowrap self-start sm:self-auto">
+                                          {certificates.length} Cert(s)
+                                      </Badge>
+                                  </div>
                                 </div>
-                                <Badge variant="secondary" className="shrink-0 whitespace-nowrap self-start sm:self-auto">
-                                  {certificates.length} Cert(s)
-                                </Badge>
+                                <div className="hidden sm:block">
+                                    <Badge variant="secondary" className="shrink-0 whitespace-nowrap self-start sm:self-auto">
+                                        {certificates.length} Cert(s)
+                                    </Badge>
+                                </div>
                               </div>
                             </AccordionTrigger>
                             <AccordionContent className="px-2 sm:px-4 pb-4">
