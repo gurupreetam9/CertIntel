@@ -143,12 +143,12 @@ const GaugeChart = ({ value, totalValue, label }: { value: number; totalValue: n
   const data = [{ name: 'value', value: percentage, fill: 'hsl(var(--primary))' }];
 
   return (
-    <div className="relative w-full h-32 sm:h-40">
+    <div className="relative w-full h-32 sm:h-24">
       <ResponsiveContainer width="100%" height="100%">
         <RadialBarChart
-          innerRadius="75%"
+          innerRadius="70%"
           outerRadius="100%"
-          barSize={12}
+          barSize={10}
           data={data}
           startAngle={180}
           endAngle={0}
@@ -169,8 +169,8 @@ const GaugeChart = ({ value, totalValue, label }: { value: number; totalValue: n
         </RadialBarChart>
       </ResponsiveContainer>
       <div className="absolute inset-0 flex flex-col items-center justify-center text-center -translate-y-2">
-        <span className="text-2xl sm:text-3xl font-bold text-foreground">{value}</span>
-        <span className="text-xs sm:text-sm text-muted-foreground">{label}</span>
+        <span className="text-2xl font-bold text-foreground">{value}</span>
+        <span className="text-xs text-muted-foreground">{label}</span>
       </div>
     </div>
   );
@@ -431,14 +431,14 @@ function AdminHomePageContent() {
             <Card className="lg:col-span-2">
                 <CardHeader><CardTitle>Top Students by Certificate Count</CardTitle><CardDescription>Top 5 students in the filtered range.</CardDescription></CardHeader>
                 <CardContent className="p-0 pt-4 pr-2 sm:pr-4 h-[250px] sm:h-[300px]">
-                    <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--accent))" } }}>
+                   <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--accent))" } }}>
                        <ResponsiveContainer>
-                            <BarChart data={topStudentsData} layout="vertical" margin={{ top: 10, right: 10, bottom: 20, left: isMobile ? 0 : -10 }}>
-                                <CartesianGrid horizontal={false} />
-                                <YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} tickFormatter={formatXAxisTick} interval={0} width={isMobile ? 60 : 100} />
-                                <XAxis type="number" allowDecimals={false} />
+                            <BarChart data={topStudentsData} margin={{ top: 10, right: 10, bottom: isMobile ? 50 : 40, left: 0 }}>
+                                <CartesianGrid vertical={false} />
+                                <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} angle={isMobile ? -45 : 0} textAnchor={isMobile ? "end" : "middle"} height={isMobile ? 60 : 50} tickFormatter={formatXAxisTick} />
+                                <YAxis tickLine={false} axisLine={false} tickMargin={8} allowDecimals={false}/>
                                 <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
-                                <Bar dataKey="certificates" fill="var(--color-certificates)" radius={[0, 4, 4, 0]} />
+                                <Bar dataKey="certificates" fill="var(--color-certificates)" radius={[4, 4, 0, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     </ChartContainer>
@@ -534,7 +534,7 @@ function AdminHomePageContent() {
               <CardContent>
                 {searchTerm ? (
                   <div className="mt-6 space-y-6">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
                        <Card>
                           <CardHeader className='pb-2'>
                               <CardTitle className="text-base font-medium">Certificate Matches</CardTitle>
@@ -606,13 +606,13 @@ function AdminHomePageContent() {
                       {groupedAndSortedData.map(({ studentId, studentName, studentEmail, certificates }) => (
                         <AccordionItem key={studentId} value={studentId} className="border rounded-lg shadow-sm bg-background/50 data-[state=open]:shadow-md">
                             <AccordionTrigger className="p-3 sm:p-4 hover:no-underline text-left">
-                                <div className="flex flex-1 items-center min-w-0 gap-4">
+                                <div className="flex items-center gap-3 w-full min-w-0">
                                   <div className="flex-1 min-w-0">
-                                      <p className="truncate text-lg font-semibold">{studentName}</p>
+                                      <p className="truncate text-base font-semibold">{studentName}</p>
                                       <p className="truncate text-sm text-muted-foreground">{studentEmail}</p>
                                   </div>
-                                  <Badge variant="secondary" className="flex-shrink-0 whitespace-nowrap">
-                                    {certificates.length} Certificate(s)
+                                  <Badge variant="secondary" className="shrink-0">
+                                    {certificates.length} Cert(s)
                                   </Badge>
                                 </div>
                             </AccordionTrigger>
