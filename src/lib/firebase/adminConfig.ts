@@ -10,19 +10,21 @@ if (!admin.apps.length) {
   try {
     const serviceAccountEnv = process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
-    if (serviceAccountEnv) {
-      if (serviceAccountEnv.trim().startsWith('{')) {
-        const serviceAccount = JSON.parse(serviceAccountEnv);
-        admin.initializeApp({
-          credential: admin.credential.cert(serviceAccount)
-        });
-        console.log('Firebase Admin SDK initialized successfully using JSON content from GOOGLE_APPLICATION_CREDENTIALS.');
-      } else {
-        admin.initializeApp();
-        console.log('Firebase Admin SDK initialized successfully using GOOGLE_APPLICATION_CREDENTIALS file path or Application Default Credentials.');
-      }
+    if (serviceAccountEnv && serviceAccountEnv.trim().startsWith('{')) {
+      // Case 1: Credentials are provided as a JSON string in the env var.
+      const serviceAccount = JSON.parse(serviceAccountEnv);
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+      });
+      console.log('Firebase Admin SDK initialized successfully using JSON content from GOOGLE_APPLICATION_CREDENTIALS.');
     } else {
-      admin.initializeApp();
+      // Case 2: Use Application Default Credentials. This is the standard for deployed Google Cloud environments.
+      // It will also pick up file paths from GOOGLE_APPLICATION_CREDENTIALS for local development.
+      // Explicitly providing the projectId can help resolve context issues in some environments.
+      admin.initializeApp({
+        credential: admin.credential.applicationDefault(),
+        projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+      });
       console.log('Firebase Admin SDK initialized successfully using Application Default Credentials.');
     }
   } catch (error: any) {
