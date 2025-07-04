@@ -137,8 +137,6 @@ function StudentHomePageContent() {
 // ====================================================================================
 // Admin Home Page Content (New Dashboard)
 // ====================================================================================
-
-// --- Reusable Gauge Chart Component for Search Analytics ---
 const GaugeChart = ({ value, totalValue, label }: { value: number; totalValue: number; label: string }) => {
   const percentage = totalValue > 0 ? (value / totalValue) * 100 : 0;
   const data = [{ name: 'value', value: percentage }];
@@ -385,14 +383,12 @@ function AdminHomePageContent() {
         setIsViewModalOpen(true);
     };
 
-    const formatYAxisTick = (tick: string) => {
+    const formatXAxisTick = (tick: string) => {
         if (typeof tick !== 'string') return tick;
-        const maxLength = 12; // Max length for student names on chart axis
-        if (tick.length > maxLength) {
-            return `${tick.substring(0, maxLength)}...`;
-        }
-        return tick;
+        const maxLength = 10;
+        return tick.length > maxLength ? `${tick.substring(0, maxLength)}...` : tick;
     };
+
 
     if (isLoading) {
         return <div className="flex h-screen items-center justify-center bg-background"><Loader2 className="h-16 w-16 animate-spin text-primary" /><p className="ml-4 text-lg">Loading Admin Dashboard...</p></div>;
@@ -417,8 +413,8 @@ function AdminHomePageContent() {
           <div className="grid gap-4 lg:grid-cols-5 mb-6">
             <Card className="lg:col-span-3">
                 <CardHeader><CardTitle>Certificate Uploads Over Time</CardTitle></CardHeader>
-                <CardContent className="p-0 pt-4 pr-2 sm:pr-4">
-                    <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--primary))" } }} className="h-[250px] w-full sm:h-[300px]">
+                <CardContent className="p-0 pt-4 pr-2 sm:pr-4 h-[250px] sm:h-[300px]">
+                    <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--primary))" } }}>
                         <ResponsiveContainer>
                             <BarChart data={monthlyUploads} margin={{ top: 10, right: 10, bottom: 40, left: 0 }}>
                                 <CartesianGrid vertical={false} />
@@ -433,15 +429,15 @@ function AdminHomePageContent() {
             </Card>
             <Card className="lg:col-span-2">
                 <CardHeader><CardTitle>Top Students by Certificate Count</CardTitle><CardDescription>Top 5 students in the filtered range.</CardDescription></CardHeader>
-                <CardContent className="p-0 pt-4 pr-2 sm:pr-4">
-                    <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--accent))" } }} className="h-[250px] w-full sm:h-[300px]">
+                <CardContent className="p-0 pt-4 pr-2 sm:pr-4 h-[250px] sm:h-[300px]">
+                    <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--accent))" } }}>
                        <ResponsiveContainer>
-                            <BarChart data={topStudentsData} layout="vertical" margin={{ top: 5, right: 10, bottom: 5, left: 10 }}>
-                                <CartesianGrid horizontal={false} />
-                                <YAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} tickFormatter={formatYAxisTick} />
-                                <XAxis type="number" allowDecimals={false} />
+                            <BarChart data={topStudentsData} margin={{ top: 10, right: 10, bottom: 20, left: 10 }}>
+                                <CartesianGrid vertical={false} />
+                                <XAxis dataKey="name" type="category" tickLine={false} axisLine={false} tickMargin={5} tickFormatter={formatXAxisTick} interval={0} />
+                                <YAxis type="number" allowDecimals={false} />
                                 <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
-                                <Bar dataKey="certificates" fill="var(--color-certificates)" radius={[0, 4, 4, 0]} />
+                                <Bar dataKey="certificates" fill="var(--color-certificates)" radius={[4, 4, 0, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     </ChartContainer>
@@ -537,9 +533,8 @@ function AdminHomePageContent() {
               <CardContent>
                 {searchTerm ? (
                   <div className="mt-6 space-y-6">
-                    {/* Search Analytics Section */}
-                    <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-                      <Card>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                       <Card>
                           <CardHeader className='pb-2'>
                               <CardTitle className="text-base font-medium">Certificate Matches</CardTitle>
                           </CardHeader>
@@ -565,13 +560,11 @@ function AdminHomePageContent() {
                                   label={`out of ${uniqueStudents.length} total`}
                               />
                               <CardDescription>
-                                  {new Set(filteredData.map(d => d.studentId)).size} students have certificates matching "{searchTerm}".
+                                  {new Set(filteredData.map(d => d.studentId)).size} students have certificates matching your search.
                               </CardDescription>
                           </CardContent>
                       </Card>
                     </div>
-
-                    {/* Results Table */}
                     {filteredData.length > 0 ? (
                         <div className="border rounded-lg">
                             <Table>
@@ -607,7 +600,6 @@ function AdminHomePageContent() {
                     )}
                   </div>
                 ) : (
-                  // DEFAULT VIEW: Accordion grouped by student
                   groupedAndSortedData.length > 0 ? (
                     <Accordion type="single" collapsible className="w-full space-y-2">
                       {groupedAndSortedData.map(({ studentId, studentName, studentEmail, certificates }) => (
