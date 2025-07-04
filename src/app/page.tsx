@@ -586,13 +586,15 @@ function AdminHomePageContent() {
                     <Accordion type="single" collapsible className="w-full space-y-2">
                       {groupedAndSortedData.map(({ studentId, studentName, studentEmail, certificates }) => (
                         <AccordionItem key={studentId} value={studentId} className="border rounded-lg shadow-sm bg-background/50 data-[state=open]:shadow-md">
-                            <AccordionTrigger className="p-3 sm:p-4 hover:no-underline text-left">
-                               <div className="flex flex-1 items-center gap-x-4 min-w-0">
-                                  <div className="flex-1 min-w-0">
-                                    <p className="font-semibold truncate">{studentName}</p>
-                                    <p className="text-sm text-muted-foreground truncate">{studentEmail}</p>
-                                  </div>
-                                  <Badge variant="secondary" className="shrink-0">{certificates.length} Cert(s)</Badge>
+                           <AccordionTrigger className="p-3 sm:p-4 hover:no-underline text-left">
+                                <div className="grid grid-cols-[1fr_auto] w-full items-center gap-4">
+                                    <div className="min-w-0">
+                                        <p className="font-semibold truncate" title={studentName}>{studentName}</p>
+                                        <p className="text-sm text-muted-foreground truncate" title={studentEmail}>{studentEmail}</p>
+                                    </div>
+                                    <div className="justify-self-end">
+                                        <Badge variant="secondary">{certificates.length} Cert(s)</Badge>
+                                    </div>
                                 </div>
                             </AccordionTrigger>
                             <AccordionContent className="px-2 sm:px-4 pb-4">
@@ -654,5 +656,3 @@ function HomePage() {
 }
 
 export default HomePage;
-
-    
