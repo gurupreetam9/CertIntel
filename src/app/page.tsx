@@ -154,6 +154,14 @@ const renderActiveShape = (props: any) => {
   );
 };
 
+// Function to truncate long labels for charts
+const formatYAxisTick = (tick: string) => {
+    if (tick.length > 20) {
+        return tick.substring(0, 18) + '…';
+    }
+    return tick;
+};
+
 
 function AdminHomePageContent() {
     const { user } = useAuth();
@@ -403,7 +411,7 @@ function AdminHomePageContent() {
                                 <CardTitle className="flex items-center"><PieChart className="mr-2"/>Top 10 Course Certificate Distribution</CardTitle>
                             </CardHeader>
                             <CardContent>
-                                <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[300px] lg:h-[450px]">
+                                <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[250px] sm:h-[400px]">
                                     <RechartsPieChart>
                                         <ChartTooltip content={<ChartTooltipContent hideLabel />} />
                                         <Pie 
@@ -430,11 +438,11 @@ function AdminHomePageContent() {
                                 <CardTitle className="flex items-center"><LineChart className="mr-2"/>Certificate Uploads Over Time</CardTitle>
                             </CardHeader>
                             <CardContent>
-                               <ChartContainer config={lineChartConfig} className="h-[300px] w-full lg:h-[450px]">
+                               <ChartContainer config={lineChartConfig} className="h-[250px] w-full sm:h-[400px]">
                                     <RechartsLineChart accessibilityLayer data={chartData.lineChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                                       <CartesianGrid strokeDasharray="3 3" />
                                       <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
-                                      <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={40}/>
+                                      <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
                                       <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
                                       <ChartLegend content={<ChartLegendContent />} />
                                       <Line type="monotone" dataKey="count" stroke="var(--color-count)" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
@@ -448,10 +456,10 @@ function AdminHomePageContent() {
                             </CardHeader>
                             <CardContent>
                                 <ChartContainer config={barChartConfig} className="h-[450px] w-full">
-                                    <RechartsBarChart accessibilityLayer data={chartData.barChartData} layout="vertical" margin={{ left: 150, right: 30 }}>
+                                    <RechartsBarChart accessibilityLayer data={chartData.barChartData} layout="vertical" margin={{ left: 20, right: 30 }}>
                                       <CartesianGrid strokeDasharray="3 3" />
                                       <XAxis type="number" hide />
-                                      <YAxis dataKey="name" type="category" tickLine={false} tickMargin={10} axisLine={false} tick={{ fontSize: 12 }} width={200} />
+                                      <YAxis dataKey="name" type="category" tickLine={false} tickMargin={10} axisLine={false} tick={{ fontSize: 12 }} width={120} tickFormatter={formatYAxisTick} />
                                       <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
                                       <Bar dataKey="students" fill="var(--color-students)" radius={4} />
                                     </RechartsBarChart>
