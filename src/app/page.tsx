@@ -144,12 +144,12 @@ const GaugeChart = ({ value, totalValue, label }: { value: number; totalValue: n
   const data = [{ name: 'value', value: percentage }];
 
   return (
-    <div className="relative w-full h-[120px]">
+    <div className="relative w-full h-[160px]">
       <ResponsiveContainer width="100%" height="100%">
         <RadialBarChart
           innerRadius="75%"
           outerRadius="100%"
-          barSize={12}
+          barSize={14}
           data={data}
           startAngle={180}
           endAngle={0}
@@ -170,9 +170,9 @@ const GaugeChart = ({ value, totalValue, label }: { value: number; totalValue: n
           />
         </RadialBarChart>
       </ResponsiveContainer>
-      <div className="absolute inset-0 flex flex-col items-center justify-center text-center -translate-y-2">
-        <span className="text-3xl font-bold text-foreground">{value}</span>
-        <span className="text-xs text-muted-foreground">{label}</span>
+      <div className="absolute inset-0 flex flex-col items-center justify-center text-center -translate-y-3">
+        <span className="text-4xl font-bold text-foreground">{value}</span>
+        <span className="text-sm text-muted-foreground">{label}</span>
       </div>
     </div>
   );
