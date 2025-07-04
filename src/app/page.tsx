@@ -3,7 +3,7 @@
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { useAuth } from '@/hooks/useAuth';
-import { LayoutDashboard, Loader2, AlertCircle, Search, Download, FileText, BarChart2, PieChart as PieChartIcon, LineChart as LineChartIcon, ArrowUp, ArrowDown, View } from 'lucide-react';
+import { LayoutDashboard, Loader2, AlertCircle, Search, Download, FileText, BarChart2, PieChart as PieChartIcon, LineChart as LineChartIcon, ArrowUp, ArrowDown, View, Mail } from 'lucide-react';
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -95,7 +95,7 @@ type SortableKeys = 'studentName' | 'studentRollNo';
 const LINE_CHART_STROKE_COLOR = 'hsl(45 90% 50%)'; // Explicit Gold color for line chart
 
 function AdminHomePageContent() {
-    const { user } = useAuth();
+    const { user, userProfile } = useAuth();
     const { toast } = useToast();
 
     const [isLoading, setIsLoading] = useState(true);
@@ -112,6 +112,7 @@ function AdminHomePageContent() {
 
 
     const [isDownloading, setIsDownloading] = useState(false);
+    const [isNotifying, setIsNotifying] = useState(false);
     const [sortConfig, setSortConfig] = useState<{ key: SortableKeys; direction: 'asc' | 'desc' }>({
       key: 'studentName',
       direction: 'asc',
@@ -167,7 +168,12 @@ function AdminHomePageContent() {
     };
     
     const handleOpenViewModal = (cert: DashboardData) => {
-        setImageToViewInModal(cert as UserImage);
+        setImageToViewInModal({
+            ...cert,
+            filename: cert.originalName, 
+            uploadDate: cert.uploadDate,
+            dataAiHint: '',
+        });
         setIsViewModalOpen(true);
     };
 
@@ -175,7 +181,7 @@ function AdminHomePageContent() {
         setSelectedChartData({ name: data.name, value: data.value });
         setIsChartModalOpen(true);
     }, []);
-    
+
     const searchResults = useMemo(() => {
         if (!searchTerm) {
             return [];
@@ -204,6 +210,16 @@ function AdminHomePageContent() {
 
         return sortedData;
     }, [searchTerm, dashboardData, sortConfig]);
+
+    const gaugeChartData = useMemo(() => {
+        if (!searchTerm.trim() || allStudents.length === 0) return [];
+        const studentIdsWithCert = new Set(searchResults.map(cert => cert.studentId));
+        const numStudentsWithCert = studentIdsWithCert.size;
+        return [
+            { name: 'has-certificate', value: numStudentsWithCert, fill: 'hsl(var(--chart-1))' },
+            { name: 'does-not-have', value: allStudents.length - numStudentsWithCert, fill: 'hsl(var(--muted))' }
+        ];
+    }, [searchTerm, searchResults, allStudents]);
 
     const { pieChartData, pieChartConfig } = useMemo(() => {
         const courseCounts: { [key: string]: number } = {};
@@ -267,16 +283,6 @@ function AdminHomePageContent() {
           color: 'hsl(var(--muted))'
         },
     } satisfies ChartConfig;
-    
-    const gaugeChartData = useMemo(() => {
-        if (!searchTerm.trim() || allStudents.length === 0) return [];
-        const studentIdsWithCert = new Set(searchResults.map(cert => cert.studentId));
-        const numStudentsWithCert = studentIdsWithCert.size;
-        return [
-            { name: 'has-certificate', value: numStudentsWithCert, fill: 'hsl(var(--chart-1))' },
-            { name: 'does-not-have', value: allStudents.length - numStudentsWithCert, fill: 'hsl(var(--muted))' }
-        ];
-    }, [searchTerm, searchResults, allStudents]);
 
     const handleDownloadZip = async () => {
         const fileIdsToDownload = searchResults.map(cert => cert.fileId);
@@ -318,6 +324,48 @@ function AdminHomePageContent() {
             toast({ title: 'Download Failed', description: err.message, variant: 'destructive' });
         } finally {
             setIsDownloading(false);
+        }
+    };
+    
+    const studentsMissingCert = useMemo(() => {
+        if (!searchTerm || !allStudents.length) return [];
+        const studentIdsWithCert = new Set(searchResults.map(cert => cert.studentId));
+        return allStudents.filter(student => !studentIdsWithCert.has(student.studentId));
+    }, [searchTerm, searchResults, allStudents]);
+
+    const handleNotifyMissingStudents = async () => {
+        if (!user || !userProfile || studentsMissingCert.length === 0) return;
+
+        setIsNotifying(true);
+        try {
+            const idToken = await user.getIdToken();
+            const studentsToNotify = studentsMissingCert.map(s => ({
+                email: s.studentEmail,
+                name: s.studentName,
+            }));
+
+            const response = await fetch('/api/admin/notify-missing-students', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${idToken}`,
+                },
+                body: JSON.stringify({
+                    students: studentsToNotify,
+                    courseName: searchTerm,
+                    adminName: userProfile.displayName || user.email,
+                })
+            });
+
+            const result = await response.json();
+            if (!response.ok) {
+                throw new Error(result.message || 'Failed to send notifications.');
+            }
+            toast({ title: 'Notifications Sent', description: result.message });
+        } catch (err: any) {
+            toast({ title: 'Notification Error', description: err.message, variant: 'destructive' });
+        } finally {
+            setIsNotifying(false);
         }
     };
 
@@ -442,10 +490,14 @@ function AdminHomePageContent() {
                                          <p className="text-center text-sm text-muted-foreground">have this certificate.</p>
                                     </CardContent>
                                 </Card>
-                                <div className="md:col-span-2 flex items-center justify-center">
+                                <div className="md:col-span-2 flex items-center justify-center flex-wrap gap-4">
                                     <Button onClick={handleDownloadZip} disabled={isDownloading || searchResults.length === 0} size="lg">
                                         {isDownloading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Download className="mr-2 h-5 w-5" />}
                                         Download Certificates
+                                    </Button>
+                                    <Button onClick={handleNotifyMissingStudents} disabled={isNotifying || studentsMissingCert.length === 0} size="lg" variant="outline">
+                                        {isNotifying ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Mail className="mr-2 h-5 w-5" />}
+                                        Notify {studentsMissingCert.length} Missing
                                     </Button>
                                 </div>
                             </div>
@@ -513,7 +565,7 @@ function AdminHomePageContent() {
                 </DialogHeader>
                 {selectedChartData && (
                   <div className="py-4 space-y-2">
-                    <h3 className="font-semibold text-lg break-words">{selectedChartData.name}</h3>
+                    <h3 className="font-semibold text-lg break-words">{pieChartConfig[selectedChartData.name]?.label || selectedChartData.name}</h3>
                     <p className="text-muted-foreground">
                       Number of Students: <span className="font-bold text-lg text-foreground">{selectedChartData.value}</span>
                     </p>
