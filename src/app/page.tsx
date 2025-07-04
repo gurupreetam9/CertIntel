@@ -180,13 +180,20 @@ function AdminHomePageContent() {
             .slice(0, 10);
             
         const config: ChartConfig = {};
+        const COLORS = [
+          "hsl(var(--chart-1))",
+          "hsl(var(--chart-2))",
+          "hsl(var(--chart-3))",
+          "hsl(var(--chart-4))",
+          "hsl(var(--chart-5))",
+        ];
         const finalPieData = rawPieData.map((item, index) => {
             const key = `course-${index}`;
             config[key] = {
                 label: item.name,
-                color: `hsl(var(--chart-${(index % 5) + 1}))`,
+                color: COLORS[index % COLORS.length],
             };
-            return { ...item, key, fill: `var(--color-${key})` };
+            return { ...item, key, fill: COLORS[index % COLORS.length] };
         });
 
         const lineData = Object.entries(completionTrends)
@@ -199,7 +206,7 @@ function AdminHomePageContent() {
     const lineChartConfig = {
         count: {
             label: "Uploads",
-            color: "hsl(var(--chart-1))",
+            color: "hsl(var(--primary))",
         },
     } satisfies ChartConfig;
     
@@ -259,8 +266,8 @@ function AdminHomePageContent() {
         const studentIdsWithCert = new Set(searchResults.map(item => item.studentId));
         const numStudentsWithCert = studentIdsWithCert.size;
         return [
-            { name: 'has-certificate', value: numStudentsWithCert, fill: 'var(--color-has-certificate)' },
-            { name: 'does-not-have', value: allStudents.length - numStudentsWithCert, fill: 'var(--color-does-not-have)' }
+            { name: 'has-certificate', value: numStudentsWithCert, fill: 'hsl(var(--primary))' },
+            { name: 'does-not-have', value: allStudents.length - numStudentsWithCert, fill: 'hsl(var(--muted))' }
         ];
     }, [searchTerm, searchResults, allStudents]);
 
@@ -389,7 +396,7 @@ function AdminHomePageContent() {
                                           <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
                                           <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={30} />
                                           <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
-                                          <Line type="monotone" dataKey="count" stroke="var(--color-count)" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
+                                          <Line type="monotone" dataKey="count" stroke={lineChartConfig.count.color} strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
                                         </RechartsLineChart>
                                     </ChartContainer>
                                 </CardContent>
