@@ -3,7 +3,7 @@
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { useAuth } from '@/hooks/useAuth';
-import { Loader2, AlertCircle, Search, Download, FileText, BarChart2, PieChart as PieChartIcon, LineChart as LineChartIcon, Mail, Hash, View } from 'lucide-react';
+import { LayoutDashboard, Loader2, AlertCircle, Search, Download, FileText, BarChart2, PieChart as PieChartIcon, LineChart as LineChartIcon, Mail, Hash, View } from 'lucide-react';
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -14,7 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
-import { PieChart as RechartsPieChart, LineChart as RechartsLineChart, Pie, Line, XAxis, YAxis, CartesianGrid, Cell, Sector, ResponsiveContainer } from 'recharts';
+import { PieChart, LineChart, Line, XAxis, YAxis, CartesianGrid, Cell, Sector } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
@@ -101,7 +101,6 @@ function AdminHomePageContent() {
     const [selectedChartData, setSelectedChartData] = useState<{ name: string; value: number } | null>(null);
 
     const [isDownloading, setIsDownloading] = useState(false);
-    const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -146,11 +145,6 @@ function AdminHomePageContent() {
     const handlePieClick = (data: any) => {
         setSelectedChartData({ name: data.name, value: data.value });
         setIsChartModalOpen(true);
-    };
-
-    const truncateLabel = (label: string, maxLength = 25) => {
-      if (label.length <= maxLength) return label;
-      return `${label.substring(0, maxLength)}...`;
     };
 
     const chartData = useMemo(() => {
@@ -333,15 +327,15 @@ function AdminHomePageContent() {
                                     <CardDescription>Click a slice to see details.</CardDescription>
                                 </CardHeader>
                                 <CardContent>
-                                    <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[300px] sm:h-[400px]">
-                                        <RechartsPieChart margin={{ top: 40, right: 40, bottom: 40, left: 40 }}>
+                                    <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[350px] sm:h-[400px]">
+                                        <PieChart margin={{ top: 40, right: 40, bottom: 40, left: 40 }}>
                                             <ChartTooltip content={<ChartTooltipContent hideLabel />} />
                                             <Pie 
                                                 data={chartData.pieChartData} 
                                                 cx="50%" 
                                                 cy="50%" 
                                                 labelLine={false}
-                                                outerRadius={"80%"}
+                                                outerRadius={"70%"}
                                                 dataKey="value"
                                                 onClick={handlePieClick}
                                                 className="cursor-pointer"
@@ -350,7 +344,7 @@ function AdminHomePageContent() {
                                                     <Cell key={`cell-${index}`} fill={entry.fill} />
                                                 ))}
                                             </Pie>
-                                        </RechartsPieChart>
+                                        </PieChart>
                                     </ChartContainer>
                                 </CardContent>
                             </Card>
@@ -363,13 +357,13 @@ function AdminHomePageContent() {
                                 </CardHeader>
                                 <CardContent>
                                    <ChartContainer config={lineChartConfig} className="h-[300px] w-full sm:h-[400px]">
-                                        <RechartsLineChart accessibilityLayer data={chartData.lineChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                                        <LineChart accessibilityLayer data={chartData.lineChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                                           <CartesianGrid strokeDasharray="3 3" />
                                           <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
                                           <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={30} />
                                           <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
                                           <Line type="monotone" dataKey="count" stroke="var(--color-count)" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
-                                        </RechartsLineChart>
+                                        </LineChart>
                                     </ChartContainer>
                                 </CardContent>
                             </Card>
@@ -398,14 +392,14 @@ function AdminHomePageContent() {
                                     </CardHeader>
                                     <CardContent className="flex flex-col items-center justify-center p-4">
                                         <ChartContainer config={gaugeChartConfig} className="mx-auto aspect-square h-[150px]">
-                                            <RechartsPieChart>
+                                            <PieChart>
                                                 <ChartTooltip content={<ChartTooltipContent indicator="dot" nameKey="name" />} />
                                                 <Pie data={gaugeChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={60} startAngle={180} endAngle={0}>
                                                      {gaugeChartData.map((entry, index) => (
                                                         <Cell key={`cell-${index}`} fill={entry.fill} />
                                                      ))}
                                                 </Pie>
-                                            </RechartsPieChart>
+                                            </PieChart>
                                          </ChartContainer>
                                          <p className="text-center font-bold text-lg -mt-8">{gaugeChartData[0]?.value || 0} of {allStudents.length} students</p>
                                          <p className="text-center text-sm text-muted-foreground">have this certificate.</p>
