@@ -250,28 +250,27 @@ function AdminHomePageContent() {
         const completionTrends: { [key: string]: number } = {};
 
         dashboardData.forEach(cert => {
+            // Use originalName which is more descriptive for charts
             const courseName = cert.originalName;
             courseCounts[courseName] = (courseCounts[courseName] || 0) + 1;
             
+            // Use uploadDate for time-series data
             const date = format(parseISO(cert.uploadDate), 'yyyy-MM-dd');
             completionTrends[date] = (completionTrends[date] || 0) + 1;
         });
 
+        // For Pie chart, get top 10 courses
         const pieData = Object.entries(courseCounts)
             .map(([name, value], index) => ({ name, value, fill: `hsl(var(--chart-${(index % 5) + 1}))` }))
             .sort((a, b) => b.value - a.value)
             .slice(0, 10);
             
+        // For Line chart, sort dates
         const lineData = Object.entries(completionTrends)
             .map(([date, count]) => ({ date, count }))
             .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
         
-        const barData = Object.entries(courseCounts)
-            .map(([name, value]) => ({ name, value }))
-            .sort((a, b) => b.value - a.value)
-            .slice(0, 10);
-        
-        return { pieChartData: pieData, lineChartData: lineData, barChartData: barData };
+        return { pieChartData: pieData, lineChartData: lineData };
     }, [dashboardData]);
 
     const lineChartConfig = {
@@ -281,20 +280,6 @@ function AdminHomePageContent() {
         },
     } satisfies ChartConfig;
     
-    const barChartConfig = useMemo(() => {
-        if (!chartData.barChartData || chartData.barChartData.length === 0) {
-            return {};
-        }
-        const config: ChartConfig = {};
-        chartData.barChartData.forEach((item, index) => {
-            config[item.name] = {
-                label: item.name,
-                color: `hsl(var(--chart-${(index % 5) + 1}))`,
-            };
-        });
-        return config;
-    }, [chartData.barChartData]);
-
     const pieChartConfig = useMemo(() => {
         if (!chartData.pieChartData || chartData.pieChartData.length === 0) {
           return {};
@@ -432,16 +417,12 @@ function AdminHomePageContent() {
                 <AccordionContent>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-4">
                         <Card>
-                             <CardHeader>
-                                <CardTitle>
-                                    <div className="flex items-center gap-2">
-                                        <PieChartIcon className="h-6 w-6 shrink-0" />
-                                        <span>Top 10 Course Certificate Distribution</span>
-                                    </div>
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[250px] sm:h-[400px]">
+                            <CardContent className="p-4 sm:p-6 space-y-4">
+                                <div className="flex items-center gap-2">
+                                    <PieChartIcon className="h-6 w-6 shrink-0" />
+                                    <span className="font-semibold text-lg">Top 10 Course Certificate Distribution</span>
+                                </div>
+                                <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[300px] sm:h-[400px]">
                                     <PieChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
                                         <ChartTooltip content={<ChartTooltipContent hideLabel />} />
                                         <Pie 
@@ -449,7 +430,7 @@ function AdminHomePageContent() {
                                             cx="50%" 
                                             cy="50%" 
                                             labelLine={false}
-                                            outerRadius="60%"
+                                            outerRadius="80%"
                                             dataKey="value"
                                             activeIndex={activePieIndex}
                                             activeShape={renderActiveShape}
@@ -464,11 +445,12 @@ function AdminHomePageContent() {
                             </CardContent>
                         </Card>
                          <Card>
-                             <CardHeader>
-                                <CardTitle className="flex items-center"><LineChartIcon className="mr-2"/>Certificate Uploads Over Time</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                               <ChartContainer config={lineChartConfig} className="h-[250px] w-full sm:h-[400px]">
+                            <CardContent className="p-4 sm:p-6 space-y-4">
+                               <div className="flex items-center gap-2">
+                                    <LineChartIcon className="h-6 w-6 shrink-0" />
+                                    <span className="font-semibold text-lg">Certificate Uploads Over Time</span>
+                                </div>
+                               <ChartContainer config={lineChartConfig} className="h-[300px] w-full sm:h-[400px]">
                                     <RechartsLineChart accessibilityLayer data={chartData.lineChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                                       <CartesianGrid strokeDasharray="3 3" />
                                       <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
