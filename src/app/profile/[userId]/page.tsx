@@ -101,7 +101,6 @@ export default async function PublicProfilePage({ params }: { params: { userId: 
                     images={images}
                     isLoading={false}
                     error={null}
-                    onImageDeleted={() => {}} // No-op for public view
                     currentUserId={profile.uid}
                 />
             </section>

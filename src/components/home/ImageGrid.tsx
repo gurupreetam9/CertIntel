@@ -47,7 +47,7 @@ interface ImageGridProps {
   images: UserImage[];
   isLoading: boolean;
   error: string | null;
-  onImageDeleted: () => void;
+  onImageDeleted?: () => void;
   currentUserId: string | null;
 }
 
@@ -142,7 +142,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
             title: 'Name Updated',
             description: `"${imageToEdit.originalName}" was renamed to "${newName.trim()}".`,
         });
-        onImageDeleted();
+        onImageDeleted?.();
         closeEditModal();
     } catch (err: any) {
         toast({
@@ -180,7 +180,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
         title: 'Visibility Updated',
         description: `"${image.originalName}" is now ${newVisibility}.`,
       });
-      onImageDeleted(); // This just refreshes the grid
+      onImageDeleted?.(); // This just refreshes the grid
     } catch (err: any) {
       toast({
         title: 'Update Failed',
@@ -215,7 +215,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
         title: 'File Deleted',
         description: `"${imageToDelete.originalName}" has been successfully deleted.`,
       });
-      onImageDeleted();
+      onImageDeleted?.();
     } catch (err: any) {
       toast({
         title: 'Error Deleting File',
