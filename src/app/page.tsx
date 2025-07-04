@@ -212,7 +212,8 @@ function AdminHomePageContent() {
                 };
             });
         
-        return studentsWithCert;
+        // Sort the results by student name
+        return studentsWithCert.sort((a, b) => a.studentName.localeCompare(b.studentName));
     }, [searchTerm, dashboardData, allStudents]);
 
     const gaugeChartConfig = {
@@ -325,7 +326,7 @@ function AdminHomePageContent() {
                                 </CardHeader>
                                 <CardContent className="flex justify-center">
                                     <ChartContainer config={pieChartConfig} className="aspect-square h-[350px] sm:h-[400px]">
-                                        <PieChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                                        <PieChart>
                                             <ChartTooltip content={<ChartTooltipContent hideLabel />} />
                                             <Pie
                                                 data={chartData.pieChartData}
@@ -333,7 +334,7 @@ function AdminHomePageContent() {
                                                 cy="50%"
                                                 outerRadius={"80%"}
                                                 dataKey="value"
-                                                onClick={(data) => handlePieClick(data.payload)}
+                                                onClick={(data) => handlePieClick(data.payload.payload)}
                                                 className="cursor-pointer"
                                             >
                                                 {chartData.pieChartData.map((entry, index) => (
@@ -421,7 +422,9 @@ function AdminHomePageContent() {
                             <Table>
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead>Student</TableHead>
+                                        <TableHead>Student Name</TableHead>
+                                        <TableHead>Email</TableHead>
+                                        <TableHead>Roll No.</TableHead>
                                         <TableHead>Certificate</TableHead>
                                         <TableHead className="text-right">Action</TableHead>
                                     </TableRow>
@@ -430,11 +433,9 @@ function AdminHomePageContent() {
                                     {searchResults.map((student: any) =>
                                         student.certificates.map((cert: any) => (
                                             <TableRow key={cert.fileId}>
-                                                <TableCell>
-                                                    <div className="font-medium">{student.studentName}</div>
-                                                    <div className="text-xs text-muted-foreground flex items-center gap-1"><Mail className="h-3 w-3" />{student.studentEmail}</div>
-                                                    {student.studentRollNo && <div className="text-xs text-muted-foreground flex items-center gap-1"><Hash className="h-3 w-3" />{student.studentRollNo}</div>}
-                                                </TableCell>
+                                                <TableCell className="font-medium">{student.studentName}</TableCell>
+                                                <TableCell>{student.studentEmail}</TableCell>
+                                                <TableCell>{student.studentRollNo || 'N/A'}</TableCell>
                                                 <TableCell>{cert.originalName}</TableCell>
                                                 <TableCell className="text-right">
                                                     <Button variant="outline" size="sm" asChild>
