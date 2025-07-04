@@ -232,9 +232,15 @@ function AdminHomePageContent() {
             const aVal = a[key] || '';
             const bVal = b[key] || '';
     
-            const comparison = String(aVal).localeCompare(String(bVal), undefined, { numeric: true });
-            
-            return sortConfig.direction === 'asc' ? comparison : -comparison;
+            if (key === 'studentRollNo') {
+                return sortConfig.direction === 'asc' 
+                    ? String(aVal).localeCompare(String(bVal), undefined, { numeric: true }) 
+                    : String(bVal).localeCompare(String(aVal), undefined, { numeric: true });
+            }
+
+            return sortConfig.direction === 'asc'
+                ? String(aVal).localeCompare(String(bVal))
+                : String(bVal).localeCompare(String(aVal));
         });
 
         return sortedData;
@@ -245,11 +251,11 @@ function AdminHomePageContent() {
         value: {
             label: "Students",
         },
-        'Has Certificate': {
+        'has-certificate': {
           label: 'Has Certificate',
           color: 'hsl(var(--chart-1))'
         },
-        'Does Not Have': {
+        'does-not-have': {
           label: 'Does Not Have',
           color: 'hsl(var(--muted))'
         },
@@ -260,8 +266,8 @@ function AdminHomePageContent() {
         const studentIdsWithCert = new Set(searchResults.map(item => item.studentId));
         const numStudentsWithCert = studentIdsWithCert.size;
         return [
-            { name: 'Has Certificate', value: numStudentsWithCert, fill: 'var(--color-Has-Certificate)' },
-            { name: 'Does Not Have', value: allStudents.length - numStudentsWithCert, fill: 'var(--color-Does-Not-Have)' }
+            { name: 'has-certificate', value: numStudentsWithCert, fill: 'var(--color-has-certificate)' },
+            { name: 'does-not-have', value: allStudents.length - numStudentsWithCert, fill: 'var(--color-does-not-have)' }
         ];
     }, [searchTerm, searchResults, allStudents]);
 
