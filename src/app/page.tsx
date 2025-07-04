@@ -393,7 +393,7 @@ function AdminHomePageContent() {
                                           <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
                                           <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={30} />
                                           <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
-                                          <Line type="monotone" dataKey="count" stroke="hsl(var(--chart-1))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
+                                          <Line type="monotone" dataKey="count" stroke={lineChartConfig.count.color} strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
                                         </RechartsLineChart>
                                     </ChartContainer>
                                 </CardContent>
@@ -429,7 +429,7 @@ function AdminHomePageContent() {
                                                   {gaugeChartData.map((entry) => (
                                                     <Cell
                                                       key={`cell-${entry.name}`}
-                                                      fill={entry.name === 'has-certificate' ? 'hsl(var(--primary))' : 'hsl(var(--muted))'}
+                                                      fill={gaugeChartConfig[entry.name as keyof typeof gaugeChartConfig]?.color}
                                                     />
                                                   ))}
                                                 </Pie>
@@ -464,35 +464,39 @@ function AdminHomePageContent() {
                                                 {sortConfig.key === 'studentName' && (sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-4 w-4" /> : <ArrowDown className="ml-2 h-4 w-4" />)}
                                             </Button>
                                         </TableHead>
-                                        <TableHead>Email</TableHead>
                                         <TableHead>
                                             <Button variant="ghost" size="sm" onClick={() => requestSort('studentRollNo')} className="p-0 bg-transparent hover:bg-transparent text-foreground hover:text-primary">
                                                 Roll No.
                                                 {sortConfig.key === 'studentRollNo' && (sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-4 w-4" /> : <ArrowDown className="ml-2 h-4 w-4" />)}
                                             </Button>
                                         </TableHead>
+                                        <TableHead>Email</TableHead>
                                         <TableHead>Certificate</TableHead>
                                         <TableHead className="text-right">Action</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {searchResults.map((student: any) =>
-                                        student.certificates.map((cert: any) => (
-                                            <TableRow key={cert.fileId}>
-                                                <TableCell className="font-medium">{student.studentName}</TableCell>
-                                                <TableCell>{student.studentEmail}</TableCell>
-                                                <TableCell>{student.studentRollNo || 'N/A'}</TableCell>
-                                                <TableCell>{cert.originalName}</TableCell>
-                                                <TableCell className="text-right">
-                                                    <Button variant="outline" size="sm" asChild>
-                                                        <a href={`/api/images/${cert.fileId}`} target="_blank" rel="noopener noreferrer">
-                                                            <View className="mr-2 h-4 w-4" />View
-                                                        </a>
-                                                    </Button>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))
-                                    )}
+                                    {searchResults.map((student: any) => (
+                                         <TableRow key={student.studentId}>
+                                            <TableCell className="font-medium">{student.studentName}</TableCell>
+                                            <TableCell>{student.studentRollNo || 'N/A'}</TableCell>
+                                            <TableCell>{student.studentEmail}</TableCell>
+                                            <TableCell>
+                                                <ul className="list-disc pl-4">
+                                                    {student.certificates.map((cert: any) => (
+                                                        <li key={cert.fileId}>{cert.originalName}</li>
+                                                    ))}
+                                                </ul>
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                                 <Button variant="outline" size="sm" asChild>
+                                                    <a href={`/api/images/${student.certificates[0].fileId}`} target="_blank" rel="noopener noreferrer">
+                                                        <View className="mr-2 h-4 w-4" />View
+                                                    </a>
+                                                </Button>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
                                 </TableBody>
                             </Table>
                         </div>
