@@ -4,6 +4,8 @@ import { getAdminAuth, getAdminFirestore } from '@/lib/firebase/adminConfig';
 import { sendEmail } from '@/lib/emailUtils';
 import { z } from 'zod';
 
+export const runtime = 'nodejs';
+
 const USERS_COLLECTION = 'users';
 
 const notifyRequestSchema = z.object({

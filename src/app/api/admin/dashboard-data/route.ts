@@ -4,6 +4,8 @@ import { getAdminAuth, getAdminFirestore } from '@/lib/firebase/adminConfig';
 import { connectToDb } from '@/lib/mongodb';
 import type { UserProfile } from '@/lib/models/user';
 
+export const runtime = 'nodejs';
+
 const USERS_COLLECTION = 'users';
 
 export async function GET(request: NextRequest) {

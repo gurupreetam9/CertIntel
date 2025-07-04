@@ -5,6 +5,8 @@ import { connectToDb } from '@/lib/mongodb';
 import { getAdminAuth, getAdminFirestore } from '@/lib/firebase/adminConfig'; // Use getters
 import type { UserProfile } from '@/lib/models/user';
 
+export const runtime = 'nodejs';
+
 const USERS_COLLECTION = 'users';
 
 // Local implementation of getAnyUserProfileWithAdmin for this API route

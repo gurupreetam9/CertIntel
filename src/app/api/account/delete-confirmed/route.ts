@@ -2,6 +2,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { getAdminAuth, getAdminFirestore } from '@/lib/firebase/adminConfig';
 
+export const runtime = 'nodejs';
+
 // HACK: In-memory store for deletion tokens. MUST match the one in the flow.
 // In a real app, use a database (e.g., Firestore, Redis) with TTL support.
 if (!(globalThis as any).deletionTokenStore) {

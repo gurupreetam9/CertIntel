@@ -6,6 +6,8 @@ import { ObjectId } from 'mongodb';
 import archiver from 'archiver';
 import { PassThrough } from 'stream';
 
+export const runtime = 'nodejs';
+
 export async function POST(request: NextRequest) {
   const reqId = Math.random().toString(36).substring(2, 9);
   console.log(`API Route /api/admin/download-zip (Req ID: ${reqId}): POST request received.`);

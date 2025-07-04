@@ -5,6 +5,8 @@ import { ObjectId, MongoError } from 'mongodb';
 import { connectToDb } from '@/lib/mongodb';
 import { getAdminAuth } from '@/lib/firebase/adminConfig';
 
+export const runtime = 'nodejs';
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { fileId: string } }

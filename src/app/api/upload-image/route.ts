@@ -12,6 +12,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
+export const runtime = 'nodejs';
+
 interface CustomUploadedFile {
   filepath: string;
   originalFilename: string | null;
@@ -275,7 +277,7 @@ export async function POST(request: NextRequest) {
           }
         } catch (cleanupErr: unknown) {
           if (cleanupErr instanceof Error) {
-            console.error(`Cleanup error deleting temp file ${filePath}: ${cleanupErr.message}`);
+            console.error('Cleanup error deleting temp file ${filePath}: ${cleanupErr.message}');
           } else {
             console.error('Cleanup error (unknown type) for temp file ${filePath}:', cleanupErr);
           }

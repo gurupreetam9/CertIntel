@@ -8,6 +8,7 @@ import { ShieldX, FileWarning } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { Metadata } from 'next';
 
+export const runtime = 'nodejs';
 export const revalidate = 60; // Revalidate public profiles every 60 seconds
 
 // This function can generate metadata for the page for better SEO
