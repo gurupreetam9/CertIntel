@@ -14,7 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
-import { PieChart, Pie, LineChart, Line, XAxis, YAxis, CartesianGrid, Cell } from 'recharts';
+import { PieChart, Pie, Line, XAxis, YAxis, CartesianGrid, Cell, LineChart as RechartsLineChart } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
@@ -334,17 +334,16 @@ function AdminHomePageContent() {
                                     <CardDescription>Click a slice to see details.</CardDescription>
                                 </CardHeader>
                                 <CardContent>
-                                    <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[300px] sm:h-[400px]">
-                                        <PieChart margin={{ top: 40, right: 40, bottom: 40, left: 40 }}>
+                                    <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[350px] sm:h-[400px]">
+                                        <PieChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
                                             <ChartTooltip content={<ChartTooltipContent hideLabel />} />
                                             <Pie
                                                 data={chartData.pieChartData}
                                                 cx="50%"
                                                 cy="50%"
-                                                labelLine={false}
-                                                outerRadius={'80%'}
+                                                outerRadius={"80%"}
                                                 dataKey="value"
-                                                onClick={handlePieClick}
+                                                onClick={(data) => handlePieClick(data.payload)}
                                                 className="cursor-pointer"
                                             >
                                                 {chartData.pieChartData.map((entry, index) => (
@@ -364,14 +363,14 @@ function AdminHomePageContent() {
                                      <CardDescription>Daily count of new certificate uploads.</CardDescription>
                                 </CardHeader>
                                 <CardContent>
-                                   <ChartContainer config={lineChartConfig} className="h-[300px] w-full sm:h-[400px]">
-                                        <LineChart accessibilityLayer data={chartData.lineChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                                   <ChartContainer config={lineChartConfig} className="h-[350px] w-full sm:h-[400px]">
+                                        <RechartsLineChart accessibilityLayer data={chartData.lineChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                                           <CartesianGrid strokeDasharray="3 3" />
                                           <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
                                           <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={30} />
                                           <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
                                           <Line type="monotone" dataKey="count" stroke="#8884d8" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
-                                        </LineChart>
+                                        </RechartsLineChart>
                                     </ChartContainer>
                                 </CardContent>
                             </Card>
