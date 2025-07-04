@@ -108,8 +108,6 @@ function AdminHomePageContent() {
       direction: 'asc',
     });
 
-    const PRIMARY_CHART_COLOR = "hsl(45 90% 50%)"; // Correct, direct HSL value
-
 
     useEffect(() => {
         const fetchData = async () => {
@@ -193,7 +191,7 @@ function AdminHomePageContent() {
                 label: item.name,
                 color: COLORS[index % COLORS.length],
             };
-            return { ...item, key, name: item.name };
+            return { ...item, key, name: item.name, fill: COLORS[index % COLORS.length] };
         });
 
         const lineData = Object.entries(completionTrends)
@@ -206,7 +204,7 @@ function AdminHomePageContent() {
     const lineChartConfig = {
         count: {
             label: "Uploads",
-            color: PRIMARY_CHART_COLOR,
+            color: "hsl(var(--primary))",
         },
     } satisfies ChartConfig;
     
@@ -362,13 +360,16 @@ function AdminHomePageContent() {
                                             <Pie
                                                 data={pieChartData}
                                                 dataKey="value"
-                                                nameKey="key"
+                                                nameKey="name"
                                                 cx="50%"
                                                 cy="50%"
                                                 outerRadius={"80%"}
                                                 onClick={(data) => handlePieClick(data.payload.payload)}
                                                 className="cursor-pointer"
                                             >
+                                              {pieChartData.map((entry, index) => (
+                                                  <Cell key={`cell-${index}`} fill={entry.fill} />
+                                              ))}
                                             </Pie>
                                         </PieChart>
                                     </ChartContainer>
@@ -389,7 +390,7 @@ function AdminHomePageContent() {
                                           <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
                                           <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={30} />
                                           <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
-                                          <Line type="monotone" dataKey="count" stroke={PRIMARY_CHART_COLOR} strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
+                                          <Line type="monotone" dataKey="count" stroke="var(--color-count)" strokeWidth={2} dot={{ r: 4, fill: "var(--color-count)" }} activeDot={{ r: 8, stroke: "var(--color-background)" }} name="Uploads"/>
                                         </RechartsLineChart>
                                     </ChartContainer>
                                 </CardContent>
@@ -452,13 +453,13 @@ function AdminHomePageContent() {
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>
-                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentName')} className="p-0 h-auto text-primary hover:bg-transparent hover:text-primary">
+                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentName')} className="p-0 h-auto hover:bg-transparent hover:text-primary/80">
                                                 Student Name
                                                 {sortConfig.key === 'studentName' && (sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-4 w-4" /> : <ArrowDown className="ml-2 h-4 w-4" />)}
                                             </Button>
                                         </TableHead>
                                         <TableHead>
-                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentRollNo')} className="p-0 h-auto text-primary hover:bg-transparent hover:text-primary">
+                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentRollNo')} className="p-0 h-auto hover:bg-transparent hover:text-primary/80">
                                                 Roll No.
                                                 {sortConfig.key === 'studentRollNo' && (sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-4 w-4" /> : <ArrowDown className="ml-2 h-4 w-4" />)}
                                             </Button>
