@@ -60,15 +60,6 @@ const nextConfig: NextConfig = {
     }
     return config;
   },
-  // Add allowedDevOrigins to address cross-origin warnings in development
-  experimental: {
-    allowedDevOrigins: [
-        "http://localhost:9005", // Your local dev port
-        "https://*.cloudworkstations.dev", // Allow any cloud workstation subdomain
-        // You can add the specific origin from the log if preferred:
-        // "https://9005-firebase-studio-1749277515711.cluster-ikxjzjhlifcwuroomfkjrx437g.cloudworkstations.dev"
-    ]
-  }
 };
 
 export default nextConfig;
