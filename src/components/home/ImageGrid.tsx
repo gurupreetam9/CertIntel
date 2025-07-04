@@ -372,21 +372,23 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
                 <Button variant="ghost" size="icon" className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white" onClick={(e) => { e.stopPropagation(); handleImageLinkOpen(image.fileId); }} title="Open File in New Tab">
                   <ExternalLink className="h-4 w-4" />
                 </Button>
-                <Button
-                  asChild
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white"
-                  title="Download File"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <a
-                    href={`/api/images/${image.fileId}`}
-                    download={image.originalName || image.filename}
+                {canEdit && (
+                  <Button
+                    asChild
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white"
+                    title="Download File"
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    <Download className="h-4 w-4" />
-                  </a>
-                </Button>
+                    <a
+                      href={`/api/images/${image.fileId}`}
+                      download={image.originalName || image.filename}
+                    >
+                      <Download className="h-4 w-4" />
+                    </a>
+                  </Button>
+                )}
                  {!isPdf && (
                     <Button 
                         variant="ghost" 
@@ -399,7 +401,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
                         {generatingDescriptionFor === image.fileId ? <Loader2 className="h-4 w-4 animate-spin"/> : <Bot className="h-4 w-4" />}
                     </Button>
                 )}
-                {canEdit && (
+                {canEdit && onImageDeleted && (
                   <Button variant="ghost" size="icon" className="h-8 w-8 bg-destructive/70 hover:bg-destructive/90 text-white" onClick={(e) => { e.stopPropagation(); openDeleteConfirmDialog(image);}} title="Delete File">
                     <Trash2 className="h-4 w-4" />
                   </Button>
