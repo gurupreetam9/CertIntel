@@ -170,9 +170,9 @@ const GaugeChart = ({ value, totalValue, label }: { value: number; totalValue: n
           />
         </RadialBarChart>
       </ResponsiveContainer>
-      <div className="absolute inset-0 flex flex-col items-center justify-center text-center -translate-y-3">
-        <span className="text-4xl font-bold text-foreground">{value}</span>
-        <span className="text-sm text-muted-foreground">{label}</span>
+      <div className="absolute inset-0 flex flex-col items-center justify-center text-center -translate-y-2">
+        <span className="text-3xl font-bold text-foreground">{value}</span>
+        <span className="text-xs text-muted-foreground">{label}</span>
       </div>
     </div>
   );
