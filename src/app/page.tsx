@@ -293,8 +293,7 @@ function AdminHomePageContent() {
         return Array.from(studentMap.entries())
             .map(([name, count]) => ({ name, certificates: count }))
             .sort((a, b) => b.certificates - a.certificates)
-            .slice(0, 5)
-            .reverse();
+            .slice(0, 5);
     }, [filteredData]);
     
     const handleDownloadZip = async () => {
@@ -390,12 +389,12 @@ function AdminHomePageContent() {
                 <CardContent>
                     <ChartContainer config={{ certificates: { label: "Certs", color: "hsl(var(--accent))" } }} className="h-[300px] w-full">
                        <ResponsiveContainer>
-                            <BarChart data={topStudentsData} layout="vertical" margin={{ left: 10, right: 10, top:10, bottom:10 }}>
-                                <CartesianGrid horizontal={false} />
-                                <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} tickMargin={8} width={80} />
-                                <XAxis type="number" allowDecimals={false} />
+                            <BarChart data={topStudentsData} margin={{ top: 10, right: 10, bottom: 0, left: 10 }}>
+                                <CartesianGrid vertical={false} />
+                                <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} interval={0} />
+                                <YAxis allowDecimals={false} />
                                 <RechartsTooltip content={<ChartTooltipContent indicator="dot" />} />
-                                <Bar dataKey="certificates" fill="var(--color-certificates)" radius={4} />
+                                <Bar dataKey="certificates" fill="var(--color-certificates)" radius={[4, 4, 0, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     </ChartContainer>
