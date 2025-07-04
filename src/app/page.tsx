@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
@@ -32,6 +31,8 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Progress } from '@/components/ui/progress';
 
 
 // Combined type for admin dashboard data
@@ -489,32 +490,68 @@ function AdminHomePageContent() {
               </CardHeader>
               <CardContent>
                 {searchTerm ? (
-                  // SEARCH VIEW: Flat list of certificates
-                  <ul className="space-y-4">
+                  <div className="mt-6 space-y-6">
+                    {/* Search Analytics Section */}
+                    <div className="grid gap-6 md:grid-cols-2">
+                        <Card>
+                            <CardHeader className='pb-2'>
+                                <CardTitle className="text-base font-medium">Certificate Matches</CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-2">
+                                <p className="text-muted-foreground text-sm">
+                                Found {filteredData.length} certificates out of {allData.length} total.
+                                </p>
+                                <Progress value={allData.length > 0 ? (filteredData.length / allData.length) * 100 : 0} />
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardHeader className='pb-2'>
+                                <CardTitle className="text-base font-medium">Student Matches</CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-2">
+                                <p className="text-muted-foreground text-sm">
+                                {new Set(filteredData.map(d => d.studentId)).size} students have certificates matching "{searchTerm}" out of {uniqueStudents.length} total.
+                                </p>
+                                <Progress value={uniqueStudents.length > 0 ? (new Set(filteredData.map(d => d.studentId)).size / uniqueStudents.length) * 100 : 0} />
+                            </CardContent>
+                        </Card>
+                    </div>
+
+                    {/* Results Table */}
                     {filteredData.length > 0 ? (
-                      filteredData.map((cert) => (
-                        <li key={cert.fileId} className="border rounded-lg p-6 shadow-sm bg-card">
-                          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-                            <div className="flex-grow">
-                              <p className="text-lg font-semibold text-primary mb-1.5">{cert.originalName}</p>
-                              <div className="text-sm text-muted-foreground space-y-0.5">
-                                  <p>Student: {cert.studentName} ({cert.studentEmail})</p>
-                                  {cert.studentRollNo && <p>Roll No: {cert.studentRollNo}</p>}
-                              </div>
-                            </div>
-                            <div className="flex-shrink-0 self-start pt-1">
-                              <Button size="sm" variant="outline" onClick={() => openViewModal(cert)}>
-                                <FileTextIcon className="mr-2 h-4 w-4" />
-                                View Certificate
-                              </Button>
-                            </div>
-                          </div>
-                        </li>
-                      ))
+                        <div className="border rounded-lg">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                    <TableHead className="w-[200px]">Student Name</TableHead>
+                                    <TableHead>Email</TableHead>
+                                    <TableHead>Roll No</TableHead>
+                                    <TableHead>Certificate</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {filteredData.map((cert) => (
+                                    <TableRow key={cert.fileId}>
+                                        <TableCell className="font-medium">{cert.studentName}</TableCell>
+                                        <TableCell>{cert.studentEmail}</TableCell>
+                                        <TableCell>{cert.studentRollNo || 'N/A'}</TableCell>
+                                        <TableCell>
+                                        <div className="flex flex-col gap-2 items-start">
+                                            <span className="font-medium">{cert.originalName}</span>
+                                            <Button variant="outline" size="sm" onClick={() => openViewModal(cert)} className="h-8">
+                                                View Certificate
+                                            </Button>
+                                        </div>
+                                        </TableCell>
+                                    </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </div>
                     ) : (
-                      <p className="text-muted-foreground text-center py-8">No certificates match your search.</p>
+                        <p className="text-muted-foreground text-center py-8">No certificates match your search.</p>
                     )}
-                  </ul>
+                  </div>
                 ) : (
                   // DEFAULT VIEW: Accordion grouped by student
                   groupedAndSortedData.length > 0 ? (
