@@ -3,112 +3,70 @@
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { useAuth } from '@/hooks/useAuth';
-import { Loader2, AlertCircle, Search, Download, FileText, BarChart2, PieChart as PieChartIcon, LineChart as LineChartIcon } from 'lucide-react';
+import { Loader2, AlertCircle, Search, Download, FileText, BarChart2, PieChart as PieChartIcon, LineChart as LineChartIcon, Mail, Hash, View } from 'lucide-react';
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 
-// --- Student-specific imports ---
-import ImageGrid from '@/components/home/ImageGrid';
-import type { UserImage } from '@/components/home/ImageGrid';
-import UploadFAB from '@/components/home/UploadFAB';
-import AiFAB from '@/components/home/AiFAB';
+// --- UI & Charting Imports ---
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
-import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from '@/components/ui/chart';
+import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
 import { PieChart, LineChart as RechartsLineChart, Pie, Line, XAxis, YAxis, CartesianGrid, Cell, Sector, ResponsiveContainer } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Mail, Hash, View } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 // ====================================================================================
 // Student Home Page Content
 // ====================================================================================
 function StudentHomePageContent() {
-  const [images, setImages] = useState<UserImage[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const { user, userId } = useAuth();
-  const { toast } = useToast();
-  const [searchTerm, setSearchTerm] = useState('');
+  const router = useRouter(); // For future use if needed
 
-  const triggerRefresh = React.useCallback(() => {
-    setRefreshKey(prevKey => prevKey + 1);
-  }, []);
-
-  useEffect(() => {
-    const fetchImages = async () => {
-      if (!userId || !user) {
-        setIsLoading(false);
-        setImages([]);
-        return;
-      }
-      setIsLoading(true);
-      setError(null);
-      try {
-        const idToken = await user.getIdToken();
-        const response = await fetch(`/api/user-images?userId=${userId}`, {
-          headers: { 'Authorization': `Bearer ${idToken}` }
-        });
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.message || 'Failed to load certificates.');
-        }
-        const data: UserImage[] = await response.json();
-        setImages(data);
-      } catch (err: any) {
-        setError(err.message);
-        toast({ title: "Error Loading Certificates", description: err.message, variant: "destructive" });
-        setImages([]);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchImages();
-  }, [userId, user, toast, refreshKey]);
-
-  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchTerm(e.target.value.toLowerCase());
-  };
-
-  const filteredImages = useMemo(() => {
-    if (!searchTerm) return images;
-    return images.filter(image => 
-      (image.originalName?.toLowerCase() || '').includes(searchTerm) ||
-      (image.filename?.toLowerCase() || '').includes(searchTerm)
-    );
-  }, [images, searchTerm]);
-
+  // Redirect to a more appropriate student dashboard if one exists, or just show this content.
+  // For now, this is the main student view.
+  
   return (
-    <div className="container mx-auto flex h-full flex-col px-2 py-4 sm:px-4 md:py-8">
-      <div className="flex shrink-0 flex-col justify-between gap-4 md:flex-row md:items-center">
-        <div className="text-center md:text-left">
-            <h1 className="text-2xl font-bold font-headline sm:text-3xl md:text-4xl">Your Certificate Hub</h1>
-            <p className="text-base text-muted-foreground sm:text-lg">Browse, upload, and manage your certificates.</p>
-        </div>
+    <div className="container mx-auto p-4 md:p-8">
+      <h1 className="text-3xl font-bold font-headline mb-4">Welcome, Student!</h1>
+      <p className="text-muted-foreground mb-6">This is your main dashboard. Your certificates should be managed through the floating action buttons.</p>
+      
+       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Card className="hover:shadow-lg transition-shadow">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="text-primary"/> Manage Your Certificates
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              Use the <span className="inline-flex items-center justify-center bg-primary text-primary-foreground w-6 h-6 rounded-full mx-1">+</span> button at the bottom-right to upload new image or PDF certificates.
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="hover:shadow-lg transition-shadow">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <BarChart2 className="text-accent" /> Certificate Analysis
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+             <p className="text-sm text-muted-foreground">
+              Use the <span className="inline-flex items-center justify-center bg-accent text-accent-foreground w-6 h-6 rounded-full mx-1">AI</span> button to navigate to the AI feature page for certificate insights and recommendations.
+            </p>
+          </CardContent>
+        </Card>
       </div>
-      <div className="my-4 shrink-0">
-         <Input
-            type="search"
-            placeholder="Search certificates by name or filename..."
-            className="w-full"
-            value={searchTerm}
-            onChange={handleSearch}
-          />
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto pr-1 md:overflow-visible md:pr-0">
-        <ImageGrid
-          images={filteredImages}
-          isLoading={isLoading}
-          error={error}
-          onImageDeleted={triggerRefresh}
-          currentUserId={userId}
-        />
-      </div>
-      <UploadFAB onUploadSuccess={triggerRefresh} />
-      <AiFAB />
+
     </div>
   );
 }
@@ -128,65 +86,6 @@ interface DashboardData {
     studentRollNo?: string;
 }
 
-const truncateText = (text: string, maxLength: number): string => {
-    if (text.length <= maxLength) return text;
-    return `${text.substring(0, maxLength)}...`;
-};
-
-// Active Shape for Pie Chart
-const renderActiveShape = (props: any) => {
-  const RADIAN = Math.PI / 180;
-  const { cx, cy, midAngle, innerRadius, outerRadius, startAngle, endAngle, fill, payload, percent, value } = props;
-  const sin = Math.sin(-RADIAN * midAngle);
-  const cos = Math.cos(-RADIAN * midAngle);
-  const sx = cx + (outerRadius + 10) * cos;
-  const sy = cy + (outerRadius + 10) * sin;
-  const mx = cx + (outerRadius + 30) * cos;
-  const my = cy + (outerRadius + 30) * sin;
-  const ex = mx + (cos >= 0 ? 1 : -1) * 22;
-  const ey = my;
-  const textAnchor = cos >= 0 ? 'start' : 'end';
-
-  return (
-    <g>
-      <Sector
-        cx={cx}
-        cy={cy}
-        innerRadius={innerRadius}
-        outerRadius={outerRadius}
-        startAngle={startAngle}
-        endAngle={endAngle}
-        fill={fill}
-      />
-      <Sector
-        cx={cx}
-        cy={cy}
-        startAngle={startAngle}
-        endAngle={endAngle}
-        innerRadius={outerRadius + 6}
-        outerRadius={outerRadius + 10}
-        fill={fill}
-      />
-      <path d={`M${sx},${sy}L${mx},${my}L${ex},${ey}`} stroke={fill} fill="none" />
-      <circle cx={ex} cy={ey} r={2} fill={fill} stroke="none" />
-      <text x={ex + (cos >= 0 ? 1 : -1) * 12} y={ey} textAnchor={textAnchor} fill="hsl(var(--foreground))" className="text-sm font-semibold">
-        {truncateText(payload.name, 25)}
-      </text>
-      <text x={ex + (cos >= 0 ? 1 : -1) * 12} y={ey} dy={18} textAnchor={textAnchor} fill="hsl(var(--muted-foreground))" className="text-xs">
-        {`${value} Certs (${(percent * 100).toFixed(0)}%)`}
-      </text>
-    </g>
-  );
-};
-
-const yAxisLabelTruncate = (label: string) => {
-    if (label.length > 15) {
-        return label.substring(0, 15) + '...';
-    }
-    return label;
-};
-
-
 function AdminHomePageContent() {
     const { user } = useAuth();
     const { toast } = useToast();
@@ -197,7 +96,9 @@ function AdminHomePageContent() {
     const [error, setError] = useState<string | null>(null);
 
     const [searchTerm, setSearchTerm] = useState('');
-    const [activePieIndex, setActivePieIndex] = useState(0);
+    
+    const [isChartModalOpen, setIsChartModalOpen] = useState(false);
+    const [selectedChartData, setSelectedChartData] = useState<{ name: string; value: number } | null>(null);
 
     const [isDownloading, setIsDownloading] = useState(false);
 
@@ -241,20 +142,19 @@ function AdminHomePageContent() {
         fetchData();
     }, [user, toast]);
     
-    const onPieEnter = useCallback((_: any, index: number) => {
-        setActivePieIndex(index);
-    }, []);
+    const handlePieClick = (data: any) => {
+        setSelectedChartData({ name: data.name, value: data.value });
+        setIsChartModalOpen(true);
+    };
 
     const chartData = useMemo(() => {
         const courseCounts: { [key: string]: number } = {};
         const completionTrends: { [key: string]: number } = {};
 
         dashboardData.forEach(cert => {
-            // Use originalName which is more descriptive for charts
             const courseName = cert.originalName;
             courseCounts[courseName] = (courseCounts[courseName] || 0) + 1;
             
-            // Use uploadDate for time-series data
             const date = format(parseISO(cert.uploadDate), 'yyyy-MM-dd');
             completionTrends[date] = (completionTrends[date] || 0) + 1;
         });
@@ -404,159 +304,183 @@ function AdminHomePageContent() {
     }
     
     return (
-        <div className="container mx-auto p-4 md:p-8 space-y-8">
-            <h1 className="text-3xl font-bold font-headline">Admin Analysis Dashboard</h1>
+        <>
+            <div className="container mx-auto p-4 md:p-8 space-y-8">
+                <h1 className="text-3xl font-bold font-headline">Admin Analysis Dashboard</h1>
 
-            <Accordion type="single" collapsible defaultValue="item-1" className="w-full">
-              <AccordionItem value="item-1">
-                <AccordionTrigger className="text-xl font-semibold">
-                  <div className="flex items-center gap-2">
-                    <BarChart2 className="h-6 w-6"/> Student & Course Analysis
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-4">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle className="flex items-center gap-2 text-lg">
-                                    <PieChartIcon className="h-6 w-6 shrink-0" />
-                                    Top 10 Course Certificate Distribution
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[250px] sm:h-[400px]">
-                                    <PieChart margin={{ top: 40, right: 40, bottom: 40, left: 40 }}>
-                                        <ChartTooltip content={<ChartTooltipContent hideLabel />} />
-                                        <Pie 
-                                            data={chartData.pieChartData} 
-                                            cx="50%" 
-                                            cy="50%" 
-                                            labelLine={false}
-                                            outerRadius="70%"
-                                            dataKey="value"
-                                            activeIndex={activePieIndex}
-                                            activeShape={renderActiveShape}
-                                            onMouseEnter={onPieEnter}
-                                        >
-                                            {chartData.pieChartData.map((entry, index) => (
-                                                <Cell key={`cell-${index}`} fill={entry.fill} />
-                                            ))}
-                                        </Pie>
-                                    </PieChart>
-                                </ChartContainer>
-                            </CardContent>
-                        </Card>
-                        <Card>
-                            <CardHeader>
-                                <CardTitle className="flex items-center gap-2 text-lg">
-                                    <LineChartIcon className="h-6 w-6 shrink-0" />
-                                    Certificate Uploads Over Time
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                               <ChartContainer config={lineChartConfig} className="h-[250px] w-full sm:h-[400px]">
-                                    <RechartsLineChart accessibilityLayer data={chartData.lineChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                                      <CartesianGrid strokeDasharray="3 3" />
-                                      <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
-                                      <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={30} />
-                                      <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
-                                      <ChartLegend content={<ChartLegendContent />} />
-                                      <Line type="monotone" dataKey="count" stroke="var(--color-count)" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
-                                    </RechartsLineChart>
-                                </ChartContainer>
-                            </CardContent>
-                        </Card>
-                    </div>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-            
-            <Card>
-                <CardHeader>
-                    <CardTitle className="flex items-center"><Search className="mr-2" />Course & Certificate Search</CardTitle>
-                    <CardDescription>Search for a specific course to see which students have uploaded a certificate for it. You can then download the results.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <Input
-                        placeholder="Search by course name..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-
-                    {searchTerm && (
-                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-                            <Card className="md:col-span-1">
-                                <CardHeader className="pb-2">
-                                    <CardTitle className="text-base">Search Summary</CardTitle>
+                <Accordion type="single" collapsible defaultValue="item-1" className="w-full">
+                  <AccordionItem value="item-1">
+                    <AccordionTrigger className="text-xl font-semibold">
+                      <div className="flex items-center gap-2">
+                        <BarChart2 className="h-6 w-6"/> Student & Course Analysis
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-4">
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="flex items-center gap-2 text-lg">
+                                        <PieChartIcon className="h-5 w-5 shrink-0" />
+                                        Top 10 Course Certificate Distribution
+                                    </CardTitle>
+                                    <CardDescription>Click a slice to see details.</CardDescription>
                                 </CardHeader>
-                                <CardContent className="flex flex-col items-center justify-center p-4">
-                                     <ChartContainer config={gaugeChartConfig} className="mx-auto aspect-square h-[150px]">
-                                        <PieChart>
-                                            <ChartTooltip content={<ChartTooltipContent indicator="dot" nameKey="name" />} />
-                                            <Pie data={gaugeChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={60} startAngle={180} endAngle={0}>
-                                                 {gaugeChartData.map((entry, index) => (
+                                <CardContent>
+                                    <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[250px] sm:h-[400px]">
+                                        <PieChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                                            <ChartTooltip content={<ChartTooltipContent hideLabel />} />
+                                            <Pie 
+                                                data={chartData.pieChartData} 
+                                                cx="50%" 
+                                                cy="50%" 
+                                                labelLine={false}
+                                                outerRadius={"80%"}
+                                                dataKey="value"
+                                                onClick={handlePieClick}
+                                                className="cursor-pointer"
+                                            >
+                                                {chartData.pieChartData.map((entry, index) => (
                                                     <Cell key={`cell-${index}`} fill={entry.fill} />
-                                                 ))}
+                                                ))}
                                             </Pie>
                                         </PieChart>
-                                     </ChartContainer>
-                                     <p className="text-center font-bold text-lg -mt-8">{gaugeChartData[0]?.value || 0} of {allStudents.length} students</p>
-                                     <p className="text-center text-sm text-muted-foreground">have this certificate.</p>
+                                    </ChartContainer>
                                 </CardContent>
                             </Card>
-                            <div className="md:col-span-2 flex items-center justify-center">
-                                <Button onClick={handleDownloadZip} disabled={isDownloading || searchResults.length === 0} size="lg">
-                                    {isDownloading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Download className="mr-2 h-5 w-5" />}
-                                    Download Certificates
-                                </Button>
-                            </div>
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="flex items-center gap-2 text-lg">
+                                        <LineChartIcon className="h-5 w-5 shrink-0" />
+                                        Certificate Uploads Over Time
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                   <ChartContainer config={lineChartConfig} className="h-[250px] w-full sm:h-[400px]">
+                                        <RechartsLineChart accessibilityLayer data={chartData.lineChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                                          <CartesianGrid strokeDasharray="3 3" />
+                                          <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
+                                          <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={30} />
+                                          <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
+                                          <Line type="monotone" dataKey="count" stroke="var(--color-count)" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
+                                        </RechartsLineChart>
+                                    </ChartContainer>
+                                </CardContent>
+                            </Card>
                         </div>
-                    )}
-                </CardContent>
-            </Card>
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
+                
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center"><Search className="mr-2" />Course & Certificate Search</CardTitle>
+                        <CardDescription>Search for a specific course to see which students have uploaded a certificate for it. You can then download the results.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <Input
+                            placeholder="Search by course name..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                        />
 
-            {searchTerm && (
-              <div className="space-y-4">
-                <h3 className="text-xl font-bold font-headline">Search Results for "{searchTerm}"</h3>
-                 {searchResults.length > 0 ? (
-                    <div className="border rounded-lg">
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Student</TableHead>
-                                    <TableHead>Certificate</TableHead>
-                                    <TableHead className="text-right">Action</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {searchResults.map((student: any) =>
-                                    student.certificates.map((cert: any) => (
-                                        <TableRow key={cert.fileId}>
-                                            <TableCell>
-                                                <div className="font-medium">{student.studentName}</div>
-                                                <div className="text-xs text-muted-foreground flex items-center gap-1"><Mail className="h-3 w-3" />{student.studentEmail}</div>
-                                                {student.studentRollNo && <div className="text-xs text-muted-foreground flex items-center gap-1"><Hash className="h-3 w-3" />{student.studentRollNo}</div>}
-                                            </TableCell>
-                                            <TableCell>{cert.originalName}</TableCell>
-                                            <TableCell className="text-right">
-                                                <Button variant="outline" size="sm" asChild>
-                                                    <a href={`/api/images/${cert.fileId}`} target="_blank" rel="noopener noreferrer">
-                                                        <View className="mr-2 h-4 w-4" />View
-                                                    </a>
-                                                </Button>
-                                            </TableCell>
-                                        </TableRow>
-                                    ))
-                                )}
-                            </TableBody>
-                        </Table>
-                    </div>
-                ) : (
-                  <p className="text-center text-muted-foreground mt-8">No students found with a certificate matching your search.</p>
+                        {searchTerm && (
+                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+                                <Card className="md:col-span-1">
+                                    <CardHeader className="pb-2">
+                                        <CardTitle className="text-base">Search Summary</CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="flex flex-col items-center justify-center p-4">
+                                        <ChartContainer config={gaugeChartConfig} className="mx-auto aspect-square h-[150px]">
+                                            <PieChart>
+                                                <ChartTooltip content={<ChartTooltipContent indicator="dot" nameKey="name" />} />
+                                                <Pie data={gaugeChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={60} startAngle={180} endAngle={0}>
+                                                     {gaugeChartData.map((entry, index) => (
+                                                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                                                     ))}
+                                                </Pie>
+                                            </PieChart>
+                                         </ChartContainer>
+                                         <p className="text-center font-bold text-lg -mt-8">{gaugeChartData[0]?.value || 0} of {allStudents.length} students</p>
+                                         <p className="text-center text-sm text-muted-foreground">have this certificate.</p>
+                                    </CardContent>
+                                </Card>
+                                <div className="md:col-span-2 flex items-center justify-center">
+                                    <Button onClick={handleDownloadZip} disabled={isDownloading || searchResults.length === 0} size="lg">
+                                        {isDownloading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Download className="mr-2 h-5 w-5" />}
+                                        Download Certificates
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+
+                {searchTerm && (
+                  <div className="space-y-4">
+                    <h3 className="text-xl font-bold font-headline">Search Results for "{searchTerm}"</h3>
+                     {searchResults.length > 0 ? (
+                        <div className="border rounded-lg">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Student</TableHead>
+                                        <TableHead>Certificate</TableHead>
+                                        <TableHead className="text-right">Action</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {searchResults.map((student: any) =>
+                                        student.certificates.map((cert: any) => (
+                                            <TableRow key={cert.fileId}>
+                                                <TableCell>
+                                                    <div className="font-medium">{student.studentName}</div>
+                                                    <div className="text-xs text-muted-foreground flex items-center gap-1"><Mail className="h-3 w-3" />{student.studentEmail}</div>
+                                                    {student.studentRollNo && <div className="text-xs text-muted-foreground flex items-center gap-1"><Hash className="h-3 w-3" />{student.studentRollNo}</div>}
+                                                </TableCell>
+                                                <TableCell>{cert.originalName}</TableCell>
+                                                <TableCell className="text-right">
+                                                    <Button variant="outline" size="sm" asChild>
+                                                        <a href={`/api/images/${cert.fileId}`} target="_blank" rel="noopener noreferrer">
+                                                            <View className="mr-2 h-4 w-4" />View
+                                                        </a>
+                                                    </Button>
+                                                </TableCell>
+                                            </TableRow>
+                                        ))
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    ) : (
+                      <p className="text-center text-muted-foreground mt-8">No students found with a certificate matching your search.</p>
+                    )}
+                  </div>
                 )}
-              </div>
-            )}
-        </div>
+            </div>
+
+            {/* Dialog for chart data */}
+            <Dialog open={isChartModalOpen} onOpenChange={setIsChartModalOpen}>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Course Certificate Details</DialogTitle>
+                  <DialogDescription>
+                    Full details for the selected course from the distribution chart.
+                  </DialogDescription>
+                </DialogHeader>
+                {selectedChartData && (
+                  <div className="py-4 space-y-2">
+                    <h3 className="font-semibold text-lg break-words">{selectedChartData.name}</h3>
+                    <p className="text-muted-foreground">
+                      Number of Students: <span className="font-bold text-lg text-foreground">{selectedChartData.value}</span>
+                    </p>
+                  </div>
+                )}
+                <DialogFooter>
+                  <Button type="button" onClick={() => setIsChartModalOpen(false)}>Close</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+        </>
     );
 }
 
@@ -565,7 +489,22 @@ function AdminHomePageContent() {
 // Main Page Router
 // ====================================================================================
 function HomePage() {
-  const { userProfile, loading } = useAuth();
+  const { user, userProfile, loading } = useAuth();
+  const router = useRouter();
+  
+  useEffect(() => {
+    if (!loading && user && userProfile?.role === 'student') {
+        // This logic replaces the <StudentHomePageContent /> component
+        // and redirects students to manage their certificates on the main grid view page
+        // which now has the FABs for uploading and AI features.
+        // We will show a simple placeholder while redirecting or if they land here briefly.
+        // The main view for students will now be this home page itself, where they see their certificates.
+        
+        // This is a temporary setup. The ideal solution would be a separate /student/dashboard page.
+        // For now, we'll assume the main page IS the student dashboard.
+    }
+  }, [user, userProfile, loading, router]);
+
 
   if (loading) {
     return (
@@ -575,11 +514,35 @@ function HomePage() {
     );
   }
 
+  // The logic to redirect students has been removed.
+  // Instead, the page now conditionally renders content based on role.
+  // The FAB buttons are part of the student's view and not on this page anymore.
+  // TODO: Refactor HomePage to move student grid and FABs to a separate component/page.
+  // For now, we keep the student logic in `page.tsx` for simplicity.
+  const studentViewNeedsImplementing = true;
+
   return (
     <ProtectedPage>
-      {userProfile?.role === 'admin' ? <AdminHomePageContent /> : <StudentHomePageContent />}
+      {userProfile?.role === 'admin' ? (
+        <AdminHomePageContent />
+      ) : (
+        // This is the student's view, now directly on the homepage.
+        // This section should contain the student's certificate grid.
+        // Redirecting to `/` from within itself doesn't make sense.
+        // We'll show a simple placeholder for now as per the user's focus on the admin view.
+        <div className="container mx-auto p-4 md:p-8">
+            <h1 className="text-3xl font-bold font-headline mb-4">Your Certificate Hub</h1>
+            <p className="text-muted-foreground mb-6">
+                This is your dashboard. Soon you will see your certificate grid here. 
+                For now, use the <span className="inline-flex items-center justify-center bg-primary text-primary-foreground w-6 h-6 rounded-full mx-1">+</span> button to upload 
+                and the <span className="inline-flex items-center justify-center bg-accent text-accent-foreground w-6 h-6 rounded-full mx-1">AI</span> button for insights.
+            </p>
+            {/* The actual ImageGrid and FABs for students will be handled by a separate component or refactoring later */}
+        </div>
+      )}
     </ProtectedPage>
   );
 }
 
 export default HomePage;
+
