@@ -162,28 +162,38 @@ function AdminHomePageContent() {
         setIsChartModalOpen(true);
     }, []);
 
-    const chartData = useMemo(() => {
+    const { pieChartData, lineChartData, pieChartConfig } = useMemo(() => {
         const courseCounts: { [key: string]: number } = {};
         const completionTrends: { [key: string]: number } = {};
 
         dashboardData.forEach(cert => {
-            const courseName = cert.originalName || cert.fileId;
+            const courseName = cert.originalName?.trim() || 'Unnamed Certificate';
             courseCounts[courseName] = (courseCounts[courseName] || 0) + 1;
             
             const date = format(parseISO(cert.uploadDate), 'yyyy-MM-dd');
             completionTrends[date] = (completionTrends[date] || 0) + 1;
         });
 
-        const pieData = Object.entries(courseCounts)
+        const rawPieData = Object.entries(courseCounts)
             .map(([name, value]) => ({ name, value }))
             .sort((a, b) => b.value - a.value)
             .slice(0, 10);
             
+        const config: ChartConfig = {};
+        const finalPieData = rawPieData.map((item, index) => {
+            const key = `course-${index}`;
+            config[key] = {
+                label: item.name,
+                color: `hsl(var(--chart-${(index % 5) + 1}))`,
+            };
+            return { ...item, key };
+        });
+
         const lineData = Object.entries(completionTrends)
             .map(([date, count]) => ({ date, count }))
             .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
         
-        return { pieChartData: pieData, lineChartData: lineData };
+        return { pieChartData: finalPieData, lineChartData: lineData, pieChartConfig: config };
     }, [dashboardData]);
 
     const lineChartConfig = {
@@ -192,20 +202,6 @@ function AdminHomePageContent() {
             color: "hsl(var(--chart-1))",
         },
     } satisfies ChartConfig;
-    
-    const pieChartConfig = useMemo(() => {
-        if (!chartData.pieChartData || chartData.pieChartData.length === 0) {
-          return {};
-        }
-        const config: ChartConfig = {};
-        chartData.pieChartData.forEach((item, index) => {
-            config[item.name] = {
-                label: item.name,
-                color: `hsl(var(--chart-${(index % 5) + 1}))`,
-            };
-        });
-        return config;
-    }, [chartData.pieChartData]);
     
     const searchResults = useMemo(() => {
         if (!searchTerm) {
@@ -248,9 +244,6 @@ function AdminHomePageContent() {
     }, [searchTerm, dashboardData, allStudents, sortConfig]);
 
     const gaugeChartConfig = {
-        value: {
-            label: "Students",
-        },
         'has-certificate': {
           label: 'Has Certificate',
           color: 'hsl(var(--primary))'
@@ -266,8 +259,8 @@ function AdminHomePageContent() {
         const studentIdsWithCert = new Set(searchResults.map(item => item.studentId));
         const numStudentsWithCert = studentIdsWithCert.size;
         return [
-            { name: 'has-certificate', value: numStudentsWithCert },
-            { name: 'does-not-have', value: allStudents.length - numStudentsWithCert }
+            { name: 'has-certificate', value: numStudentsWithCert, fill: 'var(--color-has-certificate)' },
+            { name: 'does-not-have', value: allStudents.length - numStudentsWithCert, fill: 'var(--color-does-not-have)' }
         ];
     }, [searchTerm, searchResults, allStudents]);
 
@@ -360,7 +353,7 @@ function AdminHomePageContent() {
                                         <PieChart>
                                             <ChartTooltip content={<ChartTooltipContent nameKey="name" hideLabel />} />
                                             <Pie
-                                                data={chartData.pieChartData}
+                                                data={pieChartData}
                                                 dataKey="value"
                                                 nameKey="name"
                                                 cx="50%"
@@ -369,10 +362,10 @@ function AdminHomePageContent() {
                                                 onClick={(data) => handlePieClick(data.payload.payload)}
                                                 className="cursor-pointer"
                                             >
-                                              {chartData.pieChartData.map((entry, index) => (
+                                              {pieChartData.map((entry) => (
                                                 <Cell
-                                                  key={`cell-${index}`}
-                                                  fill={`var(--color-${entry.name})`}
+                                                  key={`cell-${entry.key}`}
+                                                  fill={`var(--color-${entry.key})`}
                                                   className="focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                                                 />
                                               ))}
@@ -391,7 +384,7 @@ function AdminHomePageContent() {
                                 </CardHeader>
                                 <CardContent>
                                    <ChartContainer config={lineChartConfig} className="h-[450px] w-full">
-                                        <RechartsLineChart accessibilityLayer data={chartData.lineChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                                        <RechartsLineChart accessibilityLayer data={lineChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                                           <CartesianGrid strokeDasharray="3 3" />
                                           <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
                                           <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={30} />
@@ -430,7 +423,7 @@ function AdminHomePageContent() {
                                                 <ChartTooltip content={<ChartTooltipContent indicator="dot" nameKey="name" />} />
                                                 <Pie data={gaugeChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={60} startAngle={180} endAngle={0}>
                                                    {gaugeChartData.map((entry) => (
-                                                        <Cell key={`cell-gauge-${entry.name}`} fill={gaugeChartConfig[entry.name as keyof typeof gaugeChartConfig]?.color} />
+                                                        <Cell key={`cell-gauge-${entry.name}`} fill={entry.fill} />
                                                     ))}
                                                 </Pie>
                                             </PieChart>
