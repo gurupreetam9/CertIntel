@@ -17,7 +17,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig } from '@/components/ui/chart';
-import { BarChart as RechartsBarChart, PieChart as RechartsPieChart, LineChart as RechartsLineChart, Bar, Pie, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend as RechartsLegend, ResponsiveContainer, Cell, Sector } from 'recharts';
+import { PieChart as RechartsPieChart, LineChart as RechartsLineChart, Pie, Line, XAxis, YAxis, CartesianGrid, Cell, Sector } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
@@ -154,15 +154,6 @@ const renderActiveShape = (props: any) => {
   );
 };
 
-// Function to truncate long labels for charts
-const formatYAxisTick = (tick: string) => {
-    if (tick.length > 20) {
-        return tick.substring(0, 18) + '…';
-    }
-    return tick;
-};
-
-
 function AdminHomePageContent() {
     const { user } = useAuth();
     const { toast } = useToast();
@@ -223,21 +214,12 @@ function AdminHomePageContent() {
 
     const chartData = useMemo(() => {
         const courseCounts: { [key: string]: number } = {};
-        const studentCourseCounts: { [key: string]: Set<string> } = {};
         const completionTrends: { [key: string]: number } = {};
 
         dashboardData.forEach(cert => {
             const courseName = cert.originalName;
-            
-            // For Pie/Bar charts
             courseCounts[courseName] = (courseCounts[courseName] || 0) + 1;
-
-            if (!studentCourseCounts[courseName]) {
-                studentCourseCounts[courseName] = new Set();
-            }
-            studentCourseCounts[courseName].add(cert.studentId);
             
-            // For Line chart
             const date = format(parseISO(cert.uploadDate), 'yyyy-MM-dd');
             completionTrends[date] = (completionTrends[date] || 0) + 1;
         });
@@ -246,25 +228,13 @@ function AdminHomePageContent() {
             .map(([name, value], index) => ({ name, value, fill: `hsl(var(--chart-${(index % 5) + 1}))` }))
             .sort((a, b) => b.value - a.value)
             .slice(0, 10);
-
-        const barData = Object.entries(studentCourseCounts)
-            .map(([name, students]) => ({ name, students: students.size }))
-            .sort((a, b) => b.students - a.students)
-            .slice(0, 10);
             
         const lineData = Object.entries(completionTrends)
             .map(([date, count]) => ({ date, count }))
             .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-        return { pieChartData: pieData, barChartData: barData, lineChartData: lineData };
+        return { pieChartData: pieData, lineChartData: lineData };
     }, [dashboardData]);
-
-    const barChartConfig = {
-      students: {
-        label: "Students",
-        color: "hsl(var(--primary))",
-      },
-    } satisfies ChartConfig;
 
     const lineChartConfig = {
         count: {
@@ -411,7 +381,7 @@ function AdminHomePageContent() {
                                 <CardTitle className="flex items-center"><PieChart className="mr-2"/>Top 10 Course Certificate Distribution</CardTitle>
                             </CardHeader>
                             <CardContent>
-                                <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[250px] sm:h-[400px]">
+                                <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[300px] sm:h-[400px]">
                                     <RechartsPieChart>
                                         <ChartTooltip content={<ChartTooltipContent hideLabel />} />
                                         <Pie 
@@ -438,7 +408,7 @@ function AdminHomePageContent() {
                                 <CardTitle className="flex items-center"><LineChart className="mr-2"/>Certificate Uploads Over Time</CardTitle>
                             </CardHeader>
                             <CardContent>
-                               <ChartContainer config={lineChartConfig} className="h-[250px] w-full sm:h-[400px]">
+                               <ChartContainer config={lineChartConfig} className="h-[300px] w-full sm:h-[400px]">
                                     <RechartsLineChart accessibilityLayer data={chartData.lineChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                                       <CartesianGrid strokeDasharray="3 3" />
                                       <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
@@ -447,22 +417,6 @@ function AdminHomePageContent() {
                                       <ChartLegend content={<ChartLegendContent />} />
                                       <Line type="monotone" dataKey="count" stroke="var(--color-count)" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Uploads"/>
                                     </RechartsLineChart>
-                                </ChartContainer>
-                            </CardContent>
-                        </Card>
-                        <Card className="lg:col-span-2">
-                            <CardHeader>
-                                <CardTitle className="flex items-center"><Users className="mr-2"/>Top 10 Courses by Student Count</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <ChartContainer config={barChartConfig} className="h-[450px] w-full">
-                                    <RechartsBarChart accessibilityLayer data={chartData.barChartData} layout="vertical" margin={{ left: 20, right: 30 }}>
-                                      <CartesianGrid strokeDasharray="3 3" />
-                                      <XAxis type="number" hide />
-                                      <YAxis dataKey="name" type="category" tickLine={false} tickMargin={10} axisLine={false} tick={{ fontSize: 12 }} width={120} tickFormatter={formatYAxisTick} />
-                                      <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="line" />} />
-                                      <Bar dataKey="students" fill="var(--color-students)" radius={4} />
-                                    </RechartsBarChart>
                                 </ChartContainer>
                             </CardContent>
                         </Card>
