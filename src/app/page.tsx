@@ -3,7 +3,7 @@
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { useAuth } from '@/hooks/useAuth';
-import { Loader2, FileText as FileTextIcon, Search, Download, AlertCircle, BarChart2, PieChart, LineChart, Users, View, ChevronDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Loader2, FileText as FileTextIcon, Search, Download, AlertCircle, BarChart2, PieChart, LineChart, Users, View, User, Mail, Hash, Badge, ChevronUp, ChevronDown } from 'lucide-react';
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 
 // --- Student-specific imports ---
@@ -13,12 +13,13 @@ import UploadFAB from '@/components/home/UploadFAB';
 import AiFAB from '@/components/home/AiFAB';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart';
 import { BarChart as RechartsBarChart, PieChart as RechartsPieChart, LineChart as RechartsLineChart, Bar, Pie, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend as RechartsLegend, ResponsiveContainer, Cell, Sector } from 'recharts';
 import { format, parseISO } from 'date-fns';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 // ====================================================================================
 // Student Home Page Content
@@ -145,20 +146,20 @@ const renderActiveShape = (props: any) => {
 
   return (
     <g>
-      <text x={cx} y={cy} dy={8} textAnchor="middle" fill={fill}>{payload.name}</text>
+      <text x={cx} y={cy} dy={8} textAnchor="middle" fill={fill} className="font-bold">{payload.name}</text>
       <Sector cx={cx} cy={cy} innerRadius={innerRadius} outerRadius={outerRadius} startAngle={startAngle} endAngle={endAngle} fill={fill} />
       <Sector cx={cx} cy={cy} startAngle={startAngle} endAngle={endAngle} innerRadius={outerRadius + 6} outerRadius={outerRadius + 10} fill={fill} />
       <path d={`M${sx},${sy}L${mx},${my}L${ex},${ey}`} stroke={fill} fill="none" />
       <circle cx={ex} cy={ey} r={2} fill={fill} stroke="none" />
-      <text x={ex + (cos >= 0 ? 1 : -1) * 12} y={ey} textAnchor={textAnchor} fill="#333">{`${value} Certs`}</text>
-      <text x={ex + (cos >= 0 ? 1 : -1) * 12} y={ey} dy={18} textAnchor={textAnchor} fill="#999">{`(Rate ${(percent * 100).toFixed(2)}%)`}</text>
+      <text x={ex + (cos >= 0 ? 1 : -1) * 12} y={ey} textAnchor={textAnchor} fill="#333" className="text-sm">{`${value} Certs`}</text>
+      <text x={ex + (cos >= 0 ? 1 : -1) * 12} y={ey} dy={18} textAnchor={textAnchor} fill="#999" className="text-xs">{`(Rate ${(percent * 100).toFixed(2)}%)`}</text>
     </g>
   );
 };
 
 
 function AdminHomePageContent() {
-    const { user, userId } = useAuth();
+    const { user } = useAuth();
     const { toast } = useToast();
 
     const [isLoading, setIsLoading] = useState(true);
@@ -206,12 +207,18 @@ function AdminHomePageContent() {
             setSortDirection('asc');
         }
     };
+    
+    const onPieEnter = useCallback((_: any, index: number) => {
+        setActivePieIndex(index);
+    }, []);
 
     const filteredAndSortedData = useMemo(() => {
         let filtered = dashboardData;
         if (searchTerm) {
             filtered = dashboardData.filter(item =>
-                item.originalName.toLowerCase().includes(searchTerm.toLowerCase())
+                item.originalName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                item.studentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                item.studentEmail.toLowerCase().includes(searchTerm.toLowerCase())
             );
         }
 
@@ -262,12 +269,6 @@ function AdminHomePageContent() {
 
         return { pieChartData, barChartData, lineChartData };
     }, [dashboardData]);
-
-    const totalStudentsWithSearchedCert = useMemo(() => {
-       if(!searchTerm) return 0;
-       const studentIds = new Set(filteredAndSortedData.map(item => item.studentId));
-       return studentIds.size;
-    }, [filteredAndSortedData, searchTerm]);
     
     const totalStudents = useMemo(() => {
        const studentIds = new Set(dashboardData.map(item => item.studentId));
@@ -275,12 +276,14 @@ function AdminHomePageContent() {
     }, [dashboardData]);
 
     const gaugeChartData = useMemo(() => {
-        if (!searchTerm || totalStudents === 0) return [];
+        if (!searchTerm.trim() || totalStudents === 0) return [];
+        const studentIdsWithCert = new Set(filteredAndSortedData.map(item => item.studentId));
+        const numStudentsWithCert = studentIdsWithCert.size;
         return [
-            { name: 'Has Certificate', value: totalStudentsWithSearchedCert },
-            { name: 'Does Not Have', value: totalStudents - totalStudentsWithSearchedCert }
+            { name: 'Has Certificate', value: numStudentsWithCert },
+            { name: 'Does Not Have', value: totalStudents - numStudentsWithCert }
         ];
-    }, [searchTerm, totalStudentsWithSearchedCert, totalStudents]);
+    }, [searchTerm, filteredAndSortedData, totalStudents]);
 
     const handleDownloadZip = async () => {
         if (filteredAndSortedData.length === 0) {
@@ -344,6 +347,15 @@ function AdminHomePageContent() {
         );
     }
 
+    const SortableHeader = ({ sortKey: key, children }: { sortKey: SortKey, children: React.ReactNode }) => (
+        <TableHead onClick={() => handleSort(key)} className="cursor-pointer">
+            <div className="flex items-center">
+                {children}
+                {sortKey === key && (sortDirection === 'asc' ? <ChevronUp className="ml-2 h-4 w-4"/> : <ChevronDown className="ml-2 h-4 w-4"/>)}
+            </div>
+        </TableHead>
+    );
+
     return (
         <div className="container mx-auto p-4 md:p-8 space-y-8">
             <h1 className="text-3xl font-bold font-headline">Admin Analysis Dashboard</h1>
@@ -371,7 +383,7 @@ function AdminHomePageContent() {
                                             dataKey="value"
                                             activeIndex={activePieIndex}
                                             activeShape={renderActiveShape}
-                                            onMouseEnter={(_, index) => setActivePieIndex(index)}
+                                            onMouseEnter={onPieEnter}
                                         >
                                             {chartData.pieChartData.map((entry, index) => (
                                                 <Cell key={`cell-${index}`} fill={`hsl(var(--chart-${(index % 5) + 1}))`} />
@@ -387,7 +399,7 @@ function AdminHomePageContent() {
                             </CardHeader>
                             <CardContent>
                                 <ResponsiveContainer width="100%" height={300}>
-                                    <RechartsBarChart data={barChartData} layout="vertical" margin={{ left: 20, right: 20 }}>
+                                    <RechartsBarChart data={chartData.barChartData} layout="vertical" margin={{ left: 20, right: 20 }}>
                                       <CartesianGrid strokeDasharray="3 3" />
                                       <XAxis type="number" hide />
                                       <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 12 }} />
@@ -426,7 +438,7 @@ function AdminHomePageContent() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                     <Input
-                        placeholder="Search by course name (e.g., 'Introduction to Python')"
+                        placeholder="Search by course name, student name, or email..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
@@ -448,7 +460,7 @@ function AdminHomePageContent() {
                                             </Pie>
                                         </RechartsPieChart>
                                      </ResponsiveContainer>
-                                     <p className="text-center font-bold text-lg -mt-8">{totalStudentsWithSearchedCert} of {totalStudents} students</p>
+                                     <p className="text-center font-bold text-lg -mt-8">{gaugeChartData[0]?.value || 0} of {totalStudents} students</p>
                                      <p className="text-center text-sm text-muted-foreground">have this certificate.</p>
                                 </CardContent>
                             </Card>
@@ -464,17 +476,16 @@ function AdminHomePageContent() {
             </Card>
 
             {searchTerm && (
-                <div>
-                  {/* Desktop Table */}
+                <div className="w-full">
                   <div className="hidden md:block">
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead onClick={() => handleSort('studentName')} className="cursor-pointer"><div className="flex items-center">Name {sortKey === 'studentName' && (sortDirection === 'asc' ? <ArrowUp className="ml-2 h-4 w-4"/> : <ArrowDown className="ml-2 h-4 w-4"/>)}</div></TableHead>
-                            <TableHead onClick={() => handleSort('studentEmail')} className="cursor-pointer"><div className="flex items-center">Email {sortKey === 'studentEmail' && (sortDirection === 'asc' ? <ArrowUp className="ml-2 h-4 w-4"/> : <ArrowDown className="ml-2 h-4 w-4"/>)}</div></TableHead>
+                            <SortableHeader sortKey="studentName">Name</SortableHeader>
+                            <SortableHeader sortKey="studentEmail">Email</SortableHeader>
                             <TableHead>Roll Number</TableHead>
-                            <TableHead onClick={() => handleSort('originalName')} className="cursor-pointer"><div className="flex items-center">Certificate {sortKey === 'originalName' && (sortDirection === 'asc' ? <ArrowUp className="ml-2 h-4 w-4"/> : <ArrowDown className="ml-2 h-4 w-4"/>)}</div></TableHead>
-                            <TableHead onClick={() => handleSort('uploadDate')} className="cursor-pointer"><div className="flex items-center">Uploaded {sortKey === 'uploadDate' && (sortDirection === 'asc' ? <ArrowUp className="ml-2 h-4 w-4"/> : <ArrowDown className="ml-2 h-4 w-4"/>)}</div></TableHead>
+                            <SortableHeader sortKey="originalName">Certificate</SortableHeader>
+                            <SortableHeader sortKey="uploadDate">Uploaded</SortableHeader>
                             <TableHead>Action</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -492,23 +503,24 @@ function AdminHomePageContent() {
                         </TableBody>
                       </Table>
                   </div>
-                  {/* Mobile Card List */}
+
                   <div className="block md:hidden space-y-4">
                         {filteredAndSortedData.map(cert => (
                             <Card key={cert.fileId} className="p-4">
-                                <div className="flex justify-between items-start gap-4">
-                                    <div className="space-y-2 flex-grow">
-                                      <p className="font-bold">{cert.originalName}</p>
-                                      <p className="text-sm"><strong className="text-muted-foreground">Student:</strong> {cert.studentName}</p>
-                                      <p className="text-sm"><strong className="text-muted-foreground">Email:</strong> {cert.studentEmail}</p>
-                                      {cert.studentRollNo && <p className="text-sm"><strong className="text-muted-foreground">Roll No:</strong> {cert.studentRollNo}</p>}
-                                      <p className="text-xs text-muted-foreground">Uploaded: {format(parseISO(cert.uploadDate), 'PPp')}</p>
-                                    </div>
-                                    <Button variant="outline" size="sm" asChild className="shrink-0"><a href={`/api/images/${cert.fileId}`} target="_blank" rel="noopener noreferrer"><View className="mr-2 h-4 w-4"/>View</a></Button>
-                                </div>
+                                <CardTitle className="text-lg mb-2">{cert.originalName}</CardTitle>
+                                <CardContent className="p-0 space-y-2">
+                                    <div className="flex items-center text-sm"><User className="mr-2 h-4 w-4 text-muted-foreground"/><span className="font-medium">{cert.studentName}</span></div>
+                                    <div className="flex items-center text-sm"><Mail className="mr-2 h-4 w-4 text-muted-foreground"/><span className="text-muted-foreground">{cert.studentEmail}</span></div>
+                                    <div className="flex items-center text-sm"><Hash className="mr-2 h-4 w-4 text-muted-foreground"/><span>{cert.studentRollNo || 'N/A'}</span></div>
+                                    <div className="text-xs text-muted-foreground pt-2">Uploaded: {format(parseISO(cert.uploadDate), 'PPp')}</div>
+                                </CardContent>
+                                <CardFooter className="p-0 pt-4">
+                                     <Button variant="outline" size="sm" asChild className="w-full"><a href={`/api/images/${cert.fileId}`} target="_blank" rel="noopener noreferrer"><View className="mr-2 h-4 w-4"/>View Certificate</a></Button>
+                                </CardFooter>
                             </Card>
                         ))}
                   </div>
+
                   {filteredAndSortedData.length === 0 && <p className="text-center text-muted-foreground mt-8">No certificates found matching your search.</p>}
                 </div>
             )}
