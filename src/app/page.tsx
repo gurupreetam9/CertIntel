@@ -356,7 +356,7 @@ function AdminHomePageContent() {
                                     <CardDescription>Click a slice to see details.</CardDescription>
                                 </CardHeader>
                                 <CardContent className="flex justify-center">
-                                    <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[400px] sm:h-[450px]">
+                                    <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[450px]">
                                         <PieChart>
                                             <ChartTooltip content={<ChartTooltipContent hideLabel />} />
                                             <Pie
@@ -385,7 +385,7 @@ function AdminHomePageContent() {
                                      <CardDescription>Daily count of new certificate uploads.</CardDescription>
                                 </CardHeader>
                                 <CardContent>
-                                   <ChartContainer config={lineChartConfig} className="h-[400px] w-full sm:h-[450px]">
+                                   <ChartContainer config={lineChartConfig} className="h-[450px] w-full">
                                         <RechartsLineChart accessibilityLayer data={chartData.lineChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                                           <CartesianGrid strokeDasharray="3 3" />
                                           <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={(val) => format(new Date(val), 'MMM d')} />
@@ -424,6 +424,12 @@ function AdminHomePageContent() {
                                             <PieChart>
                                                 <ChartTooltip content={<ChartTooltipContent indicator="dot" nameKey="name" />} />
                                                 <Pie data={gaugeChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={60} startAngle={180} endAngle={0}>
+                                                  {gaugeChartData.map((entry) => (
+                                                    <Cell
+                                                      key={`cell-${entry.name}`}
+                                                      fill={entry.name === 'has-certificate' ? 'hsl(var(--primary))' : 'hsl(var(--muted))'}
+                                                    />
+                                                  ))}
                                                 </Pie>
                                             </PieChart>
                                          </ChartContainer>
@@ -451,14 +457,14 @@ function AdminHomePageContent() {
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>
-                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentName')} className="p-0 text-foreground hover:bg-transparent hover:text-primary">
+                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentName')} className="p-0 text-foreground bg-transparent hover:bg-transparent hover:text-primary">
                                                 Student Name
                                                 {sortConfig.key === 'studentName' && (sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-4 w-4" /> : <ArrowDown className="ml-2 h-4 w-4" />)}
                                             </Button>
                                         </TableHead>
                                         <TableHead>Email</TableHead>
                                         <TableHead>
-                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentRollNo')} className="p-0 text-foreground hover:bg-transparent hover:text-primary">
+                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentRollNo')} className="p-0 text-foreground bg-transparent hover:bg-transparent hover:text-primary">
                                                 Roll No.
                                                 {sortConfig.key === 'studentRollNo' && (sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-4 w-4" /> : <ArrowDown className="ml-2 h-4 w-4" />)}
                                             </Button>
