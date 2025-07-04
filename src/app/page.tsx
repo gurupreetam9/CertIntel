@@ -491,27 +491,45 @@ function AdminHomePageContent() {
                 {searchTerm ? (
                   <div className="mt-6 space-y-6">
                     {/* Search Analytics Section */}
-                    <div className="grid gap-6 md:grid-cols-2">
+                     <div className="grid gap-6 md:grid-cols-2">
                         <Card>
                             <CardHeader className='pb-2'>
                                 <CardTitle className="text-base font-medium">Certificate Matches</CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-2">
-                                <p className="text-muted-foreground text-sm">
+                                <CardDescription>
                                 Found {filteredData.length} certificates out of {allData.length} total.
-                                </p>
-                                <Progress value={allData.length > 0 ? (filteredData.length / allData.length) * 100 : 0} />
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <ChartContainer config={{ value: { color: "hsl(var(--primary))" } }} className="h-[50px] w-full">
+                                    <BarChart 
+                                        data={[{ name: "A", value: filteredData.length }]}
+                                        margin={{ top: 5, right: 5, left: 5, bottom: 0 }}
+                                    >
+                                        <YAxis hide domain={[0, allData.length > 0 ? allData.length : 1]} />
+                                        <XAxis dataKey="name" hide />
+                                        <Bar dataKey="value" fill="var(--color-value)" radius={[4, 4, 0, 0]} />
+                                    </BarChart>
+                                </ChartContainer>
                             </CardContent>
                         </Card>
                         <Card>
                             <CardHeader className='pb-2'>
                                 <CardTitle className="text-base font-medium">Student Matches</CardTitle>
+                                <CardDescription>
+                                    {new Set(filteredData.map(d => d.studentId)).size} students have certificates matching "{searchTerm}" out of {uniqueStudents.length} total.
+                                </CardDescription>
                             </CardHeader>
-                            <CardContent className="space-y-2">
-                                <p className="text-muted-foreground text-sm">
-                                {new Set(filteredData.map(d => d.studentId)).size} students have certificates matching "{searchTerm}" out of {uniqueStudents.length} total.
-                                </p>
-                                <Progress value={uniqueStudents.length > 0 ? (new Set(filteredData.map(d => d.studentId)).size / uniqueStudents.length) * 100 : 0} />
+                            <CardContent>
+                                <ChartContainer config={{ value: { color: "hsl(var(--primary))" } }} className="h-[50px] w-full">
+                                     <BarChart 
+                                        data={[{ name: "A", value: new Set(filteredData.map(d => d.studentId)).size }]}
+                                        margin={{ top: 5, right: 5, left: 5, bottom: 0 }}
+                                    >
+                                        <YAxis hide domain={[0, uniqueStudents.length > 0 ? uniqueStudents.length : 1]} />
+                                        <XAxis dataKey="name" hide />
+                                        <Bar dataKey="value" fill="var(--color-value)" radius={[4, 4, 0, 0]} />
+                                    </BarChart>
+                                </ChartContainer>
                             </CardContent>
                         </Card>
                     </div>
