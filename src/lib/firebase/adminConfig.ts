@@ -1,6 +1,4 @@
 
-'use server';
-
 import admin from 'firebase-admin';
 
 // Ensure that this file is only processed on the server
