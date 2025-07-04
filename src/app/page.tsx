@@ -186,7 +186,7 @@ function AdminHomePageContent() {
                 label: item.name,
                 color: `hsl(var(--chart-${(index % 5) + 1}))`,
             };
-            return { ...item, key };
+            return { ...item, key, fill: `var(--color-${key})` };
         });
 
         const lineData = Object.entries(completionTrends)
@@ -365,7 +365,7 @@ function AdminHomePageContent() {
                                               {pieChartData.map((entry) => (
                                                 <Cell
                                                   key={`cell-${entry.key}`}
-                                                  fill={`var(--color-${entry.key})`}
+                                                  fill={entry.fill}
                                                   className="focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                                                 />
                                               ))}
@@ -452,13 +452,13 @@ function AdminHomePageContent() {
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>
-                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentName')} className="p-0 bg-transparent hover:bg-transparent text-foreground hover:text-primary">
+                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentName')} className="p-0 hover:bg-transparent text-foreground hover:text-primary">
                                                 Student Name
                                                 {sortConfig.key === 'studentName' && (sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-4 w-4" /> : <ArrowDown className="ml-2 h-4 w-4" />)}
                                             </Button>
                                         </TableHead>
                                         <TableHead>
-                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentRollNo')} className="p-0 bg-transparent hover:bg-transparent text-foreground hover:text-primary">
+                                            <Button variant="ghost" size="sm" onClick={() => requestSort('studentRollNo')} className="p-0 hover:bg-transparent text-foreground hover:text-primary">
                                                 Roll No.
                                                 {sortConfig.key === 'studentRollNo' && (sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-4 w-4" /> : <ArrowDown className="ml-2 h-4 w-4" />)}
                                             </Button>
