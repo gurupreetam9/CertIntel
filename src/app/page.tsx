@@ -574,34 +574,41 @@ function AdminHomePageContent() {
                       </Card>
                     </div>
                     {filteredData.length > 0 ? (
-                        <div className="border rounded-lg overflow-x-auto">
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                    <TableHead>Student</TableHead>
-                                    <TableHead className="hidden sm:table-cell">Email</TableHead>
-                                    <TableHead className="hidden md:table-cell">Roll No</TableHead>
-                                    <TableHead>Certificate</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {filteredData.map((cert) => (
-                                    <TableRow key={cert.fileId}>
-                                        <TableCell className="font-medium p-2 md:p-4">{cert.studentName}</TableCell>
-                                        <TableCell className="hidden sm:table-cell p-2 md:p-4">{cert.studentEmail}</TableCell>
-                                        <TableCell className="hidden md:table-cell p-2 md:p-4">{cert.studentRollNo || 'N/A'}</TableCell>
-                                        <TableCell className="p-2 md:p-4">
-                                        <div className="flex flex-col gap-2 items-start">
-                                            <span className="font-medium">{cert.originalName}</span>
-                                            <Button variant="outline" size="sm" onClick={() => openViewModal(cert)} className="h-8">
-                                                View Certificate
-                                            </Button>
-                                        </div>
-                                        </TableCell>
-                                    </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
+                        <div className="mt-4 space-y-4">
+                          {filteredData.map((cert) => (
+                            <Card key={cert.fileId} className="shadow-sm hover:shadow-md transition-shadow duration-200">
+                              <CardContent className="p-4 flex flex-col sm:flex-row items-start justify-between gap-4">
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-semibold text-primary truncate" title={cert.originalName}>
+                                    {cert.originalName}
+                                  </p>
+                                  <div className="mt-2 text-xs text-muted-foreground space-y-1">
+                                    <p className="flex items-center gap-2">
+                                      <Users className="h-3 w-3" />
+                                      <span className="font-medium">{cert.studentName}</span>
+                                    </p>
+                                    <p className="flex items-center gap-2">
+                                      <span className="font-medium">{cert.studentEmail}</span>
+                                    </p>
+                                    {cert.studentRollNo && (
+                                      <p className="flex items-center gap-2">
+                                        <span className="font-medium">Roll No: {cert.studentRollNo}</span>
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => openViewModal(cert)}
+                                  className="mt-2 sm:mt-0 self-start sm:self-center shrink-0"
+                                >
+                                  <FileTextIcon className="mr-2 h-4 w-4" />
+                                  View Certificate
+                                </Button>
+                              </CardContent>
+                            </Card>
+                          ))}
                         </div>
                     ) : (
                         <p className="text-muted-foreground text-center py-8">No certificates match your search.</p>
