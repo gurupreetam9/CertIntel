@@ -3,7 +3,7 @@
 
 import Image from 'next/image';
 import { Card, CardContent, CardDescription } from '@/components/ui/card';
-import { ImageIcon, Loader2, Eye, Trash2, ExternalLink, Download, FileText, Bot, Sparkles } from 'lucide-react';
+import { ImageIcon, Loader2, Eye, Trash2, ExternalLink, Download, FileText, Bot, Sparkles, Pencil } from 'lucide-react';
 import { useState, useCallback } from 'react';
 import ViewImageModal from './ViewImageModal';
 import {
@@ -16,8 +16,20 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogHeader,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
 
 export interface UserImage {
   fileId: string;
@@ -54,13 +66,24 @@ const blobToDataUri = (blob: Blob): Promise<string> => {
 
 
 export default function ImageGrid({ images, isLoading, error, onImageDeleted, currentUserId }: ImageGridProps) {
+  const { toast } = useToast();
+  const { user, userId: loggedInUserId } = useAuth();
+
   const [selectedImageForView, setSelectedImageForView] = useState<UserImage | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  
   const [imageToDelete, setImageToDelete] = useState<UserImage | null>(null);
   const [isConfirmDeleteDialogOpen, setIsConfirmDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const { toast } = useToast();
+
+  const [imageToEdit, setImageToEdit] = useState<UserImage | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isUpdatingName, setIsUpdatingName] = useState(false);
+  const [newName, setNewName] = useState('');
+  
   const [generatingDescriptionFor, setGeneratingDescriptionFor] = useState<string | null>(null);
+
+  const canEdit = loggedInUserId === currentUserId;
 
   const openViewModal = (image: UserImage) => {
     setSelectedImageForView(image);
@@ -80,6 +103,54 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
   const closeDeleteConfirmDialog = () => {
     setImageToDelete(null);
     setIsConfirmDeleteDialogOpen(false);
+  };
+
+  const openEditModal = (image: UserImage) => {
+    setImageToEdit(image);
+    setNewName(image.originalName);
+    setIsEditModalOpen(true);
+  };
+
+  const closeEditModal = () => {
+    setIsEditModalOpen(false);
+    setImageToEdit(null);
+    setNewName('');
+  };
+
+  const handleUpdateName = async () => {
+    if (!imageToEdit || !newName.trim() || !user) return;
+    setIsUpdatingName(true);
+    try {
+        const idToken = await user.getIdToken();
+        const response = await fetch(`/api/images/${imageToEdit.fileId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${idToken}`,
+            },
+            body: JSON.stringify({ newName: newName.trim() }),
+        });
+
+        const result = await response.json();
+        if (!response.ok) {
+            throw new Error(result.message || 'Failed to update file name.');
+        }
+
+        toast({
+            title: 'Name Updated',
+            description: `"${imageToEdit.originalName}" was renamed to "${newName.trim()}".`,
+        });
+        onImageDeleted();
+        closeEditModal();
+    } catch (err: any) {
+        toast({
+            title: 'Update Failed',
+            description: err.message,
+            variant: 'destructive',
+        });
+    } finally {
+        setIsUpdatingName(false);
+    }
   };
 
   const handleImageLinkOpen = (fileId: string) => {
@@ -229,6 +300,11 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
                 <Button variant="ghost" size="icon" className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white" onClick={(e) => { e.stopPropagation(); openViewModal(image);}} title="View File">
                   <Eye className="h-4 w-4" />
                 </Button>
+                {canEdit && (
+                  <Button variant="ghost" size="icon" className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white" onClick={(e) => { e.stopPropagation(); openEditModal(image);}} title="Edit Name">
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                )}
                 <Button variant="ghost" size="icon" className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white" onClick={(e) => { e.stopPropagation(); handleImageLinkOpen(image.fileId); }} title="Open File in New Tab">
                   <ExternalLink className="h-4 w-4" />
                 </Button>
@@ -259,9 +335,11 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
                         {generatingDescriptionFor === image.fileId ? <Loader2 className="h-4 w-4 animate-spin"/> : <Bot className="h-4 w-4" />}
                     </Button>
                 )}
-                <Button variant="ghost" size="icon" className="h-8 w-8 bg-destructive/70 hover:bg-destructive/90 text-white" onClick={(e) => { e.stopPropagation(); openDeleteConfirmDialog(image);}} title="Delete File">
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                {canEdit && (
+                  <Button variant="ghost" size="icon" className="h-8 w-8 bg-destructive/70 hover:bg-destructive/90 text-white" onClick={(e) => { e.stopPropagation(); openDeleteConfirmDialog(image);}} title="Delete File">
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
               </div>
               <div className="p-3 mt-auto border-t bg-card">
                  <p className="text-sm font-medium truncate text-card-foreground mb-1" title={image.originalName}>{image.originalName}</p>
@@ -278,6 +356,36 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
           onClose={closeViewModal}
           image={selectedImageForView}
         />
+      )}
+
+      {isEditModalOpen && imageToEdit && (
+        <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Edit Certificate Name</DialogTitle>
+                    <DialogDescription>
+                        Enter a new name for the file: &quot;{imageToEdit.originalName}&quot;.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="py-4">
+                    <Label htmlFor="newName">New Name</Label>
+                    <Input
+                        id="newName"
+                        value={newName}
+                        onChange={(e) => setNewName(e.target.value)}
+                        placeholder="Enter new certificate name"
+                        autoFocus
+                    />
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={closeEditModal} disabled={isUpdatingName}>Cancel</Button>
+                    <Button onClick={handleUpdateName} disabled={isUpdatingName || !newName.trim()}>
+                        {isUpdatingName && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Save Changes
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
       )}
 
       {imageToDelete && (

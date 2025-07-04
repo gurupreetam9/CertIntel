@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { ObjectId, MongoError } from 'mongodb';
 import { connectToDb } from '@/lib/mongodb';
+import { getAdminAuth } from '@/lib/firebase/adminConfig';
 
 export async function GET(
   request: NextRequest,
@@ -158,5 +159,88 @@ export async function DELETE(
     const errorPayload = { message, error: error.message };
     console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): Preparing to send error response for DELETE:`, errorPayload);
     return NextResponse.json(errorPayload, { status });
+  }
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { fileId: string } }
+) {
+  const { fileId } = params;
+  const reqId = Math.random().toString(36).substring(2, 9);
+  console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): PATCH request received for fileId: ${fileId}`);
+
+  // Authentication
+  const authorizationHeader = request.headers.get('Authorization');
+  if (!authorizationHeader || !authorizationHeader.startsWith('Bearer ')) {
+    return NextResponse.json({ message: 'Unauthorized: Missing or invalid ID token.' }, { status: 401 });
+  }
+  const idToken = authorizationHeader.split('Bearer ')[1];
+  
+  let decodedToken;
+  try {
+      const adminAuth = getAdminAuth();
+      decodedToken = await adminAuth.verifyIdToken(idToken);
+  } catch (error: any) {
+      console.error(`API Route /api/images/[fileId] PATCH (Req ID: ${reqId}): AUTH FAIL - ID Token verification failed:`, { message: error.message, code: error.code });
+      return NextResponse.json({ message: `Unauthorized: Invalid ID token.`, errorKey: 'INVALID_ID_TOKEN' }, { status: 401 });
+  }
+
+  const userId = decodedToken.uid;
+
+  // Body parsing
+  let body;
+  try {
+    body = await request.json();
+  } catch (e) {
+    return NextResponse.json({ message: 'Invalid request body. Expected JSON.' }, { status: 400 });
+  }
+  
+  const { newName } = body;
+  if (!newName || typeof newName !== 'string' || newName.trim().length === 0) {
+    return NextResponse.json({ message: 'Invalid or missing newName in request body.' }, { status: 400 });
+  }
+
+  // fileId validation
+  if (!fileId || !ObjectId.isValid(fileId)) {
+    return NextResponse.json({ message: 'Invalid fileId.' }, { status: 400 });
+  }
+
+  try {
+    const { db } = await connectToDb();
+    const objectId = new ObjectId(fileId);
+    const filesCollection = db.collection('images.files');
+    
+    // Authorization check
+    const fileMetadata = await filesCollection.findOne({ _id: objectId });
+    if (!fileMetadata) {
+      return NextResponse.json({ message: 'File not found.' }, { status: 404 });
+    }
+    if (fileMetadata.metadata?.userId !== userId) {
+      return NextResponse.json({ message: 'Unauthorized: You do not have permission to edit this file.' }, { status: 403 });
+    }
+
+    // Perform update
+    const updateResult = await filesCollection.updateOne(
+      { _id: objectId },
+      { $set: { 'metadata.originalName': newName.trim(), filename: newName.trim(), 'metadata.updatedAt': new Date().toISOString() } }
+    );
+    
+    if (updateResult.modifiedCount === 0) {
+        if (updateResult.matchedCount === 1) {
+            return NextResponse.json({ message: 'File name is already up to date.' }, { status: 200 });
+        }
+        throw new Error('Failed to update the document in the database.');
+    }
+
+    console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): File ${fileId} updated successfully.`);
+    return NextResponse.json({ message: 'File name updated successfully.' }, { status: 200 });
+
+  } catch (error: any) {
+    console.error(`API Route /api/images/[fileId] (Req ID: ${reqId}): Error updating image for fileId ${fileId}:`, {
+      message: error.message,
+      stack: error.stack?.substring(0, 300),
+    });
+    return NextResponse.json({ message: error.message || 'Error updating image.' }, { status: 500 });
   }
 }
