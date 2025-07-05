@@ -47,15 +47,22 @@ const initiateAccountDeletionFlow = ai.defineFlow(
     deletionTokenStore[token] = { userId, email, expiresAt };
     console.log(`initiateAccountDeletionFlow: Deletion token for ${email} (UID: ${userId}) is ${token}. Stored in memory.`);
 
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
-    if (!baseUrl) {
-      const warningMessage = "Account Deletion Flow Warning: `NEXT_PUBLIC_BASE_URL` environment variable is not set. Defaulting to 'http://localhost:9005'. This link will be incorrect in a deployed environment.";
-      console.warn(warningMessage);
-      if (process.env.NODE_ENV === 'production') {
-        console.error("CRITICAL PRODUCTION ERROR: NEXT_PUBLIC_BASE_URL is not set, which will result in non-functional account deletion links.");
-      }
+    let finalBaseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+
+    // Fallback for Firebase App Hosting, which is a likely deployment environment.
+    if (!finalBaseUrl && process.env.FIREBASE_APP_HOSTING_URL) {
+      finalBaseUrl = `https://${process.env.FIREBASE_APP_HOSTING_URL}`;
+      console.log(`initiateAccountDeletionFlow: Constructed base URL from FIREBASE_APP_HOSTING_URL: ${finalBaseUrl}`);
     }
-    const finalBaseUrl = baseUrl || 'http://localhost:9005';
+
+    // If no base URL could be determined, log a critical error and use localhost as a last resort.
+    if (!finalBaseUrl) {
+      const defaultUrl = 'http://localhost:9005';
+      const errorMessage = `CRITICAL: Could not determine base URL for account deletion link. Neither NEXT_PUBLIC_BASE_URL nor FIREBASE_APP_HOSTING_URL environment variables are set. Defaulting to '${defaultUrl}'. This link will NOT work in a deployed production environment.`;
+      console.error(errorMessage);
+      finalBaseUrl = defaultUrl;
+    }
+
     const deletionUrl = `${finalBaseUrl}/delete-account?token=${token}`;
 
     const emailSubject = 'Account Deletion Confirmation for CertIntel';
