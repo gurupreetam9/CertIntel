@@ -148,7 +148,8 @@ function ProfileSettingsPageContent() {
     }
     setIsDeleting(true);
     try {
-        const result = await initiateAccountDeletion({ email: user.email, userId: user.uid });
+        const baseUrl = window.location.origin;
+        const result = await initiateAccountDeletion({ email: user.email, userId: user.uid, baseUrl });
         if (result.success) {
             toast({
                 title: 'Deletion Email Sent',

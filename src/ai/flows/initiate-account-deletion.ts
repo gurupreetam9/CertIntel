@@ -21,6 +21,7 @@ const deletionTokenStore: Record<string, { userId: string; email: string; expire
 const InitiateAccountDeletionInputSchema = z.object({
   email: z.string().email(),
   userId: z.string(),
+  baseUrl: z.string().url().describe('The base URL of the application, e.g., "https://example.com"'),
 });
 export type InitiateAccountDeletionInput = z.infer<typeof InitiateAccountDeletionInputSchema>;
 
@@ -40,30 +41,15 @@ const initiateAccountDeletionFlow = ai.defineFlow(
     inputSchema: InitiateAccountDeletionInputSchema,
     outputSchema: InitiateAccountDeletionOutputSchema,
   },
-  async ({ email, userId }) => {
+  async ({ email, userId, baseUrl }) => {
     const token = uuidv4();
     const expiresAt = Date.now() + 15 * 60 * 1000; // Token expires in 15 minutes
 
     deletionTokenStore[token] = { userId, email, expiresAt };
     console.log(`initiateAccountDeletionFlow: Deletion token for ${email} (UID: ${userId}) is ${token}. Stored in memory.`);
 
-    let finalBaseUrl = process.env.NEXT_PUBLIC_BASE_URL;
-
-    // Fallback for Firebase App Hosting, which is a likely deployment environment.
-    if (!finalBaseUrl && process.env.FIREBASE_APP_HOSTING_URL) {
-      finalBaseUrl = `https://${process.env.FIREBASE_APP_HOSTING_URL}`;
-      console.log(`initiateAccountDeletionFlow: Constructed base URL from FIREBASE_APP_HOSTING_URL: ${finalBaseUrl}`);
-    }
-
-    // If no base URL could be determined, log a critical error and use localhost as a last resort.
-    if (!finalBaseUrl) {
-      const defaultUrl = 'http://localhost:9005';
-      const errorMessage = `CRITICAL: Could not determine base URL for account deletion link. Neither NEXT_PUBLIC_BASE_URL nor FIREBASE_APP_HOSTING_URL environment variables are set. Defaulting to '${defaultUrl}'. This link will NOT work in a deployed production environment.`;
-      console.error(errorMessage);
-      finalBaseUrl = defaultUrl;
-    }
-
-    const deletionUrl = `${finalBaseUrl}/delete-account?token=${token}`;
+    const deletionUrl = `${baseUrl}/delete-account?token=${token}`;
+    console.log(`initiateAccountDeletionFlow: Using provided base URL to create deletion link: ${deletionUrl}`);
 
     const emailSubject = 'Account Deletion Confirmation for CertIntel';
     const emailText = `We have received a request to delete your CertIntel account. To confirm this action, please click the link below. This link is valid for 15 minutes.\n\n${deletionUrl}\n\nIf you did not request this, you can safely ignore this email.`;
