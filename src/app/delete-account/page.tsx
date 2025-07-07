@@ -102,7 +102,7 @@ function DeleteAccountPageContent() {
               </p>
             </CardContent>
             <CardFooter>
-              <Button onClick={handleConfirmDeletion} variant="destructive" className="w-full">
+              <Button onClick={handleConfirmDeletion} variant="destructive" className="w-full h-auto whitespace-normal py-3">
                 <Trash2 className="mr-2 h-4 w-4" /> I understand, permanently delete my account
               </Button>
             </CardFooter>
