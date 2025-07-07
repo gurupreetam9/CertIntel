@@ -3,7 +3,7 @@
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info, BrainCircuit, RefreshCw, FileImage, FileWarning, Edit } from 'lucide-react';
+import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info, BrainCircuit, RefreshCw, FileText, FileWarning, Edit } from 'lucide-react';
 import Link from 'next/link';
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useToast } from '@/hooks/use-toast';
@@ -14,6 +14,7 @@ import type { UserImage } from '@/components/home/ImageGrid';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import Image from 'next/image';
 
 // --- TypeScript Interfaces ---
 interface LLMSuggestion {
@@ -269,7 +270,7 @@ function AiFeaturePageContent() {
                         <CardHeader>
                             <div className="flex justify-between items-start gap-4">
                                 <CardTitle className="text-xl font-headline text-primary">{courseData.identified_course_name}</CardTitle>
-                                <Button variant="outline" size="sm" onClick={() => handleGetSuggestions([courseData.identified_course_name], [courseData.identified_course_name])} disabled={isGenerating}>
+                                <Button variant="outline" size="sm" onClick={() => { setIsRefreshingCourse(courseData.identified_course_name); handleGetSuggestions([courseData.identified_course_name.replace(' [UNVERIFIED]','')], [courseData.identified_course_name.replace(' [UNVERIFIED]','')]) }} disabled={isGenerating}>
                                     {isGenerating && isRefreshingCourse === courseData.identified_course_name ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <RefreshCw className="mr-2 h-4 w-4"/>}
                                     Refresh
                                 </Button>
@@ -307,17 +308,32 @@ function AiFeaturePageContent() {
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                            {group.images.map(image => (
+                            {group.images.map(image => {
+                              const imageSrc = `/api/images/${image.fileId}`;
+                              const isPdf = image.contentType === 'application/pdf';
+                              return (
                                 <div key={image.fileId} className="relative group">
-                                    <div className="aspect-square relative rounded-md overflow-hidden border shadow-sm">
-                                        <FileImage className="w-full h-full object-contain p-4 text-muted-foreground/50" />
+                                    <div className="aspect-square relative rounded-md overflow-hidden border shadow-sm bg-muted/20 flex items-center justify-center">
+                                      {isPdf ? (
+                                        <FileText className="w-1/2 h-1/2 text-muted-foreground/60" />
+                                      ) : (
+                                        <Image
+                                          src={imageSrc}
+                                          alt={image.originalName || ''}
+                                          fill
+                                          sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, 20vw"
+                                          className="object-contain p-1"
+                                          data-ai-hint="certificate image"
+                                        />
+                                      )}
                                     </div>
                                     <Button size="icon" variant="secondary" className="absolute top-1 right-1 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => openEditModal(image)}>
                                         <Edit className="h-4 w-4" />
                                     </Button>
                                     <p className="text-xs text-center mt-1 truncate" title={image.originalName}>{image.originalName}</p>
                                 </div>
-                            ))}
+                              );
+                            })}
                         </CardContent>
                     </Card>
                 ))}
