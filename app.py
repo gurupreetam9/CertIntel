@@ -181,7 +181,7 @@ def save_manual_course_name():
     
     if not all([user_id, file_id, course_name is not None]):
         return jsonify({"error": "Missing userId, fileId, or courseName"}), 400
-    if not ObjectId.isValid(file_id):
+    if not ObjectId.is_valid(file_id):
         return jsonify({"error": "Invalid fileId format"}), 400
         
     app.logger.info(f"Flask (Req ID: {req_id_manual}): Updating course name for userId: {user_id}, fileId: {file_id}, new courseName: '{course_name}'")
