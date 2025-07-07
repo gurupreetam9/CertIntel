@@ -41,8 +41,8 @@ body {
     --radius: 0.75rem;
 
     /* Chart colors - Using a vibrant, distinct palette */
-    --chart-1: hsl(var(--primary)); /* Gold */
-    --chart-2: hsl(var(--accent));  /* Orange */
+    --chart-1: var(--primary);  /* stores 45 90% 50% */
+    --chart-2: var(--accent);   /* stores 15 90% 50% */    
     --chart-3: 200 80% 55%; /* A nice Blue */
     --chart-4: 120 70% 45%; /* Green */
     --chart-5: 260 80% 65%; /* Purple */

@@ -37,6 +37,7 @@ export interface UserImage {
   uploadDate: string;
   contentType: string;
   originalName: string;
+  courseName?: string;
   dataAiHint?: string;
   size: number;
   userId?: string;
@@ -372,7 +373,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
                 <Button variant="ghost" size="icon" className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white" onClick={(e) => { e.stopPropagation(); handleImageLinkOpen(image.fileId); }} title="Open File in New Tab">
                   <ExternalLink className="h-4 w-4" />
                 </Button>
-                {canEdit && (
+                {canEdit && onImageDeleted && (
                   <Button
                     asChild
                     variant="ghost"
@@ -409,7 +410,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
               </div>
               <div className="p-3 mt-auto border-t bg-card">
                  <p className="text-sm font-medium truncate text-card-foreground mb-1" title={image.originalName}>{image.originalName}</p>
-                 {/* Removed AI description rendering from here */}
+                 {image.courseName && <p className="text-xs text-primary truncate" title={image.courseName}><Sparkles className="inline-block w-3 h-3 mr-1" />{image.courseName}</p>}
               </div>
             </Card>
           );

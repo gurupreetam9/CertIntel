@@ -162,6 +162,7 @@ export async function GET(request: NextRequest) {
       uploadDate: img.uploadDate as string, 
       contentType: img.contentType,
       originalName: img.metadata?.originalName || img.filename,
+      courseName: img.metadata?.courseName,
       dataAiHint: img.metadata?.dataAiHint || '',
       size: img.length || 0,
       userId: img.metadata?.userId,

@@ -109,6 +109,7 @@ function StudentHomePageContent() {
 interface DashboardData {
     fileId: string;
     originalName: string;
+    courseName?: string;
     uploadDate: string;
     studentId: string;
     studentName: string;
@@ -217,7 +218,8 @@ function AdminHomePageContent() {
         const lowercasedFilter = searchTerm.toLowerCase();
         
         const certs = dashboardData.filter(item =>
-            item.originalName.toLowerCase().includes(lowercasedFilter)
+            item.originalName.toLowerCase().includes(lowercasedFilter) ||
+            (item.courseName && item.courseName.toLowerCase().includes(lowercasedFilter))
         );
 
         const sortedData = [...certs].sort((a, b) => {
@@ -252,7 +254,7 @@ function AdminHomePageContent() {
     const { pieChartData, pieChartConfig } = useMemo(() => {
         const courseCounts: { [key: string]: number } = {};
         dashboardData.forEach(cert => {
-            const courseName = cert.originalName?.trim() || 'Unnamed Certificate';
+            const courseName = cert.courseName || cert.originalName?.trim() || 'Unnamed Certificate';
             courseCounts[courseName] = (courseCounts[courseName] || 0) + 1;
         });
         
@@ -304,11 +306,11 @@ function AdminHomePageContent() {
     const gaugeChartConfig = {
         'has-certificate': {
           label: 'Has Certificate',
-          color: 'hsl(var(--chart-1))'
+          color: 'var(--chart-1)'
         },
         'does-not-have': {
           label: 'Does Not Have',
-          color: 'hsl(var(--muted))'
+          color: 'var(--muted)'
         },
     } satisfies ChartConfig;
 
@@ -436,7 +438,7 @@ function AdminHomePageContent() {
                                         <PieChartIcon className="h-5 w-5 shrink-0" />
                                         Top 10 Course Certificate Distribution
                                     </CardTitle>
-                                    <CardDescription>Click a slice to see details.</CardDescription>
+                                    <CardDescription>Shows distribution based on extracted course names. Click a slice for details.</CardDescription>
                                 </CardHeader>
                                 <CardContent className="flex justify-center">
                                     <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[300px] md:h-[450px]">
@@ -453,7 +455,7 @@ function AdminHomePageContent() {
                                                 className="cursor-pointer"
                                             >
                                               {pieChartData.map((entry, index) => (
-                                                  <Cell key={`cell-${index}`} fill={entry.fill} name={pieChartConfig[entry.name]?.label} />
+                                                  <Cell key={`cell-${index}`} fill={entry.fill} name={pieChartConfig[entry.name]?.label || ''} />
                                               ))}
                                             </Pie>
                                         </PieChart>
@@ -488,11 +490,11 @@ function AdminHomePageContent() {
                 <Card>
                     <CardHeader>
                         <CardTitle className="flex items-center"><Search className="mr-2" />Course & Certificate Search</CardTitle>
-                        <CardDescription>Search for a specific course to see which students have uploaded a certificate for it. You can then download the results.</CardDescription>
+                        <CardDescription>Search by original filename or extracted course name to see which students have uploaded a certificate for it.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <Input
-                            placeholder="Search by course name..."
+                            placeholder="Search by course name or filename..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
@@ -554,7 +556,8 @@ function AdminHomePageContent() {
                                             </Button>
                                         </TableHead>
                                         <TableHead>Email</TableHead>
-                                        <TableHead>Certificate</TableHead>
+                                        <TableHead>Certificate (Original Name)</TableHead>
+                                        <TableHead>Extracted Course</TableHead>
                                         <TableHead className="text-right">Action</TableHead>
                                     </TableRow>
                                 </TableHeader>
@@ -565,6 +568,7 @@ function AdminHomePageContent() {
                                             <TableCell>{cert.studentRollNo || 'N/A'}</TableCell>
                                             <TableCell>{cert.studentEmail}</TableCell>
                                             <TableCell>{cert.originalName}</TableCell>
+                                            <TableCell>{cert.courseName || 'N/A'}</TableCell>
                                             <TableCell className="text-right">
                                                  <Button variant="outline" size="sm" onClick={() => handleOpenViewModal(cert)}>
                                                     <View className="mr-2 h-4 w-4" />View

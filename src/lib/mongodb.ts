@@ -92,6 +92,16 @@ export async function connectToDb(): Promise<ConnectionResult> {
     const newDbInstance = newClient.db(DB_NAME_TO_USE);
     console.log(`MongoDB (connectToDb-${connectionId}): Obtained DB instance for "${DB_NAME_TO_USE}".`);
 
+    // Ensure indexes are created for performance
+    try {
+      const filesCollection = newDbInstance.collection('images.files');
+      await filesCollection.createIndex({ 'metadata.courseName': 'text' }, { name: 'courseName_text_index' });
+      await filesCollection.createIndex({ 'metadata.userId': 1 }, { name: 'userId_index' });
+      console.log(`MongoDB (connectToDb-${connectionId}): Ensured indexes on 'images.files' collection.`);
+    } catch (indexError: any) {
+      console.warn(`MongoDB (connectToDb-${connectionId}): Could not create/update indexes. This is not critical for startup but may impact query performance. Error: ${indexError.message}`);
+    }
+
     const newBucketInstance = new GridFSBucket(newDbInstance, { bucketName: 'images' });
     console.log(`MongoDB (connectToDb-${connectionId}): Initialized GridFS bucket "images" on DB "${DB_NAME_TO_USE}".`);
 

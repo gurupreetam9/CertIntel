@@ -72,6 +72,7 @@ export async function GET(request: NextRequest) {
           length: 1,
           'metadata.originalName': 1,
           'metadata.userId': 1,
+          'metadata.courseName': 1,
         }
       }
     ).toArray();
@@ -87,6 +88,7 @@ export async function GET(request: NextRequest) {
         uploadDate: cert.uploadDate,
         contentType: cert.contentType,
         originalName: cert.metadata.originalName || cert.filename,
+        courseName: cert.metadata.courseName,
         size: cert.length || 0,
         // Augmented data
         studentId: studentProfile?.uid,

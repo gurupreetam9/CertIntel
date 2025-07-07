@@ -5,7 +5,7 @@ import os
 import logging
 from pymongo import MongoClient, DESCENDING, UpdateOne
 from bson.objectid import ObjectId
-from gridfs import GridFS  # <--- IMPORT ADDED HERE
+from gridfs import GridFS
 from dotenv import load_dotenv
 from datetime import datetime, timezone
 import json
@@ -18,6 +18,7 @@ from pdf2image.exceptions import (
     PDFSyntaxError,
     PDFPopplerTimeoutError
 )
+from PIL import Image
 
 # --- Initial Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -27,7 +28,8 @@ app_logger.info("Flask app.py: Script execution started.")
 load_dotenv()
 app_logger.info(f"Flask app.py: .env loaded: {'Yes' if os.getenv('MONGODB_URI') else 'No (or MONGODB_URI not set)'}")
 
-from certificate_processor import extract_and_recommend_courses_from_image_data
+# Use specific import for clarity
+from certificate_processor import infer_course_text_from_image_object
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -70,7 +72,99 @@ else: app_logger.info("Flask app.py: POPPLER_PATH not set (pdf2image will try to
 @app.route('/', methods=['GET'])
 def health_check():
     app_logger.info("Flask /: Health check endpoint hit.")
-    return jsonify({"status": "Flask server is running", "message": "Welcome to ImageVerse Flask API!"}), 200
+    return jsonify({"status": "Flask server is running", "message": "Welcome to CertIntel Flask API!"}), 200
+
+@app.route('/api/upload-and-process', methods=['POST'])
+def upload_and_process_file():
+    req_id = datetime.now().strftime('%Y%m%d%H%M%S%f')
+    app.logger.info(f"Flask /api/upload-and-process (Req ID: {req_id}): Received request.")
+    
+    if mongo_client is None or db is None or fs_images is None:
+        return jsonify({"error": "Database connection or GridFS not available."}), 503
+    
+    if 'file' not in request.files:
+        return jsonify({"error": "No 'file' part in the request."}), 400
+    
+    uploaded_file = request.files['file']
+    user_id = request.form.get('userId')
+    original_name = request.form.get('originalName', uploaded_file.filename)
+    
+    if not user_id: return jsonify({"error": "Missing 'userId' in form data."}), 400
+    if not original_name: return jsonify({"error": "No filename or originalName provided."}), 400
+    
+    app.logger.info(f"Flask (Req ID: {req_id}): Processing '{original_name}' for userId '{user_id}'.")
+    
+    try:
+        file_bytes = uploaded_file.read()
+        content_type = uploaded_file.content_type
+        
+        pil_images = []
+        source_is_pdf = False
+        
+        if content_type == 'application/pdf':
+            source_is_pdf = True
+            try:
+                pdfinfo_from_bytes(file_bytes, userpw=None, poppler_path=POPPLER_PATH)
+                pil_images = convert_from_bytes(file_bytes, dpi=200, fmt='png', poppler_path=POPPLER_PATH)
+                app.logger.info(f"Flask (Req ID: {req_id}): PDF '{original_name}' converted to {len(pil_images)} image(s).")
+            except Exception as pdf_err:
+                 app.logger.error(f"Flask (Req ID: {req_id}): PDF conversion failed for '{original_name}': {pdf_err}")
+                 return jsonify({"error": f"Failed to process PDF: {str(pdf_err)}"}), 500
+        elif content_type and content_type.startswith('image/'):
+            pil_images.append(Image.open(io.BytesIO(file_bytes)))
+        else:
+            return jsonify({"error": f"Unsupported file type: {content_type}"}), 415
+
+        results_metadata = []
+        for i, img_pil in enumerate(pil_images):
+            page_number = i + 1
+            
+            extracted_courses, status = infer_course_text_from_image_object(img_pil)
+            course_name = max(extracted_courses, key=len) if extracted_courses else None
+            app.logger.info(f"Flask (Req ID: {req_id}): Page {page_number} of '{original_name}', Extracted Course: {course_name}, Status: {status}")
+
+            img_byte_arr = io.BytesIO()
+            img_pil.save(img_byte_arr, format='PNG')
+            img_byte_arr_val = img_byte_arr.getvalue()
+            
+            final_original_name = f"{original_name} (Page {page_number})" if source_is_pdf and len(pil_images) > 1 else original_name
+            base_secure_name = secure_filename(os.path.splitext(original_name)[0])
+            gridfs_filename = f"{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{base_secure_name}_page_{page_number}.png"
+            
+            metadata_for_gridfs = {
+                "userId": user_id,
+                "originalName": final_original_name,
+                "courseName": course_name,
+                "uploadedAt": datetime.now(timezone.utc).isoformat(),
+                "sourceContentType": content_type,
+                "convertedTo": "image/png" if source_is_pdf else None,
+                "pageNumber": page_number if source_is_pdf else None,
+                "visibility": "public"
+            }
+            metadata_for_gridfs = {k: v for k, v in metadata_for_gridfs.items() if v is not None}
+
+            file_id_obj = fs_images.put(
+                img_byte_arr_val,
+                filename=gridfs_filename,
+                contentType='image/png',
+                metadata=metadata_for_gridfs
+            )
+            app.logger.info(f"Flask (Req ID: {req_id}): Stored page {page_number} with GridFS ID: {str(file_id_obj)}. Metadata: {json.dumps(metadata_for_gridfs)}")
+
+            results_metadata.append({
+                "originalName": final_original_name,
+                "fileId": str(file_id_obj),
+                "filename": gridfs_filename,
+                "contentType": 'image/png',
+                "courseName": course_name,
+                "pageNumber": page_number if source_is_pdf else None,
+            })
+
+        return jsonify(results_metadata), 201
+
+    except Exception as e:
+        app.logger.error(f"Flask (Req ID: {req_id}): Unhandled error in /api/upload-and-process: {str(e)}", exc_info=True)
+        return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
 
 @app.route('/api/manual-course-name', methods=['POST'])
 def save_manual_course_name():
@@ -192,6 +286,7 @@ def process_certificates_from_db():
                  app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): No images for OCR, no existing manual names, and no general manual courses. Returning empty.")
                  return jsonify({"successfully_extracted_courses": [], "failed_extraction_images": [], "processed_image_file_ids": all_image_file_ids_from_frontend}), 200
 
+            from certificate_processor import extract_and_recommend_courses_from_image_data
             ocr_processor_results = extract_and_recommend_courses_from_image_data(
                 image_data_list=images_for_ocr_processing, # Only send candidates
                 mode='ocr_only',
@@ -222,6 +317,7 @@ def process_certificates_from_db():
                     app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Fetched 'user_processed_data' from latest record for cache.")
             except Exception as e: app_logger.error(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Error fetching latest processed data: {e}")
 
+            from certificate_processor import extract_and_recommend_courses_from_image_data
             processing_result_dict = extract_and_recommend_courses_from_image_data(
                 mode='suggestions_only',
                 known_course_names=known_course_names_from_frontend,
@@ -276,73 +372,8 @@ def process_certificates_from_db():
         app_logger.error(f"Flask (Req ID: {req_id_cert}): Error during certificate processing for user {user_id}: {str(e)}", exc_info=True)
         return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
 
-@app.route('/api/convert-pdf-to-images', methods=['POST'])
-def convert_pdf_to_images_route():
-    req_id = datetime.now().strftime('%Y%m%d%H%M%S%f')
-    app.logger.info(f"Flask /api/convert-pdf-to-images (Req ID: {req_id}): Received request.")
-    if mongo_client is None or db is None or fs_images is None: return jsonify({"error": "Database connection or GridFS not available."}), 503
-    if 'pdf_file' not in request.files: return jsonify({"error": "No PDF file part in the request."}), 400
-
-    pdf_file_storage = request.files['pdf_file']
-    user_id = request.form.get('userId')
-    original_pdf_name = request.form.get('originalName', pdf_file_storage.filename)
-
-
-    if not user_id: return jsonify({"error": "Missing 'userId' in form data."}), 400
-    if not original_pdf_name: return jsonify({"error": "No filename or originalName provided for PDF."}), 400
-    app.logger.info(f"Flask (Req ID: {req_id}): Processing PDF '{original_pdf_name}' for userId '{user_id}'.")
-
-    try:
-        pdf_bytes = pdf_file_storage.read()
-        try:
-            app.logger.info(f"Flask (Req ID: {req_id}): Using POPPLER_PATH for pdfinfo: '{POPPLER_PATH if POPPLER_PATH else 'System Default'}'")
-            pdfinfo = pdfinfo_from_bytes(pdf_bytes, userpw=None, poppler_path=POPPLER_PATH)
-            app.logger.info(f"Flask (Req ID: {req_id}): Poppler self-check (pdfinfo) successful. PDF Info: {pdfinfo}")
-        except PDFInfoNotInstalledError: return jsonify({"error": "PDF processing utilities (Poppler/pdfinfo) are not installed or configured correctly on the server."}), 500
-        except PDFPopplerTimeoutError: return jsonify({"error": "Timeout during PDF information retrieval."}), 400
-        except Exception as info_err: return jsonify({"error": f"Failed to retrieve PDF info: {str(info_err)}"}), 500
-
-        images_from_pdf = convert_from_bytes(pdf_bytes, dpi=200, fmt='png', poppler_path=POPPLER_PATH)
-        app.logger.info(f"Flask (Req ID: {req_id}): PDF '{original_pdf_name}' converted to {len(images_from_pdf)} image(s).")
-        converted_files_metadata = []
-
-        for i, image_pil in enumerate(images_from_pdf):
-            page_number = i + 1
-            base_pdf_name_secure = secure_filename(os.path.splitext(original_pdf_name)[0])
-            gridfs_filename = f"{user_id}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}_{base_pdf_name_secure}_page_{page_number}.png"
-            img_byte_arr = io.BytesIO(); image_pil.save(img_byte_arr, format='PNG'); img_byte_arr_val = img_byte_arr.getvalue()
-            metadata_for_gridfs = {
-                "originalName": f"{original_pdf_name} (Page {page_number})", 
-                "userId": user_id, 
-                "uploadedAt": datetime.now(timezone.utc).isoformat(), 
-                "sourceContentType": "application/pdf", 
-                "convertedTo": "image/png", 
-                "pageNumber": page_number, 
-                "reqIdParent": req_id,
-                "visibility": "public" # Default to public
-            }
-            file_id_obj = fs_images.put(img_byte_arr_val, filename=gridfs_filename, contentType='image/png', metadata=metadata_for_gridfs)
-            converted_files_metadata.append({"originalName": metadata_for_gridfs["originalName"], "fileId": str(file_id_obj), "filename": gridfs_filename, "contentType": 'image/png', "pageNumber": page_number})
-            app.logger.info(f"Flask (Req ID: {req_id}): Stored page {page_number} with GridFS ID: {str(file_id_obj)}. Metadata: {json.dumps(metadata_for_gridfs)}")
-
-        app.logger.info(f"Flask (Req ID: {req_id}): Successfully processed and stored {len(converted_files_metadata)} pages for PDF '{original_pdf_name}'.")
-        return jsonify({"message": "PDF converted and pages stored successfully.", "converted_files": converted_files_metadata}), 200
-
-    except PDFPageCountError: return jsonify({"error": "Could not determine page count. PDF may be corrupted or password-protected."}), 400
-    except PDFSyntaxError: return jsonify({"error": "File may be corrupted."}), 400
-    except PDFPopplerTimeoutError: return jsonify({"error": "Timeout during PDF page conversion."}), 400
-    except Exception as e:
-        if "PopplerNotInstalledError" in str(type(e)) or "pdftoppm" in str(e).lower() or "pdfinfo" in str(e).lower(): return jsonify({"error": "PDF processing utilities (Poppler) are not installed/configured correctly (conversion stage)."}), 500
-        return jsonify({"error": f"An unexpected error occurred during PDF processing: {str(e)}"}), 500
-
 if __name__ == '__main__':
     app.logger.info("Flask application starting with __name__ == '__main__'")
     app_logger.info(f"Effective MONGODB_URI configured: {'Yes' if MONGODB_URI else 'No'}")
     app_logger.info(f"Effective MONGODB_DB_NAME: {DB_NAME}")
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)), debug=True)
-
-
-
-    
-
-    
