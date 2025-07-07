@@ -36,7 +36,7 @@ course_keywords = {"course", "certification", "developer", "programming", "bootc
 
 pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
 # --- Constants ---
-COHERE_API_KEY = os.environ["COHERE_API_KEY"]
+COHERE_API_KEY = os.environ.get("COHERE_API_KEY")
 
 if not COHERE_API_KEY:
     logging.warning("COHERE_API_KEY not found in environment variables. LLM fallback will not work.")
@@ -135,24 +135,25 @@ model = None
 def load_model():
     global model
     if model is not None:
-        return model  # Already loaded
+        return model
+
+    # Construct a path relative to the script's location
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    model_path_from_script = os.path.join(script_dir, "models", "best.pt")
 
     try:
-        # Try loading from YOLO_MODEL_PATH
-        if os.path.exists(YOLO_MODEL_PATH):
+        if os.path.exists(model_path_from_script):
+            model = YOLO(model_path_from_script)
+            logging.info(f"Successfully loaded YOLO model from relative path: {model_path_from_script}")
+        elif os.path.exists(YOLO_MODEL_PATH):
+             # Fallback to the hardcoded path if relative path fails
             model = YOLO(YOLO_MODEL_PATH)
-            logging.info(f"Successfully loaded YOLO model from: {YOLO_MODEL_PATH}")
+            logging.info(f"Successfully loaded YOLO model from hardcoded fallback path: {YOLO_MODEL_PATH}")
         else:
-            # Fallback to current script directory if YOLO_MODEL_PATH was a simple filename
-            script_dir_model_path = os.path.join(os.path.dirname(__file__), 'best.pt')
-            if os.path.exists(script_dir_model_path) and YOLO_MODEL_PATH == "best.pt":
-                model = YOLO(script_dir_model_path)
-                logging.info(f"Successfully loaded YOLO model from script directory: {script_dir_model_path}")
-            else:
-                logging.error(f"YOLO model not found at '{YOLO_MODEL_PATH}' or fallback path '{script_dir_model_path}'")
-                raise FileNotFoundError("YOLO model not found.")
+            logging.error(f"YOLO model not found at primary path '{model_path_from_script}' or fallback '{YOLO_MODEL_PATH}'")
+            raise FileNotFoundError("YOLO model not found.")
 
-        model.to("cpu")  # Always enforce CPU usage
+        model.to("cpu")
         return model
 
     except Exception as e:
@@ -185,6 +186,8 @@ Extracted Course Name:"""
         response = co.chat(model="command-r-plus", message=prompt, temperature=0.1)
         extracted_course_name = response.text.strip()
         logging.info(f"LLM course extraction raw response: '{extracted_course_name}'")
+        if "invalid api token" in extracted_course_name.lower():
+            raise Exception(f"Cohere API Error: {extracted_course_name}")
         if extracted_course_name.upper() == "[[NONE]]" or not extracted_course_name:
             logging.info("LLM indicated no course name found in the text.")
             return None
@@ -382,6 +385,8 @@ Suggested Next Courses:
     try:
         response = co.chat(model="command-r-plus", message=prompt, temperature=0.3)
         logging.info(f"Cohere LLM raw response for detailed suggestions (courses: {prompt_course_list_str}) (first 500 chars): {response.text[:500]}...")
+        if "invalid api token" in response.text.lower():
+            raise Exception(f"Cohere API Error: {response.text}")
         return {"text": response.text.strip()}
     except Exception as e:
         logging.error(f"Error querying Cohere LLM for detailed suggestions (courses: {prompt_course_list_str}): {e}")
@@ -477,112 +482,6 @@ def parse_llm_detailed_suggestions_response(llm_response_text: str) -> List[Dict
         logging.info(f"LLM Parser: Parsed for Original Input '{original_input_course_from_llm}', AI Desc: {'Present' if ai_description else 'None'}, Suggestions: {len(current_suggestions)}")
 
     return parsed_results
-
-
-def process_images_for_ocr(image_data_list):
-    accumulated_successful_courses = []
-    processed_image_file_ids = []
-    failed_extraction_images = [] 
-
-    for image_data_item in image_data_list:
-        logging.info(f"--- OCR Phase: Processing image: {image_data_item['original_filename']} (Type: {image_data_item['content_type']}, ID: {image_data_item.get('file_id', 'N/A')}) ---")
-        current_file_id = str(image_data_item.get('file_id', 'N/A'))
-        original_filename_for_failure = image_data_item['original_filename']
-
-        if current_file_id != 'N/A' and current_file_id not in processed_image_file_ids:
-            processed_image_file_ids.append(current_file_id)
-
-        pil_images_to_process_for_file_id = []
-        conversion_or_load_error_for_file_id = False
-        load_conversion_reason = "Unknown image loading/conversion error."
-
-        try:
-            if image_data_item['content_type'] == 'application/pdf':
-                if not os.getenv("POPPLER_PATH") and not shutil.which("pdftoppm"):
-                    load_conversion_reason = "Poppler (PDF tool) not found. Cannot process PDF."
-                    conversion_or_load_error_for_file_id = True
-                else:
-                    pdf_pages = convert_from_bytes(image_data_item['bytes'], dpi=300, poppler_path=os.getenv("POPPLER_PATH"))
-                    if not pdf_pages:
-                        load_conversion_reason = "PDF converted to zero images (possibly empty or corrupt)."
-                        conversion_or_load_error_for_file_id = True
-                    else:
-                        pil_images_to_process_for_file_id.extend(pdf_pages)
-            elif image_data_item['content_type'].startswith('image/'):
-                img_object = Image.open(io.BytesIO(image_data_item['bytes']))
-                pil_images_to_process_for_file_id.append(img_object)
-            else:
-                load_conversion_reason = f"Unsupported content type: {image_data_item['content_type']}"
-                conversion_or_load_error_for_file_id = True
-        except UnidentifiedImageError:
-            load_conversion_reason = "Cannot identify image file. It might be corrupt or not a supported image format."
-            conversion_or_load_error_for_file_id = True
-        except Exception as e:
-            load_conversion_reason = f"Error during image conversion/loading: {str(e)}"
-            if "poppler" in str(e).lower(): load_conversion_reason = f"Poppler (PDF tool) error: {str(e)}"
-            conversion_or_load_error_for_file_id = True
-
-        if conversion_or_load_error_for_file_id:
-            logging.error(f"{load_conversion_reason} for file {original_filename_for_failure}.")
-            if current_file_id != 'N/A' and not any(f['file_id'] == current_file_id for f in failed_extraction_images):
-                failed_extraction_images.append({
-                    "file_id": current_file_id, "original_filename": original_filename_for_failure, "reason": load_conversion_reason
-                })
-            continue 
-
-        if not pil_images_to_process_for_file_id:
-            no_content_reason = "No image content available after loading (e.g., empty PDF or unreadable image)."
-            logging.warning(f"{no_content_reason} for {original_filename_for_failure}.")
-            if current_file_id != 'N/A' and not any(f['file_id'] == current_file_id for f in failed_extraction_images):
-                failed_extraction_images.append({
-                    "file_id": current_file_id, "original_filename": original_filename_for_failure, "reason": no_content_reason
-                })
-            continue 
-
-        any_course_extracted_this_file_id = False
-        best_failure_reason_for_file_id = "FAILURE_NO_COURSE_IDENTIFIED" 
-
-        for i, pil_img in enumerate(pil_images_to_process_for_file_id):
-            page_identifier = f"page {i+1} of " if len(pil_images_to_process_for_file_id) > 1 else ""
-            try:
-                if pil_img.mode not in ['RGB', 'L']: pil_img = pil_img.convert('RGB')
-            except Exception as img_convert_err:
-                logging.warning(f"Could not convert image mode for {page_identifier}{original_filename_for_failure}: {img_convert_err}")
-                page_specific_reason = f"Image mode conversion failed for page {i+1}: {img_convert_err}"
-                best_failure_reason_for_file_id = page_specific_reason
-                continue 
-
-            courses_from_page, page_status_msg = infer_course_text_from_image_object(pil_img)
-            best_failure_reason_for_file_id = page_status_msg 
-
-            if courses_from_page:
-                accumulated_successful_courses.extend(courses_from_page)
-                any_course_extracted_this_file_id = True
-                logging.info(f"Successfully extracted courses from {page_identifier}{original_filename_for_failure} (Status: {page_status_msg}): {courses_from_page}")
-                break 
-            else:
-                logging.info(f"No courses extracted from {page_identifier}{original_filename_for_failure}. Status: {page_status_msg}")
-        
-        if not any_course_extracted_this_file_id:
-            logging.warning(f"Final failure reason for {original_filename_for_failure} (ID: {current_file_id}): {best_failure_reason_for_file_id}")
-            if current_file_id != 'N/A' and not any(f['file_id'] == current_file_id for f in failed_extraction_images):
-                failed_extraction_images.append({
-                    "file_id": current_file_id,
-                    "original_filename": original_filename_for_failure,
-                    "reason": best_failure_reason_for_file_id 
-                })
-
-    final_successful_courses = sorted(list(set(accumulated_successful_courses)))
-    logging.info(f"OCR Phase: Final successfully extracted courses: {final_successful_courses}")
-    logging.info(f"OCR Phase: Failed extraction images count (need manual input): {len(failed_extraction_images)}")
-    if failed_extraction_images: logging.debug(f"OCR Phase: Failed extraction image details: {failed_extraction_images}")
-
-    return {
-        "successfully_extracted_courses": final_successful_courses,
-        "failed_extraction_images": failed_extraction_images,
-        "processed_image_file_ids": list(set(processed_image_file_ids))
-    }
-
 
 def generate_suggestions_from_known_courses(
     all_known_course_names_cleaned: List[str], 
@@ -750,89 +649,53 @@ def generate_suggestions_from_known_courses(
         "llm_error_summary": final_llm_error_summary
     }
 
-
-# Main orchestrator function
-def extract_and_recommend_courses_from_image_data(
-    image_data_list: Optional[List[Dict[str, any]]] = None, 
-    mode: str = 'ocr_only', 
-    known_course_names: Optional[List[str]] = None, 
+# Main function to be called by the API endpoint.
+def get_course_recommendations(
+    known_course_names: Optional[List[str]] = None,
     previous_user_data_list: Optional[List[Dict[str, any]]] = None,
-    additional_manual_courses: Optional[List[str]] = None,
     force_refresh_for_courses: Optional[List[str]] = None
 ):
-    if mode == 'ocr_only':
-        current_additional_manual_courses = additional_manual_courses if isinstance(additional_manual_courses, list) else []
-        current_image_data_list = image_data_list if isinstance(image_data_list, list) else []
+    """
+    This is the main entry point for getting course suggestions.
+    It takes a list of known course names and returns AI-powered suggestions.
+    """
+    consolidated_raw_names: List[str] = []
+    if isinstance(known_course_names, list):
+        consolidated_raw_names.extend(known_course_names)
 
-        if not current_image_data_list and not current_additional_manual_courses:
-            logging.info("OCR Phase: No images and no general manual courses provided.")
-            return {
-                "successfully_extracted_courses": [], 
-                "failed_extraction_images": [],
-                "processed_image_file_ids": [] 
-            }
-        
-        ocr_results = process_images_for_ocr(current_image_data_list)
-        
-        current_successful_courses = ocr_results.get("successfully_extracted_courses", [])
-        if current_additional_manual_courses:
-            for manual_course in current_additional_manual_courses:
-                clean_manual_course = manual_course.strip() 
-                verified_manual_courses = filter_and_verify_course_text(clean_manual_course)
-                for vmc in verified_manual_courses:
-                    if vmc not in current_successful_courses:
-                        current_successful_courses.append(vmc)
-            ocr_results["successfully_extracted_courses"] = sorted(list(set(current_successful_courses)))
+    unique_raw_names = sorted(list(set(filter(None, consolidated_raw_names))))
 
-        logging.info(f"OCR Phase complete. Successfully extracted: {len(ocr_results.get('successfully_extracted_courses',[]))}, Failed images (need manual input): {len(ocr_results.get('failed_extraction_images',[]))}")
-        return ocr_results
+    cleaned_names_for_llm_query: List[str] = []
+    cleaned_to_original_map: Dict[str, str] = {}
 
-    elif mode == 'suggestions_only':
-        consolidated_raw_names: List[str] = []
-        if isinstance(known_course_names, list):
-            consolidated_raw_names.extend(known_course_names)
-        if isinstance(additional_manual_courses, list): 
-            consolidated_raw_names.extend(additional_manual_courses)
-        
-        unique_raw_names = sorted(list(set(filter(None, consolidated_raw_names))))
+    for raw_name in unique_raw_names:
+        cleaned_name = raw_name.replace(" [UNVERIFIED]", "").replace("¢", "").strip()
+        if cleaned_name:
+            if cleaned_name not in cleaned_to_original_map:
+                cleaned_names_for_llm_query.append(cleaned_name)
+                cleaned_to_original_map[cleaned_name] = raw_name
+        elif raw_name:
+            logging.warning(f"Suggestions Phase Init: Raw course name '{raw_name}' became empty after cleaning. It will be skipped for LLM suggestions.")
 
-        cleaned_names_for_llm_query: List[str] = []
-        cleaned_to_original_map: Dict[str, str] = {} 
+    if not cleaned_names_for_llm_query:
+        logging.warning("Suggestions Phase: No valid course names remaining after cleaning for suggestion generation.")
+        return {
+            "user_processed_data": [],
+            "llm_error_summary": "No course names provided for suggestion generation (after cleaning)."
+        }
 
-        for raw_name in unique_raw_names:
-            cleaned_name = raw_name.replace(" [UNVERIFIED]", "").replace("¢", "").strip()
-            if cleaned_name: 
-                if cleaned_name not in cleaned_to_original_map: 
-                    cleaned_names_for_llm_query.append(cleaned_name)
-                    cleaned_to_original_map[cleaned_name] = raw_name 
-            elif raw_name: 
-                 logging.warning(f"Suggestions Phase Init: Raw course name '{raw_name}' became empty after cleaning. It will be skipped for LLM suggestions.")
-        
-        # Use cleaned_for_llm here, which was previously named cleaned_names_for_llm_query
-        if not cleaned_names_for_llm_query:
-            logging.warning("Suggestions Phase: No valid course names remaining after cleaning for suggestion generation.")
-            return {
-                "user_processed_data": [], 
-                "llm_error_summary": "No course names provided for suggestion generation (after cleaning)."
-            }
-        
-        logging.info(f"Suggestions Phase: Generating suggestions for {len(cleaned_names_for_llm_query)} cleaned known courses (will map to originals): {cleaned_names_for_llm_query}")
-        
-        current_previous_user_data_list = previous_user_data_list if isinstance(previous_user_data_list, list) else None
-        
-        suggestion_results = generate_suggestions_from_known_courses(
-            all_known_course_names_cleaned=cleaned_names_for_llm_query, # Corrected variable
-            cleaned_to_original_map=cleaned_to_original_map, 
-            previous_user_data_list=current_previous_user_data_list,
-            force_refresh_for_courses=force_refresh_for_courses
-        )
-        logging.info(f"Suggestions Phase complete. Processed data items: {len(suggestion_results.get('user_processed_data',[]))}, LLM summary: {suggestion_results.get('llm_error_summary')}")
-        return suggestion_results
+    logging.info(f"Suggestions Phase: Generating suggestions for {len(cleaned_names_for_llm_query)} cleaned known courses (will map to originals): {cleaned_names_for_llm_query}")
 
-    else:
-        logging.error(f"Invalid mode specified: {mode}")
-        return {"error": f"Invalid processing mode: {mode}"}
+    current_previous_user_data_list = previous_user_data_list if isinstance(previous_user_data_list, list) else None
 
+    suggestion_results = generate_suggestions_from_known_courses(
+        all_known_course_names_cleaned=cleaned_names_for_llm_query,
+        cleaned_to_original_map=cleaned_to_original_map,
+        previous_user_data_list=current_previous_user_data_list,
+        force_refresh_for_courses=force_refresh_for_courses
+    )
+    logging.info(f"Suggestions Phase complete. Processed data items: {len(suggestion_results.get('user_processed_data',[]))}, LLM summary: {suggestion_results.get('llm_error_summary')}")
+    return suggestion_results
 
 # --- Main (for local testing) ---
 if __name__ == "__main__":
@@ -878,45 +741,26 @@ if __name__ == "__main__":
     except Exception as e:
         logging.error(f"Could not create test images: {e}")
 
-    print("\n--- Testing OCR Only Mode (with LLM fallback) ---")
-    test_img_data = []
-    if os.path.exists(blank_image_path):
-        with open(blank_image_path, "rb") as f: img_bytes = f.read()
-        test_img_data.append({
-            "bytes": img_bytes, "original_filename": "blank_image.png", 
-            "content_type": "image/png", "file_id": "blank_id_1"
-        })
+    print("\n--- Testing Course Name Extraction (from infer_course_text_from_image_object) ---")
     
     if os.path.exists(python_cert_path):
-       with open(python_cert_path, "rb") as f: py_bytes = f.read()
-       test_img_data.append({"bytes": py_bytes, "original_filename": "python_cert_mock.png", "content_type": "image/png", "file_id": "python_mock_id_1"})
+       with Image.open(python_cert_path) as py_img_obj:
+            extracted_courses, status = infer_course_text_from_image_object(py_img_obj)
+            print(f"Extraction from mock Python cert: {extracted_courses} (Status: {status})")
     else:
-        logging.warning(f"Mock Python certificate '{python_cert_path}' not found. Test may be less effective.")
+        logging.warning(f"Mock Python certificate '{python_cert_path}' not found. Extraction test skipped.")
 
-    ocr_results = extract_and_recommend_courses_from_image_data(
-        image_data_list=test_img_data,
-        mode='ocr_only',
-        additional_manual_courses=["Manual Test Course 1", "Problematic Course ¢ Name [UNVERIFIED]"] 
-    )
-    print("OCR Results (Local Test with LLM fallback):")
-    print(json.dumps(ocr_results, indent=2))
+    if os.path.exists(blank_image_path):
+       with Image.open(blank_image_path) as blank_img_obj:
+            extracted_courses_blank, status_blank = infer_course_text_from_image_object(blank_img_obj)
+            print(f"Extraction from blank image: {extracted_courses_blank} (Status: {status_blank})")
+    else:
+        logging.warning(f"Blank test image '{blank_image_path}' not found. Extraction test skipped.")
 
-    print("\n--- Testing Suggestions Only Mode (using results from OCR or mocked) ---")
-    known_courses_for_suggestions = ocr_results.get("successfully_extracted_courses", [])
-    if not known_courses_for_suggestions: 
-        known_courses_for_suggestions.append("Python Programming [UNVERIFIED]") 
-        known_courses_for_suggestions.append("A completely fake course for testing failure")
-        
-    if not any("Python" in s.lower() for s in known_courses_for_suggestions): 
-        known_courses_for_suggestions.append("Python Programming") 
-    if not any("Manual Test Course 1" in s for s in known_courses_for_suggestions): 
-         known_courses_for_suggestions.append("Manual Test Course 1") 
+
+    print("\n--- Testing Suggestions Only Mode (using mocked course names) ---")
+    known_courses_for_suggestions = ["Python Programming [UNVERIFIED]", "Typescript"]
     
-    known_courses_for_suggestions.append("Internet Of Things(Iot With Cloud) ¢ [UNVERIFIED]")
-    known_courses_for_suggestions.append("Super Specific Niche Course That LLMs Wont Know") 
-    known_courses_for_suggestions.append("Typescript") # Add Typescript for testing
-
-
     mock_previous_run_data = [
         {
             "identified_course_name": "Python Programming", 
@@ -929,10 +773,8 @@ if __name__ == "__main__":
             "processed_by": "Cache"
         }
     ]
-    
 
-    suggestion_results = extract_and_recommend_courses_from_image_data(
-        mode='suggestions_only',
+    suggestion_results = get_course_recommendations(
         known_course_names=known_courses_for_suggestions, 
         previous_user_data_list=mock_previous_run_data,
         force_refresh_for_courses=["Python Programming"] # Test force refresh
@@ -948,6 +790,5 @@ if __name__ == "__main__":
         logging.warning("Local test: YOLO model ('best.pt') could not be loaded. OCR functionality will be limited.")
     if not TESSERACT_PATH:
          logging.warning("Local test: Tesseract executable not found. OCR will fail.")
-
     
-
+    
