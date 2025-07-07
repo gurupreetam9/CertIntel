@@ -29,7 +29,7 @@ load_dotenv()
 app_logger.info(f"Flask app.py: .env loaded: {'Yes' if os.getenv('MONGODB_URI') else 'No (or MONGODB_URI not set)'}")
 
 # Use specific import for clarity
-from certificate_processor import infer_course_text_from_image_object
+from certificate_processor import infer_course_text_from_image_object, get_course_recommendations
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -230,142 +230,76 @@ def process_certificates_from_db():
 
     data = request.get_json()
     user_id = data.get("userId")
-    processing_mode = data.get("mode", "ocr_only")
-    additional_manual_courses_general = data.get("additionalManualCourses", [])
+    processing_mode = data.get("mode", "suggestions_only") # Default to suggestions
     known_course_names_from_frontend = data.get("knownCourseNames", [])
-    all_image_file_ids_from_frontend = data.get("allImageFileIds", []) # New for OCR mode
-    force_refresh_for_courses = data.get("forceRefreshForCourses", []) # New for suggestions mode
+    force_refresh_for_courses = data.get("forceRefreshForCourses", [])
     associated_image_file_ids_from_previous_run = data.get("associated_image_file_ids_from_previous_run", None)
-
 
     if not user_id: return jsonify({"error": "User ID (userId) not provided"}), 400
     app_logger.info(f"Flask (Req ID: {req_id_cert}): Processing for userId: '{user_id}', Mode: {processing_mode}.")
-    app_logger.info(f"Flask (Req ID: {req_id_cert}): General Manual Courses: {additional_manual_courses_general}, AllImageFileIDs: {all_image_file_ids_from_frontend}, ForceRefresh: {force_refresh_for_courses}")
-
+    
     try:
-        processing_result_dict = {}
-
-        if processing_mode == 'ocr_only':
-            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): User has {len(all_image_file_ids_from_frontend)} total images from frontend.")
-            images_for_ocr_processing = []
-            already_named_courses = []
-
-            # Get all manually named courses for this user
-            manual_names_cursor = manual_course_names_collection.find({"userId": user_id, "fileId": {"$in": all_image_file_ids_from_frontend}})
-            manual_names_map = {item["fileId"]: item["courseName"] for item in manual_names_cursor}
-            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Found {len(manual_names_map)} relevant manual names for user {user_id}.")
-
-            for file_id_str in all_image_file_ids_from_frontend:
-                if file_id_str in manual_names_map:
-                    already_named_courses.append(manual_names_map[file_id_str])
-                    app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): FileId {file_id_str} has manual name '{manual_names_map[file_id_str]}'. Skipping OCR, adding to successes.")
-                else:
-                    try:
-                        file_doc = db.images.files.find_one({"_id": ObjectId(file_id_str), "metadata.userId": user_id})
-                        if file_doc:
-                            grid_out = fs_images.get(ObjectId(file_id_str))
-                            image_bytes = grid_out.read()
-                            grid_out.close()
-                            effective_content_type = file_doc.get("metadata", {}).get("sourceContentType", file_doc.get("contentType", "application/octet-stream"))
-                            if file_doc.get("metadata", {}).get("convertedTo"):
-                                effective_content_type = file_doc.get("metadata", {}).get("convertedTo")
-
-                            images_for_ocr_processing.append({
-                                "bytes": image_bytes,
-                                "original_filename": file_doc.get("metadata", {}).get("originalName", file_doc["filename"]),
-                                "content_type": effective_content_type,
-                                "file_id": file_id_str
-                            })
-                            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): FileId {file_id_str} needs OCR. Added to processing list.")
-                        else:
-                            app_logger.warning(f"Flask (Req ID: {req_id_cert}, OCR_MODE): FileId {file_id_str} not found in GridFS for user or GridFS doc missing metadata. Skipping.")
-                    except Exception as e_gridfs:
-                        app_logger.error(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Error fetching GridFS file {file_id_str}: {e_gridfs}")
-
-            if not images_for_ocr_processing and not already_named_courses and not additional_manual_courses_general:
-                 app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): No images for OCR, no existing manual names, and no general manual courses. Returning empty.")
-                 return jsonify({"successfully_extracted_courses": [], "failed_extraction_images": [], "processed_image_file_ids": all_image_file_ids_from_frontend}), 200
-
-            from certificate_processor import extract_and_recommend_courses_from_image_data
-            ocr_processor_results = extract_and_recommend_courses_from_image_data(
-                image_data_list=images_for_ocr_processing, # Only send candidates
-                mode='ocr_only',
-                additional_manual_courses=[] # General manual courses are handled after processor
-            )
-            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): OCR processor returned. Newly extracted: {len(ocr_processor_results.get('successfully_extracted_courses',[]))}, Newly failed: {len(ocr_processor_results.get('failed_extraction_images',[]))}")
-
-            # Combine results
-            final_successful_courses = list(set(already_named_courses + ocr_processor_results.get("successfully_extracted_courses", []) + additional_manual_courses_general))
-
-            processing_result_dict = {
-                "successfully_extracted_courses": sorted(final_successful_courses),
-                "failed_extraction_images": ocr_processor_results.get("failed_extraction_images", []), # These are images that genuinely failed OCR and didn't have a manual name
-                "processed_image_file_ids": all_image_file_ids_from_frontend # Reflects all images client considered
-            }
-            app_logger.info(f"Flask (Req ID: {req_id_cert}, OCR_MODE): Final OCR results - Success: {len(final_successful_courses)}, Failures to prompt: {len(processing_result_dict['failed_extraction_images'])}.")
-
-        elif processing_mode == 'suggestions_only':
-            if not known_course_names_from_frontend:
-                return jsonify({"user_processed_data": [], "llm_error_summary": "No course names provided for suggestion generation."}), 200
-
-            latest_previous_user_data_list = []
-            latest_cached_record = None
-            try:
-                latest_cached_record = user_course_processing_collection.find_one({"userId": user_id}, sort=[("processedAt", DESCENDING)])
-                if latest_cached_record and "user_processed_data" in latest_cached_record:
-                    latest_previous_user_data_list = latest_cached_record["user_processed_data"]
-                    app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Fetched 'user_processed_data' from latest record for cache.")
-            except Exception as e: app_logger.error(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Error fetching latest processed data: {e}")
-
-            from certificate_processor import extract_and_recommend_courses_from_image_data
-            processing_result_dict = extract_and_recommend_courses_from_image_data(
-                mode='suggestions_only',
-                known_course_names=known_course_names_from_frontend,
-                previous_user_data_list=latest_previous_user_data_list,
-                force_refresh_for_courses=force_refresh_for_courses # Pass this to processor
-            )
-            app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Suggestion processing complete.")
-
-            current_processed_data_for_db = processing_result_dict.get("user_processed_data", [])
-            should_store_new_result = True
-
-            # Determine associated_image_file_ids for storage
-            final_associated_ids_for_db = []
-            if associated_image_file_ids_from_previous_run is not None: # If client sent it (meaning OCR just ran or loading from cache)
-                 final_associated_ids_for_db = associated_image_file_ids_from_previous_run
-            elif latest_cached_record and "associated_image_file_ids" in latest_cached_record: # Fallback to latest db record's IDs
-                 final_associated_ids_for_db = latest_cached_record["associated_image_file_ids"]
-            else: # Absolute fallback: all current user images (less accurate for suggestion context)
-                 final_associated_ids_for_db = [str(doc["_id"]) for doc in db.images.files.find({"metadata.userId": user_id}, projection={"_id": 1})]
-
-            processing_result_dict["associated_image_file_ids"] = final_associated_ids_for_db # Ensure this is in the response
-
-
-            if latest_previous_user_data_list and not force_refresh_for_courses: # Only compare if not forcing refresh
-                prev_course_names = set(item['identified_course_name'] for item in latest_previous_user_data_list)
-                curr_course_names = set(item['identified_course_name'] for item in current_processed_data_for_db)
-                if prev_course_names == curr_course_names:
-                    prev_sug_counts = sum(len(item.get('llm_suggestions', [])) for item in latest_previous_user_data_list)
-                    curr_sug_counts = sum(len(item.get('llm_suggestions', [])) for item in current_processed_data_for_db)
-                    if abs(prev_sug_counts - curr_sug_counts) <= len(curr_course_names): should_store_new_result = False
-
-            if should_store_new_result and current_processed_data_for_db:
-                try:
-                    data_to_store_in_db = {
-                        "userId": user_id, "processedAt": datetime.now(timezone.utc),
-                        "user_processed_data": current_processed_data_for_db,
-                        "associated_image_file_ids": final_associated_ids_for_db,
-                        "llm_error_summary_at_processing": processing_result_dict.get("llm_error_summary")
-                    }
-                    insert_result = user_course_processing_collection.insert_one(data_to_store_in_db)
-                    app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Stored new structured processing result. ID: {insert_result.inserted_id}")
-                except Exception as e: app_logger.error(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Error storing new structured result: {e}")
-            elif not current_processed_data_for_db: app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): No user processed data generated, nothing to store.")
-            else: app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Result not stored (similar to previous or forced refresh).")
-        else:
-            app_logger.error(f"Flask (Req ID: {req_id_cert}): Invalid processing_mode '{processing_mode}'.")
+        if processing_mode != 'suggestions_only':
+            app_logger.error(f"Flask (Req ID: {req_id_cert}): Invalid processing_mode '{processing_mode}'. Only 'suggestions_only' is supported.")
             return jsonify({"error": f"Invalid processing mode: {processing_mode}"}), 400
 
+        if not known_course_names_from_frontend:
+            return jsonify({"user_processed_data": [], "llm_error_summary": "No course names provided for suggestion generation."}), 200
+
+        latest_previous_user_data_list = []
+        latest_cached_record = None
+        try:
+            latest_cached_record = user_course_processing_collection.find_one({"userId": user_id}, sort=[("processedAt", DESCENDING)])
+            if latest_cached_record and "user_processed_data" in latest_cached_record:
+                latest_previous_user_data_list = latest_cached_record["user_processed_data"]
+                app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Fetched 'user_processed_data' from latest record for cache.")
+        except Exception as e: app_logger.error(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Error fetching latest processed data: {e}")
+
+        
+        processing_result_dict = get_course_recommendations(
+            known_course_names=known_course_names_from_frontend,
+            previous_user_data_list=latest_previous_user_data_list,
+            force_refresh_for_courses=force_refresh_for_courses
+        )
+        app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Suggestion processing complete.")
+
+        current_processed_data_for_db = processing_result_dict.get("user_processed_data", [])
+        should_store_new_result = True
+
+        # Determine associated_image_file_ids for storage
+        final_associated_ids_for_db = []
+        if associated_image_file_ids_from_previous_run is not None:
+             final_associated_ids_for_db = associated_image_file_ids_from_previous_run
+        elif latest_cached_record and "associated_image_file_ids" in latest_cached_record:
+             final_associated_ids_for_db = latest_cached_record["associated_image_file_ids"]
+        else:
+             final_associated_ids_for_db = [str(doc["_id"]) for doc in db.images.files.find({"metadata.userId": user_id}, projection={"_id": 1})]
+
+        processing_result_dict["associated_image_file_ids"] = final_associated_ids_for_db
+
+
+        if latest_previous_user_data_list and not force_refresh_for_courses:
+            prev_course_names = set(item['identified_course_name'] for item in latest_previous_user_data_list)
+            curr_course_names = set(item['identified_course_name'] for item in current_processed_data_for_db)
+            if prev_course_names == curr_course_names:
+                prev_sug_counts = sum(len(item.get('llm_suggestions', [])) for item in latest_previous_user_data_list)
+                curr_sug_counts = sum(len(item.get('llm_suggestions', [])) for item in current_processed_data_for_db)
+                if abs(prev_sug_counts - curr_sug_counts) <= len(curr_course_names): should_store_new_result = False
+
+        if should_store_new_result and current_processed_data_for_db:
+            try:
+                data_to_store_in_db = {
+                    "userId": user_id, "processedAt": datetime.now(timezone.utc),
+                    "user_processed_data": current_processed_data_for_db,
+                    "associated_image_file_ids": final_associated_ids_for_db,
+                    "llm_error_summary_at_processing": processing_result_dict.get("llm_error_summary")
+                }
+                insert_result = user_course_processing_collection.insert_one(data_to_store_in_db)
+                app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Stored new structured processing result. ID: {insert_result.inserted_id}")
+            except Exception as e: app_logger.error(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Error storing new structured result: {e}")
+        elif not current_processed_data_for_db: app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): No user processed data generated, nothing to store.")
+        else: app_logger.info(f"Flask (Req ID: {req_id_cert}, SUGGEST_MODE): Result not stored (similar to previous or forced refresh).")
+        
         return jsonify(processing_result_dict)
 
     except Exception as e:
@@ -377,3 +311,5 @@ if __name__ == '__main__':
     app_logger.info(f"Effective MONGODB_URI configured: {'Yes' if MONGODB_URI else 'No'}")
     app_logger.info(f"Effective MONGODB_DB_NAME: {DB_NAME}")
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)), debug=True)
+
+    
