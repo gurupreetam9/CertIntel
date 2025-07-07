@@ -253,8 +253,10 @@ function AdminHomePageContent() {
 
     const { pieChartData, pieChartConfig } = useMemo(() => {
         const courseCounts: { [key: string]: number } = {};
-        dashboardData.forEach(cert => {
-            const courseName = cert.courseName || cert.originalName?.trim() || 'Unnamed Certificate';
+        dashboardData
+          .filter(cert => cert.courseName && cert.courseName.trim() !== '') // Filter for non-empty course names
+          .forEach(cert => {
+            const courseName = cert.courseName!; // We now know this is a valid string
             courseCounts[courseName] = (courseCounts[courseName] || 0) + 1;
         });
         
@@ -438,7 +440,7 @@ function AdminHomePageContent() {
                                         <PieChartIcon className="h-5 w-5 shrink-0" />
                                         Top 10 Course Certificate Distribution
                                     </CardTitle>
-                                    <CardDescription>Shows distribution based on extracted course names. Click a slice for details.</CardDescription>
+                                    <CardDescription>Shows the top 10 most frequent courses based on extracted certificate names. Click a slice for details.</CardDescription>
                                 </CardHeader>
                                 <CardContent className="flex justify-center">
                                     <ChartContainer config={pieChartConfig} className="mx-auto aspect-square h-[300px] md:h-[450px]">
