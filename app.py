@@ -168,28 +168,42 @@ def upload_and_process_file():
 
 @app.route('/api/manual-course-name', methods=['POST'])
 def save_manual_course_name():
-    req_id_manual_name = datetime.now().strftime('%Y%m%d%H%M%S%f')
-    app_logger.info(f"Flask /api/manual-course-name (Req ID: {req_id_manual_name}): Received request.")
-    missing_components = [name for name, comp in {"mongo_client": mongo_client, "db_instance": db, "manual_course_names_collection": manual_course_names_collection}.items() if comp is None]
-    if missing_components: return jsonify({"error": f"Database component(s) not available: {', '.join(missing_components)}.", "errorKey": "DB_COMPONENT_UNAVAILABLE"}), 503
+    req_id_manual = datetime.now().strftime('%Y%m%d%H%M%S%f')
+    app.logger.info(f"Flask /api/manual-course-name (Req ID: {req_id_manual}): Received request.")
+    
+    if db is None:
+        return jsonify({"error": "Database connection not available."}), 503
 
     data = request.get_json()
-    user_id, file_id, course_name = data.get("userId"), data.get("fileId"), data.get("courseName")
-    if not all([user_id, file_id, course_name]): return jsonify({"error": "Missing userId, fileId, or courseName"}), 400
-    app_logger.info(f"Flask (Req ID: {req_id_manual_name}): Saving manual name for userId: {user_id}, fileId: {file_id}, courseName: '{course_name}'")
+    user_id = data.get("userId")
+    file_id = data.get("fileId")
+    course_name = data.get("courseName")
+    
+    if not all([user_id, file_id, course_name is not None]):
+        return jsonify({"error": "Missing userId, fileId, or courseName"}), 400
+    if not ObjectId.isValid(file_id):
+        return jsonify({"error": "Invalid fileId format"}), 400
+        
+    app.logger.info(f"Flask (Req ID: {req_id_manual}): Updating course name for userId: {user_id}, fileId: {file_id}, new courseName: '{course_name}'")
+    
     try:
-        update_result = manual_course_names_collection.update_one(
-            {"userId": user_id, "fileId": file_id},
-            {"$set": {"courseName": course_name, "updatedAt": datetime.now(timezone.utc)}, "$setOnInsert": {"createdAt": datetime.now(timezone.utc)}},
-            upsert=True
+        files_collection = db.images.files
+        update_result = files_collection.update_one(
+            {"_id": ObjectId(file_id), "metadata.userId": user_id},
+            {"$set": {"metadata.courseName": course_name.strip()}}
         )
-        if update_result.upserted_id: app_logger.info(f"Flask (Req ID: {req_id_manual_name}): Inserted new manual course name. ID: {update_result.upserted_id}")
-        elif update_result.modified_count > 0: app_logger.info(f"Flask (Req ID: {req_id_manual_name}): Updated existing manual course name.")
-        else: app_logger.info(f"Flask (Req ID: {req_id_manual_name}): Manual course name was already up-to-date. Matched: {update_result.matched_count}")
-        return jsonify({"success": True, "message": "Manual course name saved."}), 200
+        
+        if update_result.matched_count == 0:
+            app.logger.warning(f"Flask (Req ID: {req_id_manual}): File not found or permission denied for fileId {file_id} and userId {user_id}")
+            return jsonify({"error": "File not found or you do not have permission to edit it."}), 404
+            
+        app.logger.info(f"Flask (Req ID: {req_id_manual}): Successfully updated course name for fileId {file_id}. Modified count: {update_result.modified_count}")
+        return jsonify({"success": True, "message": "Course name updated."}), 200
+        
     except Exception as e:
-        app_logger.error(f"Flask (Req ID: {req_id_manual_name}): Error saving manual course name for userId {user_id}, fileId {file_id}: {str(e)}", exc_info=True)
-        return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
+        app.logger.error(f"Flask (Req ID: {req_id_manual}): Error updating course name for fileId {file_id}: {str(e)}", exc_info=True)
+        return jsonify({"error": "An unexpected server error occurred."}), 500
+
 
 @app.route('/api/latest-processed-results', methods=['GET'])
 def get_latest_processed_results():
