@@ -15,13 +15,7 @@ import {
 } from '@/lib/services/userService.server';
 import type { User, AuthError } from 'firebase/auth';
 import { sendEmail } from '@/lib/emailUtils';
-
-// HACK: In-memory store for OTPs. NOT SUITABLE FOR PRODUCTION.
-if (!(globalThis as any).otpStore) {
-  (globalThis as any).otpStore = {};
-}
-const otpStore: Record<string, { otp: string; expiresAt: number }> = (globalThis as any).otpStore;
-
+import { getOtp, deleteOtp } from '@/lib/otpStore'; // Import centralized store helpers
 
 const VerifyEmailOtpAndRegisterInputSchema = z.object({
   email: z.string().email({ message: 'Invalid email address.' }),
@@ -31,7 +25,7 @@ const VerifyEmailOtpAndRegisterInputSchema = z.object({
   name: z.string().min(1, 'Name is required.').max(100, 'Name is too long.').optional(),
   rollNo: z.string().max(50, 'Roll number is too long.').optional(),
   adminUniqueId: z.string().max(50, 'Admin ID is too long.').optional(),
-  isTwoFactorEnabled: z.boolean().optional(), // New field for 2FA
+  isTwoFactorEnabled: z.boolean().optional(),
 }).refine(data => {
     if (data.role === 'student' && !data.name) {
         return false;
@@ -65,14 +59,14 @@ const verifyEmailOtpAndRegisterFlow = ai.defineFlow(
     outputSchema: VerifyEmailOtpAndRegisterOutputSchema,
   },
   async ({ email, otp, password, role, name, rollNo, adminUniqueId, isTwoFactorEnabled }) => {
-    const storedEntry = otpStore[email];
+    const storedEntry = getOtp(email); // Use centralized helper
 
     if (!storedEntry) {
       return { success: false, message: 'OTP not found. It might have expired or was never generated. Please request a new OTP.' };
     }
 
     if (Date.now() > storedEntry.expiresAt) {
-      delete otpStore[email];
+      deleteOtp(email); // Use centralized helper
       return { success: false, message: 'OTP has expired. Please request a new OTP.' };
     }
 
@@ -94,7 +88,7 @@ const verifyEmailOtpAndRegisterFlow = ai.defineFlow(
     }
 
     const firebaseUser = firebaseAuthResult as User;
-    delete otpStore[email];
+    deleteOtp(email); // Success, invalidate OTP
 
     try {
       let registrationMessage = 'Registration successful!';

@@ -544,7 +544,7 @@ function ProfileSettingsPageContent() {
                 <Label htmlFor="2fa-switch" className="flex flex-col gap-1">
                     <span>Two-Factor Authentication (2FA)</span>
                     <span className="text-xs font-normal text-muted-foreground">
-                    Secure your account with an authenticator app.
+                    Secure your account with an email verification code on login.
                     </span>
                 </Label>
                 <Switch
@@ -555,11 +555,6 @@ function ProfileSettingsPageContent() {
                     aria-label="Toggle Two-Factor Authentication"
                 />
             </div>
-            {userProfile?.isTwoFactorEnabled && (
-                 <div className="p-3 border-l-4 border-primary bg-primary/10 text-primary-foreground/90 text-sm">
-                    <p><strong>Note:</strong> Full 2FA setup (QR code scanning) is not yet implemented. On your next login, you will not be prompted for a code. This toggle is for demonstration purposes.</p>
-                 </div>
-            )}
              <div>
               <h3 className="font-medium mb-2">Password Reset</h3>
               <p className="text-sm text-muted-foreground mb-3">
