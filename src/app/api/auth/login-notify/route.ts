@@ -5,6 +5,34 @@ import { sendEmail } from '@/lib/emailUtils';
 
 export const runtime = 'nodejs'; // Required for accessing request IP
 
+// Helper function to get location from IP
+async function getLocation(ip: string): Promise<string> {
+  const token = process.env.IPINFO_TOKEN;
+  if (!token) {
+    console.warn('IPINFO_TOKEN not set. Skipping location lookup.');
+    return 'Location information not available.';
+  }
+
+  // Avoid lookups for local IPs
+  if (ip === '::1' || ip.startsWith('127.') || ip.startsWith('192.168.')) {
+    return 'Local Development';
+  }
+
+  try {
+    const response = await fetch(`https://ipinfo.io/${ip}?token=${token}`);
+    if (!response.ok) {
+      console.error(`IPinfo API failed with status: ${response.status}`);
+      return 'Location lookup failed.';
+    }
+    const data = await response.json();
+    // Combine city, region, and country for a nice location string
+    return [data.city, data.region, data.country].filter(Boolean).join(', ');
+  } catch (error) {
+    console.error('Error calling IPinfo API:', error);
+    return 'Location lookup failed.';
+  }
+}
+
 export async function POST(request: NextRequest) {
   const reqId = Math.random().toString(36).substring(2, 9);
   console.log(`API /api/auth/login-notify (Req ID: ${reqId}): POST request received.`);
@@ -22,7 +50,7 @@ export async function POST(request: NextRequest) {
     
     const { email, name } = decodedToken;
     const ip = request.ip || request.headers.get('x-forwarded-for') || 'Unknown IP';
-    const location = 'Location information requires a third-party Geo-IP service.'; // Placeholder
+    const location = await getLocation(ip);
 
     if (!email) {
       return NextResponse.json({ message: 'User email not found in token.' }, { status: 400 });
