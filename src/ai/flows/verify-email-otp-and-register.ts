@@ -59,14 +59,14 @@ const verifyEmailOtpAndRegisterFlow = ai.defineFlow(
     outputSchema: VerifyEmailOtpAndRegisterOutputSchema,
   },
   async ({ email, otp, password, role, name, rollNo, adminUniqueId, isTwoFactorEnabled }) => {
-    const storedEntry = getOtp(email); // Use centralized helper
+    const storedEntry = await getOtp(email); // Use centralized helper - now async
 
     if (!storedEntry) {
       return { success: false, message: 'OTP not found. It might have expired or was never generated. Please request a new OTP.' };
     }
 
-    if (Date.now() > storedEntry.expiresAt) {
-      deleteOtp(email); // Use centralized helper
+    if (Date.now() > storedEntry.expiresAt.toDate().getTime()) {
+      await deleteOtp(email); // Use centralized helper - now async
       return { success: false, message: 'OTP has expired. Please request a new OTP.' };
     }
 
@@ -88,7 +88,7 @@ const verifyEmailOtpAndRegisterFlow = ai.defineFlow(
     }
 
     const firebaseUser = firebaseAuthResult as User;
-    deleteOtp(email); // Success, invalidate OTP
+    await deleteOtp(email); // Success, invalidate OTP
 
     try {
       let registrationMessage = 'Registration successful!';

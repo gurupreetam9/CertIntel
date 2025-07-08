@@ -1,3 +1,4 @@
+
 'use server';
 /**
  * @fileOverview Flow to send a 2FA OTP to a user's email upon login.
@@ -35,10 +36,10 @@ const initiateLoginOtpFlow = ai.defineFlow(
   async ({ email }) => {
     const otp = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit OTP
     
-    // Use the centralized OTP store
-    setOtp(email, otp, 5); // 5 minute TTL
+    // Use the centralized OTP store - now an async operation
+    await setOtp(email, otp, 5); // 5 minute TTL
 
-    console.log(`initiateLoginOtpFlow: 2FA Login OTP for ${email} is ${otp}.`);
+    console.log(`initiateLoginOtpFlow: 2FA Login OTP for ${email} is ${otp}. Stored in Firestore.`);
 
     const emailSubject = 'Your CertIntel Login Verification Code';
     const emailText = `Your login verification code for CertIntel is: ${otp}. This code will expire in 5 minutes.`;

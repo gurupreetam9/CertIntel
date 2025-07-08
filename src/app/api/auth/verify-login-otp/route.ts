@@ -1,3 +1,4 @@
+
 import { NextResponse, type NextRequest } from 'next/server';
 import { getOtp, deleteOtp } from '@/lib/otpStore';
 import { z } from 'zod';
@@ -19,14 +20,15 @@ export async function POST(request: NextRequest) {
     }
 
     const { email, otp } = validation.data;
-    const storedEntry = getOtp(email);
+    const storedEntry = await getOtp(email);
 
     if (!storedEntry) {
       return NextResponse.json({ success: false, message: 'OTP not found. It may have expired. Please log in again.' }, { status: 400 });
     }
-
-    if (Date.now() > storedEntry.expiresAt) {
-      deleteOtp(email);
+    
+    // The expiresAt field from Firestore is a Timestamp object. We need to convert it.
+    if (Date.now() > storedEntry.expiresAt.toDate().getTime()) {
+      await deleteOtp(email);
       return NextResponse.json({ success: false, message: 'OTP has expired. Please log in again.' }, { status: 400 });
     }
 
@@ -36,7 +38,7 @@ export async function POST(request: NextRequest) {
     }
     
     // Success, invalidate the OTP
-    deleteOtp(email);
+    await deleteOtp(email);
 
     return NextResponse.json({ success: true, message: 'Verification successful.' }, { status: 200 });
 

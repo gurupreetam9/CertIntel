@@ -57,10 +57,10 @@ const initiateEmailOtpFlow = ai.defineFlow(
     // Proceed with OTP generation and sending only if email is not found (i.e., available)
     const otp = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit OTP
     
-    // Use the centralized store helper
-    setOtp(email, otp, 5); // 5 minute TTL
+    // Use the centralized store helper - now an async operation
+    await setOtp(email, otp, 5); // 5 minute TTL
 
-    console.log(`initiateEmailOtpFlow: Registration OTP for ${email} is ${otp}. Stored in memory.`);
+    console.log(`initiateEmailOtpFlow: Registration OTP for ${email} is ${otp}. Stored in Firestore.`);
 
     const emailSubject = 'Your CertIntel OTP Code';
     const emailText = `Your OTP code for CertIntel is: ${otp}. This code will expire in 5 minutes.`;
