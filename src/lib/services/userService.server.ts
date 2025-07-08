@@ -46,9 +46,10 @@ export const createUserProfileDocument_SERVER = async (
     email,
     role,
     displayName: additionalData.displayName || email.split('@')[0] || userId,
-    isPublicProfileEnabled: false, // Default public profile to false
-    createdAt: now as unknown as Timestamp, // Cast from admin to client timestamp type
-    updatedAt: now as unknown as Timestamp, // Cast from admin to client timestamp type
+    isPublicProfileEnabled: false,
+    isTwoFactorEnabled: !!additionalData.isTwoFactorEnabled, // Handle new 2FA field
+    createdAt: now as unknown as Timestamp,
+    updatedAt: now as unknown as Timestamp,
     rollNo: (role === 'student' && additionalData.rollNo) ? additionalData.rollNo : undefined,
     linkRequestStatus: (role === 'student') ? initialLinkStatus : undefined,
     associatedAdminFirebaseId: (role === 'student') ? associatedAdminFirebaseIdToSet : undefined,
@@ -79,7 +80,6 @@ export const createUserProfileDocument_SERVER = async (
 
 // SERVER-SIDE function for admin profile specific tasks during registration
 export const createAdminProfile_SERVER = async (userId: string, email: string): Promise<AdminProfile> => {
-  // const adminFirestore = getAdminFirestore(); // Not directly used here, createUserProfileDocument_SERVER will get it
   const adminUniqueId = uuidv4().substring(0, 8).toUpperCase();
   const now = AdminTimestamp.now();
   console.log(`[SERVICE_SERVER/createAdminProfile_SERVER] - START. Target UID: ${userId}. Email: ${email}. Generated AdminUniqueId: ${adminUniqueId}`);
@@ -98,7 +98,7 @@ export const createAdminProfile_SERVER = async (userId: string, email: string): 
 // SERVER-SIDE function to get admin details by their unique shareable ID
 export const getAdminByUniqueId_SERVER = async (adminUniqueId: string): Promise<{ userId: string; email: string; adminUniqueId: string; displayName?: string | null } | null> => {
   const { getAdminFirestore } = await import('@/lib/firebase/adminConfig');
-  const adminFirestore = getAdminFirestore(); // Get instance
+  const adminFirestore = getAdminFirestore();
   console.log(`[SERVICE_SERVER/getAdminByUniqueId_SERVER] - Querying USERS_COLLECTION for adminUniqueId: ${adminUniqueId}`);
   const usersCollectionRef = adminFirestore.collection(USERS_COLLECTION);
   const usersQuery = usersCollectionRef
@@ -136,7 +136,7 @@ export const createStudentLinkRequest_SERVER = async (
   targetAdminFirebaseId: string
 ): Promise<StudentLinkRequest> => {
   const { getAdminFirestore } = await import('@/lib/firebase/adminConfig');
-  const adminFirestore = getAdminFirestore(); // Get instance
+  const adminFirestore = getAdminFirestore();
   const requestDocRef = adminFirestore.collection(STUDENT_LINK_REQUESTS_COLLECTION).doc(); 
   const now = AdminTimestamp.now();
   const studentRollNoCleaned = (studentRollNo && studentRollNo.trim() !== '') ? studentRollNo.trim() : null;
@@ -165,13 +165,11 @@ export const createStudentLinkRequest_SERVER = async (
 };
 
 // SERVER-SIDE function to fetch data for the public showcase profile
-// THIS FUNCTION DOES NOT USE THE ADMIN SDK and is safe for public pages.
 export const getPublicProfileData_SERVER = async (
   userId: string
 ): Promise<{ profile: UserProfile; images: UserImage[] } | { error: string; status: number }> => {
   console.log(`[SERVICE_SERVER/getPublicProfileData_SERVER] - Fetching data for public profile UID: ${userId} using CLIENT SDK for unauthenticated access.`);
   
-  // 1. Fetch user profile using CLIENT SDK (respects security rules)
   const userDocRef = doc(firestore, USERS_COLLECTION, userId);
   const userDocSnap = await getDoc(userDocRef);
 
@@ -181,19 +179,21 @@ export const getPublicProfileData_SERVER = async (
   }
   const profile = userDocSnap.data() as UserProfile;
 
-  // 2. Check if profile is public
   if (!profile.isPublicProfileEnabled) {
     console.log(`[SERVICE_SERVER/getPublicProfileData_SERVER] - Profile is private for UID: ${userId}`);
     return { error: 'This profile is not public.', status: 403 };
   }
 
-  // 3. Fetch public certificates from MongoDB
+  if (profile.role !== 'student') {
+      return { error: 'Showcase profiles are only available for student accounts.', status: 403 };
+  }
+
   try {
     const { db } = await connectToDb();
     const filesCollection = db.collection('images.files');
     const query = {
       'metadata.userId': userId,
-      'metadata.visibility': { '$ne': 'private' } // Only get public (or unset) images
+      'metadata.visibility': { '$ne': 'private' }
     };
     
     console.log(`[SERVICE_SERVER/getPublicProfileData_SERVER] - Querying Mongo for public images for UID: ${userId} with query:`, query);
@@ -215,7 +215,7 @@ export const getPublicProfileData_SERVER = async (
     const formattedImages = userImages.map(img => ({
       fileId: img._id.toString(),
       filename: img.filename,
-      uploadDate: (img.uploadDate as Date).toISOString(), // Ensure it's a serializable string
+      uploadDate: (img.uploadDate as Date).toISOString(),
       contentType: img.contentType,
       originalName: img.metadata?.originalName || img.filename,
       dataAiHint: img.metadata?.dataAiHint || '',

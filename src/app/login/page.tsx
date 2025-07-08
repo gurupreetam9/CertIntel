@@ -9,7 +9,7 @@ import { SignInSchema, type SignInFormValues } from '@/types/auth';
 import { useAuth } from '@/hooks/useAuth';
 import { useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
-import type { AuthError } from 'firebase/auth';
+import type { AuthError, User } from 'firebase/auth';
 import AppLogo from '@/components/common/AppLogo';
 
 export default function LoginPage() {
@@ -38,10 +38,22 @@ export default function LoginPage() {
       });
       throw new Error(errorMessage);
     } else { // User
+      const loggedInUser = result as User;
       toast({
         title: 'Login Successful',
         description: 'Welcome back!',
       });
+      
+      // Fire-and-forget notification
+      loggedInUser.getIdToken().then(token => {
+        fetch('/api/auth/login-notify', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }).catch(err => console.error("Failed to send login notification:", err));
+      });
+
       router.push('/');
     }
   };
