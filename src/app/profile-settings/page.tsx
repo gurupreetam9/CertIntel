@@ -125,6 +125,27 @@ function ProfileSettingsPageContent() {
     setIsSavingProfile(false);
   };
 
+  const handlePasswordReset = async () => {
+    if (!user?.email) {
+      toast({ title: 'Error', description: 'User email not found. Cannot send reset link.', variant: 'destructive' });
+      return;
+    }
+    const result = await sendPasswordReset(user.email);
+    if (result.success) {
+      toast({
+        title: 'Check Your Email',
+        description: result.message,
+        duration: 7000,
+      });
+    } else {
+      toast({
+        title: 'Request Failed',
+        description: result.message,
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleInitiateDeletion = async () => {
     if (!user?.email || !user.uid) {
         toast({ title: 'Error', description: 'Cannot initiate deletion without a valid user session.', variant: 'destructive' });
