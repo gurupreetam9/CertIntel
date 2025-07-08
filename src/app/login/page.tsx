@@ -10,7 +10,7 @@ import { AuthForm } from '@/components/auth/AuthForm';
 import { signIn } from '@/lib/firebase/auth';
 import { SignInSchema, type SignInFormValues } from '@/types/auth';
 import { useAuth } from '@/hooks/useAuth';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import type { AuthError, User } from 'firebase/auth';
 import AppLogo from '@/components/common/AppLogo';
@@ -42,16 +42,6 @@ export default function LoginPage() {
     defaultValues: { otp: '' },
   });
 
-  useEffect(() => {
-    if (!loading && user) {
-      // If user is already authenticated and NOT on OTP step, redirect.
-      // This allows a page refresh during OTP step without being kicked out.
-      if (step !== 'otp') {
-        router.push('/');
-      }
-    }
-  }, [user, loading, router, step]);
-  
   const handleLogin = async (values: SignInFormValues) => {
     setIsProcessing(true);
     setLoginError(null);
