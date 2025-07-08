@@ -29,7 +29,7 @@ type OtpFormValues = z.infer<typeof OtpSchema>;
 
 export default function LoginPage() {
   const router = useRouter();
-  const { user, loading } = useAuth();
+  const { user, loading, setIsAwaiting2FA } = useAuth();
   const { toast } = useToast();
 
   const [step, setStep] = useState<'credentials' | 'otp'>('credentials');
@@ -67,10 +67,12 @@ export default function LoginPage() {
         description: 'Your account has 2FA enabled. Please check your email.',
       });
       setUserEmail(loggedInUser.email);
+      setIsAwaiting2FA(true); // Set global 2FA pending state
       await initiateLoginOtp({ email: loggedInUser.email! });
       setStep('otp');
       setIsProcessing(false);
     } else {
+      setIsAwaiting2FA(false); // Ensure 2FA state is false for non-2FA users
       toast({
         title: 'Login Successful',
         description: 'Welcome back!',
@@ -106,6 +108,8 @@ export default function LoginPage() {
             throw new Error(result.message || 'Failed to verify code.');
         }
 
+        setIsAwaiting2FA(false); // 2FA complete, set global state to false
+
         toast({
             title: 'Login Successful',
             description: 'Welcome back!',
@@ -129,7 +133,7 @@ export default function LoginPage() {
   };
 
 
-  if (loading || (!loading && user && step !== 'otp')) {
+  if (loading) { // Simplified loader check
      return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
