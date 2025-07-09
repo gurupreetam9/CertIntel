@@ -52,13 +52,11 @@ function AiFeaturePageContent() {
   const { user, userId } = useAuth();
 
   const [isLoading, setIsLoading] = useState(true);
-  const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [allUserImages, setAllUserImages] = useState<UserImage[]>([]);
   const [suggestionsResult, setSuggestionsResult] = useState<SuggestionsPhaseResult | null>(null);
   
-  const [isRefreshingCourse, setIsRefreshingCourse] = useState<string | null>(null);
   const [imageToEdit, setImageToEdit] = useState<UserImage | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [newName, setNewName] = useState('');
@@ -70,6 +68,10 @@ function AiFeaturePageContent() {
   const [manualCourseInput, setManualCourseInput] = useState('');
   const [isAddingManualCourse, setIsAddingManualCourse] = useState(false);
   const [isDeletingManualCourse, setIsDeletingManualCourse] = useState<string | null>(null);
+
+  // New state for generation buttons
+  const [generatingAction, setGeneratingAction] = useState<string | null>(null); // 'all', 'new', or course name
+
 
   const triggerRefresh = useCallback(() => setRefreshKey(k => k + 1), []);
 
@@ -169,24 +171,35 @@ function AiFeaturePageContent() {
       return combined;
   }, [allUserImages, manualCourses]);
 
-  const handleGetSuggestions = useCallback(async (coursesToFetch: string[], forceRefreshList: string[] = []) => {
+  const processedCourseNames = useMemo(() => {
+    if (!suggestionsResult?.user_processed_data) {
+        return new Set<string>();
+    }
+    return new Set(suggestionsResult.user_processed_data.map(d => d.identified_course_name));
+  }, [suggestionsResult]);
+
+  const newCourses = useMemo(() => {
+    return allKnownCourses.filter(course => !processedCourseNames.has(course));
+  }, [allKnownCourses, processedCourseNames]);
+
+  const handleGetSuggestions = useCallback(async (coursesToFetch: string[], forceRefreshList: string[] = [], actionIdentifier: string) => {
     if (!userId) return;
-    setIsGenerating(true);
-    if(forceRefreshList.length === 0) setIsRefreshingCourse(null);
+    setGeneratingAction(actionIdentifier);
     setError(null);
 
     if (coursesToFetch.length === 0) {
       toast({ title: 'No Courses', description: 'No course names available to get suggestions for.', variant: 'destructive' });
-      setIsGenerating(false);
+      setGeneratingAction(null);
       return;
     }
 
     try {
       const endpoint = `${flaskServerBaseUrl}/api/process-certificates`;
+      // Always send the full list of known courses so the backend can return a complete, merged result
       const payload: any = {
         userId,
         mode: 'suggestions_only',
-        knownCourseNames: coursesToFetch,
+        knownCourseNames: allKnownCourses, 
         associated_image_file_ids_from_previous_run: allUserImages.map(img => img.fileId)
       };
       if (forceRefreshList.length > 0) {
@@ -203,7 +216,7 @@ function AiFeaturePageContent() {
       if (!response.ok || data.error) throw new Error(data.error || `Server error: ${response.status}`);
       
       setSuggestionsResult(data);
-      toast({ title: 'Suggestions Generated', description: `AI insights are ready for ${coursesToFetch.length} course(s).` });
+      toast({ title: 'Suggestions Generated', description: `AI insights are ready for your courses.` });
       
       if (data.llm_error_summary) {
         toast({ title: "LLM Warning", description: data.llm_error_summary, variant: "destructive", duration: 7000 });
@@ -213,10 +226,9 @@ function AiFeaturePageContent() {
       setError(err.message || 'Failed to generate suggestions.');
       toast({ title: 'Suggestion Generation Failed', description: err.message, variant: 'destructive' });
     } finally {
-      setIsGenerating(false);
-      setIsRefreshingCourse(null);
+      setGeneratingAction(null);
     }
-  }, [userId, flaskServerBaseUrl, toast, allUserImages]);
+  }, [userId, flaskServerBaseUrl, toast, allUserImages, allKnownCourses]);
   
   const handleUpdateCourseName = async () => {
     if (!imageToEdit || !newName.trim() || !userId) return;
@@ -387,10 +399,14 @@ function AiFeaturePageContent() {
                     <p className="text-muted-foreground italic">No course names have been identified yet. Upload some certificates or add one manually.</p>
                 )}
               </CardContent>
-              <CardFooter>
-                 <Button onClick={() => handleGetSuggestions(allKnownCourses)} disabled={isGenerating || allKnownCourses.length === 0}>
-                   {isGenerating && !isRefreshingCourse ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <BrainCircuit className="mr-2 h-5 w-5" />}
-                   Generate AI Suggestions
+              <CardFooter className="flex flex-wrap gap-2">
+                 <Button onClick={() => handleGetSuggestions(allKnownCourses, [], 'new')} disabled={generatingAction !== null || newCourses.length === 0}>
+                   {generatingAction === 'new' ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Sparkles className="mr-2 h-5 w-5" />}
+                   Generate for New Courses ({newCourses.length})
+                 </Button>
+                 <Button onClick={() => handleGetSuggestions(allKnownCourses, allKnownCourses, 'all')} disabled={generatingAction !== null || allKnownCourses.length === 0}>
+                   {generatingAction === 'all' ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <BrainCircuit className="mr-2 h-5 w-5" />}
+                   Generate for All Courses
                  </Button>
               </CardFooter>
             </Card>
@@ -402,8 +418,8 @@ function AiFeaturePageContent() {
                         <CardHeader>
                             <div className="flex justify-between items-start gap-4">
                                 <CardTitle className="text-xl font-headline text-primary">{courseData.identified_course_name}</CardTitle>
-                                <Button variant="outline" size="sm" onClick={() => { setIsRefreshingCourse(courseData.identified_course_name); handleGetSuggestions([courseData.identified_course_name.replace(' [UNVERIFIED]','')], [courseData.identified_course_name.replace(' [UNVERIFIED]','')]) }} disabled={isGenerating}>
-                                    {isGenerating && isRefreshingCourse === courseData.identified_course_name ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <RefreshCw className="mr-2 h-4 w-4"/>}
+                                <Button variant="outline" size="sm" onClick={() => handleGetSuggestions(allKnownCourses, [courseData.identified_course_name.replace(' [UNVERIFIED]','')], courseData.identified_course_name)} disabled={generatingAction !== null}>
+                                    {generatingAction === courseData.identified_course_name ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <RefreshCw className="mr-2 h-4 w-4"/>}
                                     Refresh
                                 </Button>
                             </div>
