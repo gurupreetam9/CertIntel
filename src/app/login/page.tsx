@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { signIn } from '@/lib/firebase/auth';
 import { SignInSchema, type SignInFormValues } from '@/types/auth';
+import { Label } from '@/components/ui/label';
 
 
 export default function LoginPage() {
@@ -85,6 +86,7 @@ export default function LoginPage() {
     } catch (e: any) {
         setLoginError(e.message || "An unexpected error occurred during login.");
     } finally {
+        // Only stop processing if we aren't moving to the OTP step
         if (!showOtpInput) {
             setIsProcessing(false);
         }
@@ -142,6 +144,7 @@ export default function LoginPage() {
     setLoginError(null);
     setIsAwaiting2FA(false); // Also clear 2FA state if they go back
     form.reset();
+    setIsProcessing(false); // Ensure processing is stopped
   }
 
   if (loading) {
@@ -209,10 +212,10 @@ export default function LoginPage() {
             </Form>
           ) : (
             <form onSubmit={handleOtpSubmit} className="space-y-6">
-                <FormItem>
-                    <FormLabel>Verification Code</FormLabel>
-                    <FormControl>
+                <div className="space-y-2">
+                    <Label htmlFor="otp-input">Verification Code</Label>
                     <Input 
+                        id="otp-input"
                         placeholder="123456" 
                         value={otpValue}
                         onChange={(e) => setOtpValue(e.target.value)}
@@ -221,9 +224,7 @@ export default function LoginPage() {
                         autoFocus 
                         disabled={isProcessing}
                     />
-                    </FormControl>
-                    <FormMessage />
-                </FormItem>
+                </div>
                 {loginError && <p className="text-sm font-medium text-destructive">{loginError}</p>}
                 <Button type="submit" className="w-full" disabled={isProcessing || otpValue.length !== 6}>
                     {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
