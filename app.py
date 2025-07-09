@@ -35,7 +35,7 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 app_logger.info("Flask app instance created with CORS enabled for all origins.")
 
-MONGODB_URI="mongodb+srv://gurupreetambodapati:MTXH7oEVPg3sJdg2@cluster0.fpsg1.mongodb.net/"
+MONGODB_URI=
 DB_NAME="imageverse_db"
 
 if not MONGODB_URI:
