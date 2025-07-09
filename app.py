@@ -35,6 +35,7 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 app_logger.info("Flask app instance created with CORS enabled for all origins.")
 
+
 MONGODB_URI=os.environ.get("MONGODB_URI")
 DB_NAME=os.environ.get("DB_NAME")
 
