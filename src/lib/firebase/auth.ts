@@ -8,6 +8,7 @@ import {
   onAuthStateChanged as firebaseOnAuthStateChanged,
   sendPasswordResetEmail as firebaseSendPasswordResetEmail,
   updateProfile,
+  signInWithCustomToken as firebaseSignInWithCustomToken,
   type User,
   type AuthError,
 } from 'firebase/auth';
@@ -35,15 +36,21 @@ export const signIn = async ({ email, password }: SignInFormValues): Promise<Use
 
 export const signOut = async (): Promise<void | AuthError> => {
   try {
-    if (typeof window !== 'undefined') {
-      // Clear the persistent 2FA state on explicit logout
-      localStorage.removeItem('awaiting2faUserEmail');
-    }
     await firebaseSignOut(auth);
   } catch (error) {
     return error as AuthError;
   }
 };
+
+export const signInWithCustomToken = async (token: string): Promise<User | AuthError> => {
+    try {
+        const userCredential = await firebaseSignInWithCustomToken(auth, token);
+        return userCredential.user;
+    } catch (error) {
+        return error as AuthError;
+    }
+};
+
 
 export const onAuthStateChanged = (callback: (user: User | null) => void) => {
   return firebaseOnAuthStateChanged(auth, callback);

@@ -17,11 +17,11 @@ import { useState, useEffect } from 'react';
 import { getStudentLinkRequestsForAdminRealtime } from '@/lib/services/userService';
 
 export default function SiteHeader() {
-  const { user, userProfile, isAwaiting2FA } = useAuth();
+  const { user, userProfile } = useAuth();
   const [isDashboardTooltipOpen, setIsDashboardTooltipOpen] = useState(false);
   const [hasPendingRequests, setHasPendingRequests] = useState(false);
   
-  const showUserUI = user && !isAwaiting2FA;
+  const showUserUI = !!user;
 
   // Effect to show tooltip on admin login
   useEffect(() => {
@@ -107,11 +107,9 @@ export default function SiteHeader() {
                 <ProfileDropdown />
               </>
             ) : (
-               !user && ( // Only show Login button if there's no user object at all
                  <Button asChild variant="outline">
                     <Link href="/login">Login / Register</Link>
                  </Button>
-               )
             )}
           </div>
         </div>

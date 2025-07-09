@@ -17,21 +17,21 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { signIn } from '@/lib/firebase/auth';
+import { signIn, signOut, signInWithCustomToken } from '@/lib/firebase/auth';
 import { SignInSchema, type SignInFormValues } from '@/types/auth';
 import { Label } from '@/components/ui/label';
 
 
 export default function LoginPage() {
   const router = useRouter();
-  const { loading, setIsAwaiting2FA } = useAuth();
+  const { loading } = useAuth();
   const { toast } = useToast();
 
+  const [step, setStep] = useState<'credentials' | 'otp'>('credentials');
   const [isProcessing, setIsProcessing] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   
-  const [showOtpInput, setShowOtpInput] = useState(false);
-  const [userEmailForOtp, setUserEmailForOtp] = useState<string>('');
+  const [userFor2fa, setUserFor2fa] = useState<{ uid: string; email: string } | null>(null);
   const [otpValue, setOtpValue] = useState('');
 
   const form = useForm<SignInFormValues>({
@@ -39,7 +39,7 @@ export default function LoginPage() {
     defaultValues: { email: '', password: '' },
   });
   
-  const handlePasswordLogin = async (values: SignInFormValues) => {
+  const handlePrimaryLogin = async (values: SignInFormValues) => {
     setIsProcessing(true);
     setLoginError(null);
 
@@ -65,16 +65,25 @@ export default function LoginPage() {
           title: 'Verification Required',
           description: 'Your account has 2FA enabled. Please check your email for a code.',
         });
-        setUserEmailForOtp(loggedInUser.email!);
-        setIsAwaiting2FA(loggedInUser.email!); // Set global 2FA state with email
+        
+        // Store user details needed for the next step
+        setUserFor2fa({ uid: loggedInUser.uid, email: loggedInUser.email! });
+        
+        // Initiate the OTP sending process
         await initiateLoginOtp({ email: loggedInUser.email! });
-        setShowOtpInput(true);
+        
+        // CRITICAL: Immediately sign the user out of the client to prevent access
+        await signOut();
+        
+        // Move to the OTP entry step
+        setStep('otp');
+        setIsProcessing(false);
+
       } else {
         toast({
           title: 'Login Successful',
           description: 'Welcome back!',
         });
-        setIsAwaiting2FA(null); // Clear 2FA state if not needed
         loggedInUser.getIdToken().then(token => {
           fetch('/api/auth/login-notify', {
             method: 'POST',
@@ -85,17 +94,13 @@ export default function LoginPage() {
       }
     } catch (e: any) {
         setLoginError(e.message || "An unexpected error occurred during login.");
-    } finally {
-        // Only stop processing if we aren't moving to the OTP step
-        if (!showOtpInput) {
-            setIsProcessing(false);
-        }
+        setIsProcessing(false);
     }
   };
 
   const handleOtpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userEmailForOtp) {
+    if (!userFor2fa) {
         setLoginError('An error occurred. Please try logging in again.');
         return;
     }
@@ -103,10 +108,10 @@ export default function LoginPage() {
     setLoginError(null);
 
     try {
-        const response = await fetch('/api/auth/verify-login-otp', {
+        const response = await fetch('/api/auth/verify-2fa-and-get-token', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: userEmailForOtp, otp: otpValue }),
+            body: JSON.stringify({ uid: userFor2fa.uid, otp: otpValue }),
         });
         const result = await response.json();
 
@@ -114,37 +119,40 @@ export default function LoginPage() {
             throw new Error(result.message || 'Failed to verify code.');
         }
 
+        // Use the custom token from the server to sign in securely
+        const finalSignInResult = await signInWithCustomToken(result.token);
+
+        if ('code' in finalSignInResult) {
+            throw new Error((finalSignInResult as AuthError).message || 'Final sign-in step failed.');
+        }
+
         toast({
             title: 'Login Successful',
             description: 'Welcome back!',
         });
         
-        setIsAwaiting2FA(null); // Clear the 2FA state on success
-        const currentUser = (await import('@/lib/firebase/auth')).auth.currentUser;
-        if(currentUser) {
-            currentUser.getIdToken().then(token => {
-                fetch('/api/auth/login-notify', {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` }
-                }).catch(err => console.error("Failed to send login notification:", err));
-            });
-        }
+        const finalUser = finalSignInResult as User;
+        finalUser.getIdToken().then(token => {
+            fetch('/api/auth/login-notify', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+            }).catch(err => console.error("Failed to send login notification:", err));
+        });
         router.push('/');
 
     } catch (error: any) {
         setLoginError(error.message);
         setOtpValue('');
-    } finally {
         setIsProcessing(false);
     }
   };
 
   const handleBackToLogin = () => {
-    setShowOtpInput(false);
+    setStep('credentials');
     setLoginError(null);
-    setIsAwaiting2FA(null); // Also clear 2FA state if they go back
+    setUserFor2fa(null);
     form.reset();
-    setIsProcessing(false); // Ensure processing is stopped
+    setIsProcessing(false);
   }
 
   if (loading) {
@@ -165,18 +173,18 @@ export default function LoginPage() {
 
       <Card className="w-full max-w-md shadow-xl">
         <CardHeader>
-          <CardTitle className="text-3xl font-headline">{showOtpInput ? 'Two-Factor Authentication' : 'Welcome Back!'}</CardTitle>
+          <CardTitle className="text-3xl font-headline">{step === 'otp' ? 'Two-Factor Authentication' : 'Welcome Back!'}</CardTitle>
           <CardDescription>
-            {showOtpInput 
-              ? <>A verification code has been sent to <strong>{userEmailForOtp}</strong>. Please enter it below.</>
+            {step === 'otp'
+              ? <>A verification code has been sent to <strong>{userFor2fa?.email}</strong>. Please enter it below.</>
               : 'Sign in to access your CertIntel dashboard.'
             }
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {!showOtpInput ? (
+          {step === 'credentials' ? (
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(handlePasswordLogin)} className="space-y-6">
+              <form onSubmit={form.handleSubmit(handlePrimaryLogin)} className="space-y-6">
                 <FormField
                   control={form.control}
                   name="email"
@@ -238,7 +246,7 @@ export default function LoginPage() {
         </CardContent>
       </Card>
 
-      {!showOtpInput && (
+      {step === 'credentials' && (
         <>
           <div className="mt-4 text-center text-sm">
               <Link href="/forgot-password" passHref className="text-muted-foreground hover:text-primary hover:underline">
