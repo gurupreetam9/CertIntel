@@ -67,40 +67,59 @@ function AiFeaturePageContent() {
 
   const triggerRefresh = useCallback(() => setRefreshKey(k => k + 1), []);
 
-  // Fetch all user images (which now contain pre-extracted course names)
-  useEffect(() => {
+  const fetchInitialData = useCallback(async () => {
     if (!userId || !user) {
-      if (!isLoading) setIsLoading(true); // Ensure loader shows if auth is lost
+      if (!isLoading) setIsLoading(true);
       return;
     }
+    
+    setIsLoading(true);
+    setError(null);
 
-    const fetchInitialData = async () => {
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const idToken = await user.getIdToken();
-        const imagesResponse = await fetch(`/api/user-images?userId=${userId}`, {
+    try {
+      const idToken = await user.getIdToken();
+      const imagesPromise = fetch(`/api/user-images?userId=${userId}`, {
           headers: { 'Authorization': `Bearer ${idToken}` }
-        });
+      });
+      
+      const suggestionsPromise = fetch(`${flaskServerBaseUrl}/api/latest-processed-results?userId=${userId}`, {
+          headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
 
-        if (!imagesResponse.ok) {
-          const err = await imagesResponse.json();
-          throw new Error(err.message || "Failed to fetch user's certificates.");
-        }
-        
-        const imagesData: UserImage[] = await imagesResponse.json();
-        setAllUserImages(imagesData);
+      const [imagesResponse, suggestionsResponse] = await Promise.all([imagesPromise, suggestionsPromise]);
 
-      } catch (err: any) {
-        setError(err.message);
-        toast({ title: "Error Loading Data", description: err.message, variant: 'destructive' });
-      } finally {
-        setIsLoading(false);
+      // Handle images
+      if (!imagesResponse.ok) {
+          const err = await imagesResponse.json().catch(() => ({ message: "Failed to fetch user's certificates." }));
+          throw new Error(err.message);
       }
-    };
+      const imagesData: UserImage[] = await imagesResponse.json();
+      setAllUserImages(imagesData);
+
+      // Handle suggestions
+      if (suggestionsResponse.ok) {
+          const suggestionsData: SuggestionsPhaseResult = await suggestionsResponse.json();
+          setSuggestionsResult(suggestionsData);
+          toast({ title: "Latest AI Suggestions Loaded", description: "Your previously generated insights are ready.", duration: 3000 });
+      } else {
+        if (suggestionsResponse.status !== 404) {
+            console.warn(`Could not fetch latest suggestions, status: ${suggestionsResponse.status}`);
+        }
+        setSuggestionsResult(null); // Clear previous suggestions if fetch fails or none exist
+      }
+    } catch (err: any) {
+      setError(err.message);
+      toast({ title: "Error Loading Page Data", description: err.message, variant: 'destructive' });
+      setSuggestionsResult(null); // Also clear on general error
+    } finally {
+      setIsLoading(false);
+    }
+  }, [userId, user, flaskServerBaseUrl, toast]);
+
+  // Fetch initial data on load and when a refresh is triggered
+  useEffect(() => {
     fetchInitialData();
-  }, [userId, user, toast, refreshKey]);
+  }, [fetchInitialData, refreshKey]);
 
   const courseGroups = useMemo(() => {
     const groups: { [key: string]: CourseGroup } = {};
@@ -223,7 +242,7 @@ function AiFeaturePageContent() {
         {isLoading && (
             <div className="flex flex-col items-center justify-center text-center py-10">
                 <Loader2 className="h-10 w-10 animate-spin text-primary mb-3" />
-                <p className="text-muted-foreground">Loading your certificates...</p>
+                <p className="text-muted-foreground">Loading your certificates and AI suggestions...</p>
             </div>
         )}
 
