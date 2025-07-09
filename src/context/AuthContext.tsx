@@ -9,13 +9,15 @@ import { doc, onSnapshot, type Unsubscribe } from 'firebase/firestore';
 import type { UserProfile } from '@/lib/models/user';
 import { Loader2 } from 'lucide-react';
 
+const AWAITING_2FA_USER_KEY = 'awaiting2faUserEmail';
+
 interface AuthContextType {
   user: User | null;
   userProfile: UserProfile | null;
   loading: boolean;
   userId: string | null;
-  isAwaiting2FA: boolean; // NEW: Track if user is in the middle of 2FA
-  setIsAwaiting2FA: (isAwaiting: boolean) => void; // NEW: Function to set the 2FA state
+  isAwaiting2FA: boolean;
+  setIsAwaiting2FA: (email: string | null) => void; // Can be email or null
   refreshUserProfile: () => void;
 }
 
@@ -38,16 +40,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [userId, setUserId] = useState<string | null>(null);
   const [isAwaiting2FA, setisAwaiting2FAState] = useState(false);
 
-  const setIsAwaiting2FA = (isAwaiting: boolean) => {
-    setisAwaiting2FAState(isAwaiting);
+  const setIsAwaiting2FA = (email: string | null) => {
     if (typeof window !== 'undefined') {
-        if (isAwaiting) {
-            sessionStorage.setItem('isAwaiting2FA', 'true');
+        if (email) {
+            localStorage.setItem(AWAITING_2FA_USER_KEY, email);
+            setisAwaiting2FAState(true);
         } else {
-            sessionStorage.removeItem('isAwaiting2FA');
+            localStorage.removeItem(AWAITING_2FA_USER_KEY);
+            setisAwaiting2FAState(false);
         }
     }
   };
+
 
   const refreshUserProfile = useCallback(() => {
     console.log("AuthContext: refreshUserProfile called. (Currently a no-op due to real-time listener, but can be enhanced if needed).");
@@ -55,12 +59,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     let profileListenerUnsubscribe: Unsubscribe | undefined = undefined;
-    
-    // Check sessionStorage for persisted 2FA state on initial load
-    const isAwaitingFromSession = typeof window !== 'undefined' && sessionStorage.getItem('isAwaiting2FA') === 'true';
-    if(isAwaitingFromSession) {
-        setisAwaiting2FAState(true);
-    }
 
     const authUnsubscribe = firebaseOnAuthStateChanged((firebaseUser) => {
       if (profileListenerUnsubscribe) {
@@ -68,27 +66,42 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         profileListenerUnsubscribe = undefined;
       }
       
+      const awaiting2faEmail = typeof window !== 'undefined' ? localStorage.getItem(AWAITING_2FA_USER_KEY) : null;
+
       if (firebaseUser) {
-        setUser(firebaseUser);
-        setUserId(firebaseUser.uid);
-        
-        const userDocRef = doc(firestore, USERS_COLLECTION, firebaseUser.uid);
-        profileListenerUnsubscribe = onSnapshot(userDocRef, 
-          (docSnap) => {
-            setUserProfile(docSnap.exists() ? docSnap.data() as UserProfile : null);
-            setLoading(false);
-          },
-          (error) => {
-            console.error("AuthContext Snapshot Error:", error);
-            setUserProfile(null);
-            setLoading(false);
-          }
-        );
+        // If a user is logged into Firebase AND their email matches the one in localStorage waiting for 2FA,
+        // then we must treat them as being in an "awaiting 2FA" state.
+        if (awaiting2faEmail && firebaseUser.email === awaiting2faEmail) {
+            setUser(firebaseUser); // Set the user object
+            setUserId(firebaseUser.uid); // Set the user ID
+            setisAwaiting2FAState(true); // Enforce the 2FA state
+            setUserProfile(null); // Do not load profile yet
+            setLoading(false); // Stop loading, ProtectedPage will now take over
+        } else {
+            // This is a normal, fully authenticated user.
+            setUser(firebaseUser);
+            setUserId(firebaseUser.uid);
+            setIsAwaiting2FA(null); // Clear any stale 2FA state from another user
+
+            const userDocRef = doc(firestore, USERS_COLLECTION, firebaseUser.uid);
+            profileListenerUnsubscribe = onSnapshot(userDocRef, 
+              (docSnap) => {
+                setUserProfile(docSnap.exists() ? docSnap.data() as UserProfile : null);
+                setLoading(false);
+              },
+              (error) => {
+                console.error("AuthContext Snapshot Error:", error);
+                setUserProfile(null);
+                setLoading(false);
+              }
+            );
+        }
       } else {
+        // User is logged out. Clear all state.
         setUser(null);
         setUserId(null);
         setUserProfile(null);
-        setIsAwaiting2FA(false); // Clear 2FA state on logout
+        setIsAwaiting2FA(null);
         setLoading(false);
       }
     });
@@ -101,7 +114,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
   }, []);
 
-  if (loading && !isAwaiting2FA) { // Don't show global loader if we are just waiting for 2FA input
+  if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-16 w-16 animate-spin text-primary" />

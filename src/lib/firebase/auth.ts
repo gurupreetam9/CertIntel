@@ -36,7 +36,8 @@ export const signIn = async ({ email, password }: SignInFormValues): Promise<Use
 export const signOut = async (): Promise<void | AuthError> => {
   try {
     if (typeof window !== 'undefined') {
-      sessionStorage.removeItem('isAwaiting2FA');
+      // Clear the persistent 2FA state on explicit logout
+      localStorage.removeItem('awaiting2faUserEmail');
     }
     await firebaseSignOut(auth);
   } catch (error) {

@@ -66,7 +66,7 @@ export default function LoginPage() {
           description: 'Your account has 2FA enabled. Please check your email for a code.',
         });
         setUserEmailForOtp(loggedInUser.email!);
-        setIsAwaiting2FA(true); // Set global 2FA state
+        setIsAwaiting2FA(loggedInUser.email!); // Set global 2FA state with email
         await initiateLoginOtp({ email: loggedInUser.email! });
         setShowOtpInput(true);
       } else {
@@ -74,7 +74,7 @@ export default function LoginPage() {
           title: 'Login Successful',
           description: 'Welcome back!',
         });
-        setIsAwaiting2FA(false);
+        setIsAwaiting2FA(null); // Clear 2FA state if not needed
         loggedInUser.getIdToken().then(token => {
           fetch('/api/auth/login-notify', {
             method: 'POST',
@@ -119,7 +119,7 @@ export default function LoginPage() {
             description: 'Welcome back!',
         });
         
-        setIsAwaiting2FA(false); // Clear the 2FA state on success
+        setIsAwaiting2FA(null); // Clear the 2FA state on success
         const currentUser = (await import('@/lib/firebase/auth')).auth.currentUser;
         if(currentUser) {
             currentUser.getIdToken().then(token => {
@@ -142,7 +142,7 @@ export default function LoginPage() {
   const handleBackToLogin = () => {
     setShowOtpInput(false);
     setLoginError(null);
-    setIsAwaiting2FA(false); // Also clear 2FA state if they go back
+    setIsAwaiting2FA(null); // Also clear 2FA state if they go back
     form.reset();
     setIsProcessing(false); // Ensure processing is stopped
   }
