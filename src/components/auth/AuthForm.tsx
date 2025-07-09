@@ -1,3 +1,4 @@
+
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -14,23 +15,30 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import type { SignInFormValues, SignUpFormValues, SignInSchema, SignUpSchema } from '@/types/auth';
 
 interface AuthFormProps {
   formType: 'login' | 'register';
   schema: typeof SignInSchema | typeof SignUpSchema;
-  onSubmit: (values: SignInFormValues | SignUpFormValues) => Promise<any>;
+  onSubmit: (values: SignInFormValues | SignUpFormValues) => Promise<void>;
   title: string;
   description: string;
   submitButtonText: string;
+  isLoading: boolean;
+  error: string | null;
 }
 
-export function AuthForm({ formType, schema, onSubmit, title, description, submitButtonText }: AuthFormProps) {
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
+export function AuthForm({
+  formType,
+  schema,
+  onSubmit,
+  title,
+  description,
+  submitButtonText,
+  isLoading,
+  error,
+}: AuthFormProps) {
   const form = useForm<z.infer<typeof schema>>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -38,19 +46,6 @@ export function AuthForm({ formType, schema, onSubmit, title, description, submi
       password: '',
     },
   });
-
-  const handleSubmit = async (values: z.infer<typeof schema>) => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      await onSubmit(values);
-      // Redirect will be handled by parent component or AuthContext
-    } catch (e: any) {
-      setError(e.message || 'An unexpected error occurred.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   return (
     <Card className="w-full max-w-md shadow-xl">
@@ -60,7 +55,7 @@ export function AuthForm({ formType, schema, onSubmit, title, description, submi
       </CardHeader>
       <CardContent>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             <FormField
               control={form.control}
               name="email"

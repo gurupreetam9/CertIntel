@@ -45,46 +45,51 @@ export default function LoginPage() {
   const handleLogin = async (values: SignInFormValues) => {
     setIsProcessing(true);
     setLoginError(null);
-    const result = await signIn(values);
 
-    if ('code' in result) {
-      const firebaseError = result as AuthError;
-      let errorMessage = 'Login failed. Please try again.';
-      if (firebaseError.code === 'auth/user-not-found' || firebaseError.code === 'auth/wrong-password' || firebaseError.code === 'auth/invalid-credential') {
-        errorMessage = 'Invalid email or password.';
+    try {
+      const result = await signIn(values);
+
+      if ('code' in result) {
+        const firebaseError = result as AuthError;
+        let errorMessage = 'Login failed. Please try again.';
+        if (firebaseError.code === 'auth/user-not-found' || firebaseError.code === 'auth/wrong-password' || firebaseError.code === 'auth/invalid-credential') {
+          errorMessage = 'Invalid email or password.';
+        }
+        setLoginError(errorMessage);
+        return;
       }
-      setLoginError(errorMessage);
-      setIsProcessing(false);
-      throw new Error(errorMessage);
-    }
 
-    const loggedInUser = result as User;
-    const userProfile = await getUserProfile(loggedInUser.uid);
-    
-    if (userProfile?.isTwoFactorEnabled) {
-      toast({
-        title: 'Verification Required',
-        description: 'Your account has 2FA enabled. Please check your email.',
-      });
-      setUserEmail(loggedInUser.email);
-      setIsAwaiting2FA(true); // Set global 2FA pending state
-      await initiateLoginOtp({ email: loggedInUser.email! });
-      setStep('otp');
-      setIsProcessing(false);
-    } else {
-      setIsAwaiting2FA(false); // Ensure 2FA state is false for non-2FA users
-      toast({
-        title: 'Login Successful',
-        description: 'Welcome back!',
-      });
-      // Fire-and-forget notification for non-2FA users
-      loggedInUser.getIdToken().then(token => {
-        fetch('/api/auth/login-notify', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` }
-        }).catch(err => console.error("Failed to send login notification:", err));
-      });
-      router.push('/');
+      const loggedInUser = result as User;
+      const userProfile = await getUserProfile(loggedInUser.uid);
+      
+      if (userProfile?.isTwoFactorEnabled) {
+        toast({
+          title: 'Verification Required',
+          description: 'Your account has 2FA enabled. Please check your email.',
+        });
+        setUserEmail(loggedInUser.email);
+        setIsAwaiting2FA(true); // Set global 2FA pending state
+        await initiateLoginOtp({ email: loggedInUser.email! });
+        setStep('otp');
+      } else {
+        setIsAwaiting2FA(false); // Ensure 2FA state is false for non-2FA users
+        toast({
+          title: 'Login Successful',
+          description: 'Welcome back!',
+        });
+        // Fire-and-forget notification for non-2FA users
+        loggedInUser.getIdToken().then(token => {
+          fetch('/api/auth/login-notify', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+          }).catch(err => console.error("Failed to send login notification:", err));
+        });
+        router.push('/');
+      }
+    } catch (e: any) {
+        setLoginError(e.message || "An unexpected error occurred during login.");
+    } finally {
+        setIsProcessing(false);
     }
   };
 
@@ -156,6 +161,8 @@ export default function LoginPage() {
             title="Welcome Back!"
             description="Sign in to access your CertIntel."
             submitButtonText="Login"
+            isLoading={isProcessing}
+            error={loginError}
           />
           <div className="mt-4 text-center text-sm">
             <Link href="/forgot-password" passHref className="text-muted-foreground hover:text-primary hover:underline">
