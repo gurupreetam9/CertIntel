@@ -7,19 +7,19 @@ import { useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 
 export default function ProtectedPage({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, isAwaiting2FA } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    // Wait until loading is false to make a decision
-    if (!loading && !user) {
-      // If auth state is resolved and there's no user, redirect to login
+    // If auth state is resolved and user is not logged in OR is still awaiting 2FA,
+    // redirect them to the login page.
+    if (!loading && (!user || isAwaiting2FA)) {
       router.replace('/login');
     }
-  }, [user, loading, router]);
+  }, [user, loading, isAwaiting2FA, router]);
 
-  if (loading || !user) {
-    // Show a loader while we are determining auth state, or while redirecting.
+  // Show a loader while determining auth state, or if user is in an unauthenticated state (and will be redirected).
+  if (loading || !user || isAwaiting2FA) {
     return (
       <div className="flex h-[calc(100vh-var(--header-height,4rem))] items-center justify-center bg-background">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -27,6 +27,6 @@ export default function ProtectedPage({ children }: { children: React.ReactNode 
     );
   }
 
-  // If loading is false and user exists, render the protected content
+  // If loading is false, user exists, and is NOT awaiting 2FA, render the protected content
   return <>{children}</>;
 }

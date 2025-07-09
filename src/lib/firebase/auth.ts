@@ -1,3 +1,4 @@
+
 'use client';
 
 import {
@@ -34,6 +35,9 @@ export const signIn = async ({ email, password }: SignInFormValues): Promise<Use
 
 export const signOut = async (): Promise<void | AuthError> => {
   try {
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('isAwaiting2FA');
+    }
     await firebaseSignOut(auth);
   } catch (error) {
     return error as AuthError;

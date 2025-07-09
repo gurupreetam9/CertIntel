@@ -23,13 +23,12 @@ import { SignInSchema, type SignInFormValues } from '@/types/auth';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { loading } = useAuth();
+  const { loading, setIsAwaiting2FA } = useAuth();
   const { toast } = useToast();
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
   
-  // New state to manage the UI flow on a single page
   const [showOtpInput, setShowOtpInput] = useState(false);
   const [userEmailForOtp, setUserEmailForOtp] = useState<string>('');
   const [otpValue, setOtpValue] = useState('');
@@ -66,14 +65,15 @@ export default function LoginPage() {
           description: 'Your account has 2FA enabled. Please check your email for a code.',
         });
         setUserEmailForOtp(loggedInUser.email!);
+        setIsAwaiting2FA(true); // Set global 2FA state
         await initiateLoginOtp({ email: loggedInUser.email! });
-        setShowOtpInput(true); // Show OTP field on the same page
+        setShowOtpInput(true);
       } else {
         toast({
           title: 'Login Successful',
           description: 'Welcome back!',
         });
-        // Fire-and-forget notification for non-2FA users
+        setIsAwaiting2FA(false);
         loggedInUser.getIdToken().then(token => {
           fetch('/api/auth/login-notify', {
             method: 'POST',
@@ -85,7 +85,7 @@ export default function LoginPage() {
     } catch (e: any) {
         setLoginError(e.message || "An unexpected error occurred during login.");
     } finally {
-        if (!showOtpInput) { // Only stop processing if not waiting for OTP
+        if (!showOtpInput) {
             setIsProcessing(false);
         }
     }
@@ -117,7 +117,7 @@ export default function LoginPage() {
             description: 'Welcome back!',
         });
         
-        // At this point, the user is fully authenticated. We can get the final user object.
+        setIsAwaiting2FA(false); // Clear the 2FA state on success
         const currentUser = (await import('@/lib/firebase/auth')).auth.currentUser;
         if(currentUser) {
             currentUser.getIdToken().then(token => {
@@ -127,7 +127,6 @@ export default function LoginPage() {
                 }).catch(err => console.error("Failed to send login notification:", err));
             });
         }
-
         router.push('/');
 
     } catch (error: any) {
@@ -137,6 +136,13 @@ export default function LoginPage() {
         setIsProcessing(false);
     }
   };
+
+  const handleBackToLogin = () => {
+    setShowOtpInput(false);
+    setLoginError(null);
+    setIsAwaiting2FA(false); // Also clear 2FA state if they go back
+    form.reset();
+  }
 
   if (loading) {
      return (
@@ -223,7 +229,7 @@ export default function LoginPage() {
                     {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Verify & Sign In
                 </Button>
-                 <Button variant="link" className="w-full h-auto p-0 text-sm" onClick={() => {setShowOtpInput(false); setLoginError(null); form.reset();}}>
+                 <Button variant="link" className="w-full h-auto p-0 text-sm" onClick={handleBackToLogin}>
                     Use a different account
                 </Button>
             </form>

@@ -14,6 +14,8 @@ interface AuthContextType {
   userProfile: UserProfile | null;
   loading: boolean;
   userId: string | null;
+  isAwaiting2FA: boolean; // NEW: Track if user is in the middle of 2FA
+  setIsAwaiting2FA: (isAwaiting: boolean) => void; // NEW: Function to set the 2FA state
   refreshUserProfile: () => void;
 }
 
@@ -22,6 +24,8 @@ export const AuthContext = createContext<AuthContextType>({
   userProfile: null,
   loading: true,
   userId: null,
+  isAwaiting2FA: false,
+  setIsAwaiting2FA: () => {},
   refreshUserProfile: () => {},
 });
 
@@ -32,6 +36,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
+  const [isAwaiting2FA, setisAwaiting2FAState] = useState(false);
+
+  const setIsAwaiting2FA = (isAwaiting: boolean) => {
+    setisAwaiting2FAState(isAwaiting);
+    if (typeof window !== 'undefined') {
+        if (isAwaiting) {
+            sessionStorage.setItem('isAwaiting2FA', 'true');
+        } else {
+            sessionStorage.removeItem('isAwaiting2FA');
+        }
+    }
+  };
 
   const refreshUserProfile = useCallback(() => {
     console.log("AuthContext: refreshUserProfile called. (Currently a no-op due to real-time listener, but can be enhanced if needed).");
@@ -39,16 +55,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     let profileListenerUnsubscribe: Unsubscribe | undefined = undefined;
+    
+    // Check sessionStorage for persisted 2FA state on initial load
+    const isAwaitingFromSession = typeof window !== 'undefined' && sessionStorage.getItem('isAwaiting2FA') === 'true';
+    if(isAwaitingFromSession) {
+        setisAwaiting2FAState(true);
+    }
 
     const authUnsubscribe = firebaseOnAuthStateChanged((firebaseUser) => {
-      // Always clean up the old profile listener when the auth state changes
       if (profileListenerUnsubscribe) {
         profileListenerUnsubscribe();
         profileListenerUnsubscribe = undefined;
       }
       
       if (firebaseUser) {
-        setLoading(true); // Start loading whenever a user is detected
         setUser(firebaseUser);
         setUserId(firebaseUser.uid);
         
@@ -56,34 +76,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         profileListenerUnsubscribe = onSnapshot(userDocRef, 
           (docSnap) => {
             setUserProfile(docSnap.exists() ? docSnap.data() as UserProfile : null);
-            // Now that we have user and profile info, we can definitively stop loading
             setLoading(false);
           },
           (error) => {
             console.error("AuthContext Snapshot Error:", error);
             setUserProfile(null);
-            setLoading(false); // Stop loading on error too
+            setLoading(false);
           }
         );
       } else {
-        // No user is logged in. Reset all user-specific state.
         setUser(null);
         setUserId(null);
         setUserProfile(null);
-        setLoading(false); // Definitive state: not logged in
+        setIsAwaiting2FA(false); // Clear 2FA state on logout
+        setLoading(false);
       }
     });
 
-    // Cleanup function for the main auth listener
     return () => {
       authUnsubscribe();
       if (profileListenerUnsubscribe) {
         profileListenerUnsubscribe();
       }
     };
-  }, []); // Empty dependency array ensures this runs only once on mount
+  }, []);
 
-  if (loading) {
+  if (loading && !isAwaiting2FA) { // Don't show global loader if we are just waiting for 2FA input
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-16 w-16 animate-spin text-primary" />
@@ -92,7 +110,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }
 
   return (
-    <AuthContext.Provider value={{ user, userProfile, loading, userId, refreshUserProfile }}>
+    <AuthContext.Provider value={{ user, userProfile, loading, userId, isAwaiting2FA, setIsAwaiting2FA, refreshUserProfile }}>
       {children}
     </AuthContext.Provider>
   );
