@@ -8,14 +8,14 @@
  */
 import { ai } from '@/ai/genkit';
 import { z } from 'zod';
-import { signUp as firebaseSignUp } from '@/lib/firebase/auth'; // Firebase client auth for user creation
+import { getAdminAuth } from '@/lib/firebase/adminConfig'; // Use Admin SDK
 import {
   createUserProfileDocument_SERVER,
   createAdminProfile_SERVER,
 } from '@/lib/services/userService.server';
-import type { User, AuthError } from 'firebase/auth';
+import type { UserRecord } from 'firebase-admin/auth'; // Use Admin SDK type
 import { sendEmail } from '@/lib/emailUtils';
-import { getOtp, deleteOtp } from '@/lib/otpStore'; // Import centralized store helpers
+import { getOtp, deleteOtp } from '@/lib/otpStore';
 
 const VerifyEmailOtpAndRegisterInputSchema = z.object({
   email: z.string().email({ message: 'Invalid email address.' }),
@@ -59,14 +59,14 @@ const verifyEmailOtpAndRegisterFlow = ai.defineFlow(
     outputSchema: VerifyEmailOtpAndRegisterOutputSchema,
   },
   async ({ email, otp, password, role, name, rollNo, adminUniqueId, isTwoFactorEnabled }) => {
-    const storedEntry = await getOtp(email); // Use centralized helper - now async
+    const storedEntry = await getOtp(email);
 
     if (!storedEntry) {
       return { success: false, message: 'OTP not found. It might have expired or was never generated. Please request a new OTP.' };
     }
 
     if (Date.now() > storedEntry.expiresAt.toDate().getTime()) {
-      await deleteOtp(email); // Use centralized helper - now async
+      await deleteOtp(email);
       return { success: false, message: 'OTP has expired. Please request a new OTP.' };
     }
 
@@ -74,20 +74,25 @@ const verifyEmailOtpAndRegisterFlow = ai.defineFlow(
       return { success: false, message: 'Invalid OTP. Please try again.' };
     }
 
-    const firebaseAuthResult: User | AuthError = await firebaseSignUp({ email, password });
-
-    if ('code' in firebaseAuthResult) {
-      const firebaseError = firebaseAuthResult as AuthError;
+    let firebaseUser: UserRecord;
+    try {
+      const adminAuth = getAdminAuth();
+      firebaseUser = await adminAuth.createUser({
+        email,
+        password,
+        displayName: name || email.split('@')[0],
+        emailVerified: true, // OTP verification serves as email verification
+      });
+    } catch (error: any) {
       let errorMessage = 'Registration failed. Please try again.';
-      if (firebaseError.code === 'auth/email-already-in-use') {
+      if (error.code === 'auth/email-already-exists') {
         errorMessage = 'This email is already registered.';
-      } else if (firebaseError.message) {
-        errorMessage = firebaseError.message;
+      } else if (error.message) {
+        errorMessage = `Registration failed: ${error.message}`;
       }
       return { success: false, message: errorMessage };
     }
 
-    const firebaseUser = firebaseAuthResult as User;
     await deleteOtp(email); // Success, invalidate OTP
 
     try {
@@ -98,7 +103,12 @@ const verifyEmailOtpAndRegisterFlow = ai.defineFlow(
       if (role === 'admin') {
         const adminProfileDetails = await createAdminProfile_SERVER(firebaseUser.uid, email);
         adminUniqueIdForResponse = adminProfileDetails.adminUniqueId;
-        await createUserProfileDocument_SERVER(firebaseUser.uid, email, 'admin', { adminUniqueId: adminUniqueIdForResponse, isTwoFactorEnabled });
+        // The above call to createAdminProfile_SERVER already calls createUserProfileDocument_SERVER
+        // We just need to ensure 2FA flag is set if provided
+        if (isTwoFactorEnabled) {
+            const { getAdminFirestore } = await import('@/lib/firebase/adminConfig');
+            await getAdminFirestore().collection('users').doc(firebaseUser.uid).set({ isTwoFactorEnabled: true }, { merge: true });
+        }
         registrationMessage = `Admin registration successful! Your Admin ID is: ${adminUniqueIdForResponse}`;
 
         await sendEmail({
