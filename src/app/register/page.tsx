@@ -27,7 +27,7 @@ const RoleSelectionSchema = z.object({
 type RoleSelectionFormValues = z.infer<typeof RoleSelectionSchema>;
 
 const EmailSchema = z.object({
-  email: z.string().email({ message: 'Invalid email address format.' }),
+  email: z.string().email({ message: 'Invalid email address format.' }).refine(val => val.endsWith('@gmail.com'), { message: 'Only Gmail accounts are supported at this time.' }),
 });
 type EmailFormValues = z.infer<typeof EmailSchema>;
 

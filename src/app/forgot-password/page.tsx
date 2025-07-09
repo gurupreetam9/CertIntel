@@ -18,7 +18,7 @@ import { sendPasswordReset } from '@/lib/firebase/auth';
 import { Loader2 } from 'lucide-react';
 
 const ForgotPasswordSchema = z.object({
-  email: z.string().email({ message: 'Please enter a valid email address.' }),
+  email: z.string().email({ message: 'Please enter a valid email address.' }).refine(val => val.endsWith('@gmail.com'), { message: 'Only Gmail accounts are supported.' }),
 });
 type ForgotPasswordFormValues = z.infer<typeof ForgotPasswordSchema>;
 
