@@ -3,7 +3,7 @@
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info, BrainCircuit, RefreshCw, FileText, FileWarning, Edit } from 'lucide-react';
+import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info, BrainCircuit, RefreshCw, FileText, FileWarning, Edit, X } from 'lucide-react';
 import Link from 'next/link';
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useToast } from '@/hooks/use-toast';
@@ -52,55 +52,95 @@ function AiFeaturePageContent() {
   const { user, userId } = useAuth();
 
   const [isLoading, setIsLoading] = useState(true);
-  const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [allUserImages, setAllUserImages] = useState<UserImage[]>([]);
   const [suggestionsResult, setSuggestionsResult] = useState<SuggestionsPhaseResult | null>(null);
   
-  const [isRefreshingCourse, setIsRefreshingCourse] = useState<string | null>(null);
   const [imageToEdit, setImageToEdit] = useState<UserImage | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [isUpdatingName, setIsUpdatingName] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // New states for manual course entry
+  const [manualCourses, setManualCourses] = useState<string[]>([]);
+  const [manualCourseInput, setManualCourseInput] = useState('');
+  const [isAddingManualCourse, setIsAddingManualCourse] = useState(false);
+  const [isDeletingManualCourse, setIsDeletingManualCourse] = useState<string | null>(null);
+
+  // New state for generation buttons
+  const [generatingAction, setGeneratingAction] = useState<string | null>(null); // 'all', 'new', or course name
+
+
   const triggerRefresh = useCallback(() => setRefreshKey(k => k + 1), []);
 
-  // Fetch all user images (which now contain pre-extracted course names)
-  useEffect(() => {
+  const fetchInitialData = useCallback(async () => {
     if (!userId || !user) {
-      if (!isLoading) setIsLoading(true); // Ensure loader shows if auth is lost
+      if (!isLoading) setIsLoading(true);
       return;
     }
+    
+    setIsLoading(true);
+    setError(null);
 
-    const fetchInitialData = async () => {
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const idToken = await user.getIdToken();
-        const imagesResponse = await fetch(`/api/user-images?userId=${userId}`, {
+    try {
+      const idToken = await user.getIdToken();
+      const imagesPromise = fetch(`/api/user-images?userId=${userId}`, {
           headers: { 'Authorization': `Bearer ${idToken}` }
-        });
+      });
+      
+      const suggestionsPromise = fetch(`${flaskServerBaseUrl}/api/latest-processed-results?userId=${userId}`, {
+          headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
 
-        if (!imagesResponse.ok) {
-          const err = await imagesResponse.json();
-          throw new Error(err.message || "Failed to fetch user's certificates.");
-        }
-        
-        const imagesData: UserImage[] = await imagesResponse.json();
-        setAllUserImages(imagesData);
+      const manualCoursesPromise = fetch(`${flaskServerBaseUrl}/api/manual-courses?userId=${userId}`, {
+          headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
 
-      } catch (err: any) {
-        setError(err.message);
-        toast({ title: "Error Loading Data", description: err.message, variant: 'destructive' });
-      } finally {
-        setIsLoading(false);
+      const [imagesResponse, suggestionsResponse, manualCoursesResponse] = await Promise.all([imagesPromise, suggestionsPromise, manualCoursesPromise]);
+
+      // Handle images
+      if (!imagesResponse.ok) {
+          const err = await imagesResponse.json().catch(() => ({ message: "Failed to fetch user's certificates." }));
+          throw new Error(err.message);
       }
-    };
+      const imagesData: UserImage[] = await imagesResponse.json();
+      setAllUserImages(imagesData);
+
+      // Handle suggestions
+      if (suggestionsResponse.ok) {
+          const suggestionsData: SuggestionsPhaseResult = await suggestionsResponse.json();
+          setSuggestionsResult(suggestionsData);
+          toast({ title: "Latest AI Suggestions Loaded", description: "Your previously generated insights are ready.", duration: 3000 });
+      } else {
+        if (suggestionsResponse.status !== 404) {
+            console.warn(`Could not fetch latest suggestions, status: ${suggestionsResponse.status}`);
+        }
+        setSuggestionsResult(null);
+      }
+
+      // Handle manual courses
+      if (manualCoursesResponse.ok) {
+          const manualCoursesData = await manualCoursesResponse.json();
+          setManualCourses(manualCoursesData);
+      } else {
+          console.warn('Could not fetch manual courses.');
+      }
+
+    } catch (err: any) {
+      setError(err.message);
+      toast({ title: "Error Loading Page Data", description: err.message, variant: 'destructive' });
+      setSuggestionsResult(null);
+      setManualCourses([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [userId, user, flaskServerBaseUrl, toast]);
+
+  useEffect(() => {
     fetchInitialData();
-  }, [userId, user, toast, refreshKey]);
+  }, [fetchInitialData, refreshKey]);
 
   const courseGroups = useMemo(() => {
     const groups: { [key: string]: CourseGroup } = {};
@@ -126,27 +166,40 @@ function AiFeaturePageContent() {
   }, [allUserImages]);
   
   const allKnownCourses = useMemo(() => {
-      return [...new Set(allUserImages.map(img => img.courseName).filter(Boolean) as string[])];
-  }, [allUserImages]);
+      const coursesFromCerts = allUserImages.map(img => img.courseName).filter(Boolean) as string[];
+      const combined = [...new Set([...coursesFromCerts, ...manualCourses])];
+      return combined;
+  }, [allUserImages, manualCourses]);
 
-  const handleGetSuggestions = useCallback(async (coursesToFetch: string[], forceRefreshList: string[] = []) => {
+  const processedCourseNames = useMemo(() => {
+    if (!suggestionsResult?.user_processed_data) {
+        return new Set<string>();
+    }
+    return new Set(suggestionsResult.user_processed_data.map(d => d.identified_course_name));
+  }, [suggestionsResult]);
+
+  const newCourses = useMemo(() => {
+    return allKnownCourses.filter(course => !processedCourseNames.has(course));
+  }, [allKnownCourses, processedCourseNames]);
+
+  const handleGetSuggestions = useCallback(async (coursesToFetch: string[], forceRefreshList: string[] = [], actionIdentifier: string) => {
     if (!userId) return;
-    setIsGenerating(true);
-    if(forceRefreshList.length === 0) setIsRefreshingCourse(null);
+    setGeneratingAction(actionIdentifier);
     setError(null);
 
     if (coursesToFetch.length === 0) {
-      toast({ title: 'No Courses', description: 'No extracted course names available to get suggestions for.', variant: 'destructive' });
-      setIsGenerating(false);
+      toast({ title: 'No Courses', description: 'No course names available to get suggestions for.', variant: 'destructive' });
+      setGeneratingAction(null);
       return;
     }
 
     try {
       const endpoint = `${flaskServerBaseUrl}/api/process-certificates`;
+      // Always send the full list of known courses so the backend can return a complete, merged result
       const payload: any = {
         userId,
         mode: 'suggestions_only',
-        knownCourseNames: coursesToFetch,
+        knownCourseNames: allKnownCourses, 
         associated_image_file_ids_from_previous_run: allUserImages.map(img => img.fileId)
       };
       if (forceRefreshList.length > 0) {
@@ -163,7 +216,7 @@ function AiFeaturePageContent() {
       if (!response.ok || data.error) throw new Error(data.error || `Server error: ${response.status}`);
       
       setSuggestionsResult(data);
-      toast({ title: 'Suggestions Generated', description: `AI insights are ready for ${coursesToFetch.length} course(s).` });
+      toast({ title: 'Suggestions Generated', description: `AI insights are ready for your courses.` });
       
       if (data.llm_error_summary) {
         toast({ title: "LLM Warning", description: data.llm_error_summary, variant: "destructive", duration: 7000 });
@@ -173,10 +226,9 @@ function AiFeaturePageContent() {
       setError(err.message || 'Failed to generate suggestions.');
       toast({ title: 'Suggestion Generation Failed', description: err.message, variant: 'destructive' });
     } finally {
-      setIsGenerating(false);
-      setIsRefreshingCourse(null);
+      setGeneratingAction(null);
     }
-  }, [userId, flaskServerBaseUrl, toast, allUserImages]);
+  }, [userId, flaskServerBaseUrl, toast, allUserImages, allKnownCourses]);
   
   const handleUpdateCourseName = async () => {
     if (!imageToEdit || !newName.trim() || !userId) return;
@@ -198,6 +250,51 @@ function AiFeaturePageContent() {
       toast({ title: "Update Failed", description: err.message, variant: "destructive" });
     } finally {
       setIsUpdatingName(false);
+    }
+  };
+  
+  const handleAddManualCourse = async () => {
+    if (!manualCourseInput.trim() || !userId) return;
+    setIsAddingManualCourse(true);
+    try {
+        const response = await fetch(`${flaskServerBaseUrl}/api/manual-courses`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+            body: JSON.stringify({ userId, courseName: manualCourseInput.trim() })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Failed to add course');
+        
+        toast({ title: "Course Added", description: `"${manualCourseInput.trim()}" has been added.` });
+        setManualCourses(prev => [...new Set([...prev, manualCourseInput.trim()])]);
+        setManualCourseInput('');
+
+    } catch (err: any) {
+        toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+        setIsAddingManualCourse(false);
+    }
+  };
+
+  const handleDeleteManualCourse = async (courseName: string) => {
+    if (!userId) return;
+    setIsDeletingManualCourse(courseName);
+    try {
+        const response = await fetch(`${flaskServerBaseUrl}/api/manual-courses`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+            body: JSON.stringify({ userId, courseName })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Failed to delete course');
+
+        toast({ title: "Course Deleted", description: `"${courseName}" has been removed.` });
+        setManualCourses(prev => prev.filter(c => c !== courseName));
+
+    } catch (err: any) {
+        toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+        setIsDeletingManualCourse(null);
     }
   };
   
@@ -223,7 +320,7 @@ function AiFeaturePageContent() {
         {isLoading && (
             <div className="flex flex-col items-center justify-center text-center py-10">
                 <Loader2 className="h-10 w-10 animate-spin text-primary mb-3" />
-                <p className="text-muted-foreground">Loading your certificates...</p>
+                <p className="text-muted-foreground">Loading your certificates and AI suggestions...</p>
             </div>
         )}
 
@@ -238,10 +335,57 @@ function AiFeaturePageContent() {
           <>
             <Card className="mb-8">
               <CardHeader>
-                <CardTitle>Your Extracted Courses</CardTitle>
+                <CardTitle>Manually Add Courses</CardTitle>
                 <CardDescription>
-                  These courses were automatically extracted when you uploaded your certificates.
-                  You can now generate AI-powered descriptions and career suggestions based on them.
+                  Add course names that weren't from certificates to include them in the AI analysis.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex gap-2">
+                    <Input 
+                        placeholder="e.g., Advanced JavaScript"
+                        value={manualCourseInput}
+                        onChange={(e) => setManualCourseInput(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleAddManualCourse() }}
+                        disabled={isAddingManualCourse}
+                    />
+                    <Button onClick={handleAddManualCourse} disabled={isAddingManualCourse || !manualCourseInput.trim()}>
+                        {isAddingManualCourse && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Add
+                    </Button>
+                </div>
+                {manualCourses.length > 0 && (
+                    <div className="mt-4 space-y-2">
+                        <h4 className="text-sm font-medium text-muted-foreground">Manually Added Courses:</h4>
+                        <div className="flex flex-wrap gap-2">
+                            {manualCourses.map(course => (
+                                <div key={course} className="flex items-center gap-1.5 pl-3 pr-1 py-1 text-sm bg-secondary text-secondary-foreground rounded-full">
+                                    <span>{course}</span>
+                                    <Button 
+                                        variant="ghost" 
+                                        size="icon" 
+                                        className="h-5 w-5 rounded-full hover:bg-destructive/20" 
+                                        onClick={() => handleDeleteManualCourse(course)}
+                                        disabled={!!isDeletingManualCourse}
+                                        >
+                                        {isDeletingManualCourse === course 
+                                            ? <Loader2 className="h-3 w-3 animate-spin"/> 
+                                            : <X className="h-3 w-3"/>
+                                        }
+                                    </Button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="mb-8">
+              <CardHeader>
+                <CardTitle>Your Consolidated Course List</CardTitle>
+                <CardDescription>
+                  This list includes courses from your certificates and any you've added manually. Use this list to generate suggestions.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -252,13 +396,17 @@ function AiFeaturePageContent() {
                         ))}
                     </div>
                 ) : (
-                    <p className="text-muted-foreground italic">No course names have been extracted yet. Upload some certificates to get started.</p>
+                    <p className="text-muted-foreground italic">No course names have been identified yet. Upload some certificates or add one manually.</p>
                 )}
               </CardContent>
-              <CardFooter>
-                 <Button onClick={() => handleGetSuggestions(allKnownCourses)} disabled={isGenerating || allKnownCourses.length === 0}>
-                   {isGenerating && !isRefreshingCourse ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <BrainCircuit className="mr-2 h-5 w-5" />}
-                   Generate AI Suggestions
+              <CardFooter className="flex flex-wrap gap-2">
+                 <Button onClick={() => handleGetSuggestions(allKnownCourses, [], 'new')} disabled={generatingAction !== null || newCourses.length === 0}>
+                   {generatingAction === 'new' ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Sparkles className="mr-2 h-5 w-5" />}
+                   Generate for New Courses ({newCourses.length})
+                 </Button>
+                 <Button onClick={() => handleGetSuggestions(allKnownCourses, allKnownCourses, 'all')} disabled={generatingAction !== null || allKnownCourses.length === 0}>
+                   {generatingAction === 'all' ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <BrainCircuit className="mr-2 h-5 w-5" />}
+                   Generate for All Courses
                  </Button>
               </CardFooter>
             </Card>
@@ -270,8 +418,8 @@ function AiFeaturePageContent() {
                         <CardHeader>
                             <div className="flex justify-between items-start gap-4">
                                 <CardTitle className="text-xl font-headline text-primary">{courseData.identified_course_name}</CardTitle>
-                                <Button variant="outline" size="sm" onClick={() => { setIsRefreshingCourse(courseData.identified_course_name); handleGetSuggestions([courseData.identified_course_name.replace(' [UNVERIFIED]','')], [courseData.identified_course_name.replace(' [UNVERIFIED]','')]) }} disabled={isGenerating}>
-                                    {isGenerating && isRefreshingCourse === courseData.identified_course_name ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <RefreshCw className="mr-2 h-4 w-4"/>}
+                                <Button variant="outline" size="sm" onClick={() => handleGetSuggestions(allKnownCourses, [courseData.identified_course_name.replace(' [UNVERIFIED]','')], courseData.identified_course_name)} disabled={generatingAction !== null}>
+                                    {generatingAction === courseData.identified_course_name ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <RefreshCw className="mr-2 h-4 w-4"/>}
                                     Refresh
                                 </Button>
                             </div>

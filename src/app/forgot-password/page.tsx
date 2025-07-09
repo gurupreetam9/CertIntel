@@ -1,4 +1,3 @@
-
 'use client';
 
 import Link from 'next/link';
@@ -19,11 +18,7 @@ import { sendPasswordReset } from '@/lib/firebase/auth';
 import { Loader2 } from 'lucide-react';
 
 const ForgotPasswordSchema = z.object({
-  email: z.string()
-    .email({ message: 'Please enter a valid email address.' })
-    .refine(email => email.endsWith('@gmail.com'), {
-      message: 'Invalid email address. Only @gmail.com accounts are supported.',
-    }),
+  email: z.string().email({ message: 'Please enter a valid email address.' }).refine(val => val.endsWith('@gmail.com'), { message: 'Only Gmail accounts are supported.' }),
 });
 type ForgotPasswordFormValues = z.infer<typeof ForgotPasswordSchema>;
 
@@ -112,7 +107,7 @@ export default function ForgotPasswordPage() {
         <CardHeader>
           <CardTitle className="text-3xl font-headline">Reset Your Password</CardTitle>
           <CardDescription>
-            Enter your email address below. If an account exists, we&apos;ll send you a link to reset your password. Only @gmail.com addresses are supported.
+            Enter your email address below. If an account exists, we&apos;ll send you a link to reset your password.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -149,4 +144,3 @@ export default function ForgotPasswordPage() {
     </div>
   );
 }
-

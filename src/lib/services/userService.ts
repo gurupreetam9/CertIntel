@@ -1,5 +1,3 @@
-
-// src/lib/services/userService.ts
 'use client'; // This file is for client-side Firebase interactions
 import { auth as firebaseAuthClient, firestore } from '@/lib/firebase/config';
 import type { UserProfile, AdminProfile, StudentLinkRequest, UserRole, LinkRequestStatus } from '@/lib/models/user';

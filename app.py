@@ -35,8 +35,9 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 app_logger.info("Flask app instance created with CORS enabled for all origins.")
 
-MONGODB_URI=
-DB_NAME="imageverse_db"
+
+MONGODB_URI=os.environ.get("MONGODB_URI")
+DB_NAME=os.environ.get("DB_NAME")
 
 if not MONGODB_URI:
     app.logger.critical("MONGODB_URI is not set. Please set it in your .env file or environment variables.")
@@ -46,6 +47,7 @@ db = None
 fs_images = None
 user_course_processing_collection = None
 manual_course_names_collection = None
+manual_courses_collection = None
 
 try:
     if MONGODB_URI:
@@ -57,12 +59,14 @@ try:
         user_course_processing_collection = db["user_course_processing_results"]
         manual_course_names_collection = db["manual_course_names"]
         manual_course_names_collection.create_index([("userId", 1), ("fileId", 1)], unique=True, background=True)
-        app.logger.info(f"Successfully connected to MongoDB: {DB_NAME}, GridFS bucket 'images', collection 'user_course_processing_results', and collection 'manual_course_names'.")
+        manual_courses_collection = db["manual_courses"]
+        manual_courses_collection.create_index([("userId", 1), ("courseName", 1)], unique=True, background=True)
+        app.logger.info(f"Successfully connected to MongoDB: {DB_NAME}, GridFS bucket 'images', and collections 'user_course_processing_results', 'manual_course_names', 'manual_courses'.")
     else:
         app.logger.warning("MONGODB_URI not found, MongoDB connection will not be established.")
 except Exception as e:
     app.logger.error(f"Failed to connect to MongoDB or initialize collections: {e}")
-    mongo_client = None; db = None; fs_images = None; user_course_processing_collection = None; manual_course_names_collection = None
+    mongo_client = None; db = None; fs_images = None; user_course_processing_collection = None; manual_course_names_collection = None; manual_courses_collection = None
 
 POPPLER_PATH = os.getenv("POPPLER_PATH", None)
 if POPPLER_PATH: app_logger.info(f"Flask app.py: POPPLER_PATH found: {POPPLER_PATH}")
@@ -319,6 +323,86 @@ def process_certificates_from_db():
     except Exception as e:
         app_logger.error(f"Flask (Req ID: {req_id_cert}): Error during certificate processing for user {user_id}: {str(e)}", exc_info=True)
         return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
+
+@app.route('/api/manual-courses', methods=['GET'])
+def get_manual_courses():
+    req_id = datetime.now().strftime('%Y%m%d%H%M%S%f')
+    app.logger.info(f"Flask /api/manual-courses (Req ID: {req_id}): Received GET request.")
+    user_id = request.args.get('userId')
+    if not user_id:
+        return jsonify({"error": "userId query parameter is required"}), 400
+
+    if manual_courses_collection is None:
+        return jsonify({"error": "Database component 'manual_courses_collection' not available."}), 503
+
+    try:
+        courses = manual_courses_collection.find(
+            {"userId": user_id},
+            {"_id": 0, "courseName": 1} # Projection
+        ).sort("createdAt", 1) # Sort by creation time
+        
+        course_names = [doc['courseName'] for doc in courses]
+        app.logger.info(f"Flask (Req ID: {req_id}): Found {len(course_names)} manual courses for userId '{user_id}'.")
+        return jsonify(course_names), 200
+    except Exception as e:
+        app.logger.error(f"Flask (Req ID: {req_id}): Error fetching manual courses for userId {user_id}: {str(e)}", exc_info=True)
+        return jsonify({"error": "An unexpected server error occurred."}), 500
+
+@app.route('/api/manual-courses', methods=['POST'])
+def add_manual_course():
+    req_id = datetime.now().strftime('%Y%m%d%H%M%S%f')
+    app.logger.info(f"Flask /api/manual-courses (Req ID: {req_id}): Received POST request.")
+    
+    if manual_courses_collection is None:
+        return jsonify({"error": "Database component 'manual_courses_collection' not available."}), 503
+        
+    data = request.get_json()
+    user_id = data.get("userId")
+    course_name = data.get("courseName")
+
+    if not all([user_id, course_name]):
+        return jsonify({"error": "Missing userId or courseName"}), 400
+
+    try:
+        manual_courses_collection.update_one(
+            {"userId": user_id, "courseName": course_name.strip()},
+            {"$setOnInsert": {"createdAt": datetime.now(timezone.utc)}},
+            upsert=True
+        )
+        app.logger.info(f"Flask (Req ID: {req_id}): Added/updated manual course '{course_name}' for userId '{user_id}'.")
+        return jsonify({"success": True, "message": "Course added successfully."}), 201
+    except Exception as e:
+        app.logger.error(f"Flask (Req ID: {req_id}): Error adding manual course for userId {user_id}: {str(e)}", exc_info=True)
+        if "duplicate key" in str(e):
+             return jsonify({"error": "This course name already exists for this user."}), 409
+        return jsonify({"error": "An unexpected server error occurred."}), 500
+
+@app.route('/api/manual-courses', methods=['DELETE'])
+def delete_manual_course():
+    req_id = datetime.now().strftime('%Y%m%d%H%M%S%f')
+    app.logger.info(f"Flask /api/manual-courses (Req ID: {req_id}): Received DELETE request.")
+    
+    if manual_courses_collection is None:
+        return jsonify({"error": "Database component 'manual_courses_collection' not available."}), 503
+        
+    data = request.get_json()
+    user_id = data.get("userId")
+    course_name = data.get("courseName")
+
+    if not all([user_id, course_name]):
+        return jsonify({"error": "Missing userId or courseName"}), 400
+        
+    try:
+        result = manual_courses_collection.delete_one({"userId": user_id, "courseName": course_name})
+        if result.deleted_count == 0:
+            app.logger.warning(f"Flask (Req ID: {req_id}): Manual course '{course_name}' not found for deletion for userId '{user_id}'.")
+            return jsonify({"error": "Course not found."}), 404
+            
+        app.logger.info(f"Flask (Req ID: {req_id}): Deleted manual course '{course_name}' for userId '{user_id}'.")
+        return jsonify({"success": True, "message": "Course deleted."}), 200
+    except Exception as e:
+        app.logger.error(f"Flask (Req ID: {req_id}): Error deleting manual course for userId {user_id}: {str(e)}", exc_info=True)
+        return jsonify({"error": "An unexpected server error occurred."}), 500
 
 if __name__ == '__main__':
     app.logger.info("Flask application starting with __name__ == '__main__'")

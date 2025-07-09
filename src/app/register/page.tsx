@@ -1,4 +1,3 @@
-
 'use client';
 
 import Link from 'next/link';
@@ -18,8 +17,10 @@ import { Loader2, User, Shield, ArrowRight, CheckSquare, Square } from 'lucide-r
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { initiateEmailOtp, type InitiateEmailOtpOutput } from '@/ai/flows/initiate-email-otp';
-import { verifyEmailOtpAndRegister, type VerifyEmailOtpAndRegisterOutput } from '@/ai/flows/verify-email-otp-and-register';
+import { verifyRegistrationOtp, type VerifyRegistrationOtpOutput } from '@/ai/flows/verify-registration-otp';
 import type { UserRole } from '@/lib/models/user';
+import { signUp } from '@/lib/firebase/auth';
+import type { AuthError, User as FirebaseUser } from 'firebase/auth';
 
 // Schemas for different steps/roles
 const RoleSelectionSchema = z.object({
@@ -28,11 +29,7 @@ const RoleSelectionSchema = z.object({
 type RoleSelectionFormValues = z.infer<typeof RoleSelectionSchema>;
 
 const EmailSchema = z.object({
-  email: z.string()
-    .email({ message: 'Invalid email address format.' })
-    .refine(email => email.endsWith('@gmail.com'), {
-      message: 'Invalid email address. Only @gmail.com accounts are supported for registration.',
-    }),
+  email: z.string().email({ message: 'Invalid email address format.' }).refine(val => val.endsWith('@gmail.com'), { message: 'Only Gmail accounts are supported at this time.' }),
 });
 type EmailFormValues = z.infer<typeof EmailSchema>;
 
@@ -109,7 +106,7 @@ export default function RegisterPage() {
       if (result.success) {
         toast({
           title: 'OTP Sent',
-          description: result.message + (process.env.NODE_ENV === 'development' ? " Check server console for OTP." : ""),
+          description: result.message,
         });
         setEmail(values.email);
         setStep(3);
@@ -175,45 +172,62 @@ export default function RegisterPage() {
     setIsSubmitting(true);
     setServerError(null);
 
-    const commonPayload = {
-      email,
-      otp: values.otp,
-      password: values.password,
-      role: selectedRole,
-      isTwoFactorEnabled: values.isTwoFactorEnabled,
-    };
-
-    let payload;
-    if (selectedRole === 'student') {
-      const studentValues = values as StudentDetailsFormValues;
-      payload = {
-        ...commonPayload,
-        name: studentValues.name,
-        rollNo: studentValues.rollNo || undefined,
-        adminUniqueId: studentValues.teacherId || undefined,
-      };
-    } else { // admin
-      payload = commonPayload;
-    }
-
     try {
-      const result: VerifyEmailOtpAndRegisterOutput = await verifyEmailOtpAndRegister(payload);
-
-      if (result.success) {
-        toast({
-          title: 'Registration Successful',
-          description: result.message + (result.adminUniqueIdGenerated ? ` Your Admin ID: ${result.adminUniqueIdGenerated}` : ''),
-          duration: result.adminUniqueIdGenerated ? 10000 : 5000,
-        });
-        router.push('/');
-      } else {
-        setServerError(result.message);
-        toast({ title: 'Registration Failed', description: result.message, variant: 'destructive' });
+      // Step 1: Verify OTP
+      const otpResult: VerifyRegistrationOtpOutput = await verifyRegistrationOtp({ email, otp: values.otp });
+      if (!otpResult.success) {
+        throw new Error(otpResult.message);
       }
+      toast({ title: 'OTP Verified', description: 'Proceeding with account creation...' });
+
+      // Step 2: Create Firebase Auth user on the client
+      const signUpResult = await signUp({ email, password: values.password });
+      if ('code' in signUpResult) { // AuthError
+        throw new Error((signUpResult as AuthError).message);
+      }
+      const newUser = signUpResult as FirebaseUser;
+      const idToken = await newUser.getIdToken();
+
+      // Step 3: Create Firestore profile on the server
+      const profilePayload: any = {
+        role: selectedRole,
+        isTwoFactorEnabled: values.isTwoFactorEnabled,
+      };
+
+      if (selectedRole === 'student') {
+        const studentValues = values as StudentDetailsFormValues;
+        profilePayload.name = studentValues.name;
+        profilePayload.rollNo = studentValues.rollNo || undefined;
+        profilePayload.adminUniqueId = studentValues.teacherId || undefined;
+      }
+      
+      const createProfileResponse = await fetch('/api/auth/create-profile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: JSON.stringify(profilePayload),
+      });
+
+      const profileResult = await createProfileResponse.json();
+
+      if (!createProfileResponse.ok) {
+        throw new Error(profileResult.message || "Failed to create user profile on server.");
+      }
+
+      toast({
+        title: 'Registration Successful',
+        description: profileResult.message,
+        duration: profileResult.adminUniqueIdGenerated ? 10000 : 5000,
+      });
+
+      router.push('/');
+
     } catch (error: any) {
       const message = error.message || 'An unexpected error occurred during registration.';
       setServerError(message);
-      toast({ title: 'Error', description: message, variant: 'destructive' });
+      toast({ title: 'Registration Failed', description: message, variant: 'destructive' });
     } finally {
       setIsSubmitting(false);
     }
@@ -289,7 +303,7 @@ export default function RegisterPage() {
           <>
             <CardHeader>
               <CardTitle className="text-3xl font-headline">Register as {selectedRole === 'admin' ? 'Admin' : 'Student'}</CardTitle>
-              <CardDescription>Enter your email to receive a verification OTP. Only @gmail.com addresses are supported.</CardDescription>
+              <CardDescription>Enter your email to receive a verification OTP.</CardDescription>
             </CardHeader>
             <CardContent>
               <Form {...emailForm}>
@@ -334,7 +348,6 @@ export default function RegisterPage() {
               <CardTitle className="text-3xl font-headline">Final Step</CardTitle>
               <CardDescription>
                 Enter OTP sent to <span className="font-medium">{email}</span>, and complete your details.
-                {process.env.NODE_ENV === 'development' && " (Check server console for OTP)."}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -351,7 +364,7 @@ export default function RegisterPage() {
                     <FormField control={studentDetailsForm.control} name="rollNo" render={({ field }) => (
                       <FormItem>
                         <FormLabel>Roll Number (Optional)</FormLabel>
-                        <FormControl><Input placeholder="Your roll number" {...field} /></FormControl>
+                        <FormControl><Input placeholder="Your roll number" {...field} value={field.value || ''}/></FormControl>
                         <FormMessage />
                       </FormItem>
                     )} />
@@ -371,7 +384,7 @@ export default function RegisterPage() {
                          <FormField control={studentDetailsForm.control} name="teacherId" render={({ field }) => (
                             <FormItem>
                                 <FormLabel>Teacher/Admin Unique ID</FormLabel>
-                                <FormControl><Input placeholder="Enter Teacher's unique ID" {...field} /></FormControl>
+                                <FormControl><Input placeholder="Enter Teacher's unique ID" {...field} value={field.value || ''} /></FormControl>
                                 <FormMessage />
                             </FormItem>
                         )} />
@@ -430,7 +443,7 @@ export default function RegisterPage() {
                               Enable Two-Factor Authentication
                             </FormLabel>
                             <FormDescription className="text-xs">
-                              Secure your account with an authenticator app (recommended).
+                              Secure your account with an email verification code on login.
                             </FormDescription>
                           </div>
                         </FormItem>
@@ -510,7 +523,7 @@ export default function RegisterPage() {
                               Enable Two-Factor Authentication
                             </FormLabel>
                             <FormDescription className="text-xs">
-                              Secure your account with an authenticator app (recommended).
+                              Secure your account with an email verification code on login.
                             </FormDescription>
                           </div>
                         </FormItem>

@@ -17,13 +17,15 @@ import { useState, useEffect } from 'react';
 import { getStudentLinkRequestsForAdminRealtime } from '@/lib/services/userService';
 
 export default function SiteHeader() {
-  const { user, userProfile, isAwaiting2FA } = useAuth(); // Added isAwaiting2FA
+  const { user, userProfile } = useAuth();
   const [isDashboardTooltipOpen, setIsDashboardTooltipOpen] = useState(false);
   const [hasPendingRequests, setHasPendingRequests] = useState(false);
+  
+  const showUserUI = !!user;
 
   // Effect to show tooltip on admin login
   useEffect(() => {
-    if (typeof window !== 'undefined' && user && userProfile?.role === 'admin') {
+    if (typeof window !== 'undefined' && showUserUI && userProfile?.role === 'admin') {
       const tooltipShown = sessionStorage.getItem('adminDashboardTooltipShown');
       if (!tooltipShown) {
         setIsDashboardTooltipOpen(true);
@@ -32,11 +34,11 @@ export default function SiteHeader() {
         return () => clearTimeout(timer);
       }
     }
-  }, [user, userProfile]);
+  }, [showUserUI, userProfile]);
 
   // Effect to listen for pending link requests for the admin
   useEffect(() => {
-    if (user && userProfile?.role === 'admin' && !isAwaiting2FA) { // Only listen if fully authenticated
+    if (showUserUI && userProfile?.role === 'admin' && user?.uid) {
       const unsubscribe = getStudentLinkRequestsForAdminRealtime(
         user.uid,
         (requests) => {
@@ -49,7 +51,7 @@ export default function SiteHeader() {
       );
       return () => unsubscribe();
     }
-  }, [user, userProfile, isAwaiting2FA]);
+  }, [showUserUI, user, userProfile]);
 
 
   return (
@@ -64,7 +66,7 @@ export default function SiteHeader() {
           </Link>
           
           <div className="flex items-center gap-2">
-            {user && !isAwaiting2FA ? ( // Condition to check if user is fully authenticated
+            {showUserUI ? (
               <>
                 {userProfile?.role === 'admin' && (
                   <>
@@ -104,13 +106,10 @@ export default function SiteHeader() {
                 )}
                 <ProfileDropdown />
               </>
-            ) : user && isAwaiting2FA ? (
-              // Optionally show something specific while awaiting 2FA, or nothing
-              null
             ) : (
-               <Button asChild variant="outline">
-                  <Link href="/login">Login / Register</Link>
-               </Button>
+                 <Button asChild variant="outline">
+                    <Link href="/login">Login / Register</Link>
+                 </Button>
             )}
           </div>
         </div>
