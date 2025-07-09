@@ -1,3 +1,4 @@
+
 'use client';
 
 import Link from 'next/link';
@@ -19,7 +20,7 @@ import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 
 export default function ProfileDropdown() {
-  const { user } = useAuth();
+  const { user, setIsAwaiting2FA } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
 
@@ -29,6 +30,9 @@ export default function ProfileDropdown() {
       sessionStorage.removeItem('adminDashboardTooltipShown');
     }
     
+    // Explicitly clear the 2FA flag before signing out to prevent orphaned state
+    setIsAwaiting2FA(false);
+
     const error = await signOut();
     if (error) {
       toast({

@@ -91,11 +91,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           }
         );
       } else {
-        // No user is logged in. Reset everything.
+        // No user is logged in. Reset user-specific state.
+        // DO NOT reset isAwaiting2FA here, as this can cause a race condition on refresh.
+        // It should only be cleared on explicit actions (logout, successful 2FA).
         setUser(null);
         setUserId(null);
         setUserProfile(null);
-        setIsAwaiting2FA(false); // This will clear the session storage
         setLoading(false); // Definitive state: not logged in
       }
     });
@@ -107,7 +108,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         profileListenerUnsubscribe();
       }
     };
-  }, [setIsAwaiting2FA]); // Only depends on the stable setIsAwaiting2FA setter
+  }, []); // Empty dependency array ensures this runs only once on mount
 
   if (loading) {
     return (
