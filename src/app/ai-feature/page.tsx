@@ -3,7 +3,7 @@
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info, BrainCircuit, RefreshCw, FileText, FileWarning, Edit } from 'lucide-react';
+import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info, BrainCircuit, RefreshCw, FileText, FileWarning, Edit, X } from 'lucide-react';
 import Link from 'next/link';
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useToast } from '@/hooks/use-toast';
@@ -65,6 +65,12 @@ function AiFeaturePageContent() {
   const [isUpdatingName, setIsUpdatingName] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // New states for manual course entry
+  const [manualCourses, setManualCourses] = useState<string[]>([]);
+  const [manualCourseInput, setManualCourseInput] = useState('');
+  const [isAddingManualCourse, setIsAddingManualCourse] = useState(false);
+  const [isDeletingManualCourse, setIsDeletingManualCourse] = useState<string | null>(null);
+
   const triggerRefresh = useCallback(() => setRefreshKey(k => k + 1), []);
 
   const fetchInitialData = useCallback(async () => {
@@ -86,7 +92,11 @@ function AiFeaturePageContent() {
           headers: { 'ngrok-skip-browser-warning': 'true' }
       });
 
-      const [imagesResponse, suggestionsResponse] = await Promise.all([imagesPromise, suggestionsPromise]);
+      const manualCoursesPromise = fetch(`${flaskServerBaseUrl}/api/manual-courses?userId=${userId}`, {
+          headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
+
+      const [imagesResponse, suggestionsResponse, manualCoursesResponse] = await Promise.all([imagesPromise, suggestionsPromise, manualCoursesPromise]);
 
       // Handle images
       if (!imagesResponse.ok) {
@@ -105,18 +115,27 @@ function AiFeaturePageContent() {
         if (suggestionsResponse.status !== 404) {
             console.warn(`Could not fetch latest suggestions, status: ${suggestionsResponse.status}`);
         }
-        setSuggestionsResult(null); // Clear previous suggestions if fetch fails or none exist
+        setSuggestionsResult(null);
       }
+
+      // Handle manual courses
+      if (manualCoursesResponse.ok) {
+          const manualCoursesData = await manualCoursesResponse.json();
+          setManualCourses(manualCoursesData);
+      } else {
+          console.warn('Could not fetch manual courses.');
+      }
+
     } catch (err: any) {
       setError(err.message);
       toast({ title: "Error Loading Page Data", description: err.message, variant: 'destructive' });
-      setSuggestionsResult(null); // Also clear on general error
+      setSuggestionsResult(null);
+      setManualCourses([]);
     } finally {
       setIsLoading(false);
     }
   }, [userId, user, flaskServerBaseUrl, toast]);
 
-  // Fetch initial data on load and when a refresh is triggered
   useEffect(() => {
     fetchInitialData();
   }, [fetchInitialData, refreshKey]);
@@ -145,8 +164,10 @@ function AiFeaturePageContent() {
   }, [allUserImages]);
   
   const allKnownCourses = useMemo(() => {
-      return [...new Set(allUserImages.map(img => img.courseName).filter(Boolean) as string[])];
-  }, [allUserImages]);
+      const coursesFromCerts = allUserImages.map(img => img.courseName).filter(Boolean) as string[];
+      const combined = [...new Set([...coursesFromCerts, ...manualCourses])];
+      return combined;
+  }, [allUserImages, manualCourses]);
 
   const handleGetSuggestions = useCallback(async (coursesToFetch: string[], forceRefreshList: string[] = []) => {
     if (!userId) return;
@@ -155,7 +176,7 @@ function AiFeaturePageContent() {
     setError(null);
 
     if (coursesToFetch.length === 0) {
-      toast({ title: 'No Courses', description: 'No extracted course names available to get suggestions for.', variant: 'destructive' });
+      toast({ title: 'No Courses', description: 'No course names available to get suggestions for.', variant: 'destructive' });
       setIsGenerating(false);
       return;
     }
@@ -220,6 +241,51 @@ function AiFeaturePageContent() {
     }
   };
   
+  const handleAddManualCourse = async () => {
+    if (!manualCourseInput.trim() || !userId) return;
+    setIsAddingManualCourse(true);
+    try {
+        const response = await fetch(`${flaskServerBaseUrl}/api/manual-courses`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+            body: JSON.stringify({ userId, courseName: manualCourseInput.trim() })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Failed to add course');
+        
+        toast({ title: "Course Added", description: `"${manualCourseInput.trim()}" has been added.` });
+        setManualCourses(prev => [...new Set([...prev, manualCourseInput.trim()])]);
+        setManualCourseInput('');
+
+    } catch (err: any) {
+        toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+        setIsAddingManualCourse(false);
+    }
+  };
+
+  const handleDeleteManualCourse = async (courseName: string) => {
+    if (!userId) return;
+    setIsDeletingManualCourse(courseName);
+    try {
+        const response = await fetch(`${flaskServerBaseUrl}/api/manual-courses`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+            body: JSON.stringify({ userId, courseName })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Failed to delete course');
+
+        toast({ title: "Course Deleted", description: `"${courseName}" has been removed.` });
+        setManualCourses(prev => prev.filter(c => c !== courseName));
+
+    } catch (err: any) {
+        toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+        setIsDeletingManualCourse(null);
+    }
+  };
+  
   const openEditModal = (image: UserImage) => {
     setImageToEdit(image);
     setNewName(image.courseName || '');
@@ -257,10 +323,57 @@ function AiFeaturePageContent() {
           <>
             <Card className="mb-8">
               <CardHeader>
-                <CardTitle>Your Extracted Courses</CardTitle>
+                <CardTitle>Manually Add Courses</CardTitle>
                 <CardDescription>
-                  These courses were automatically extracted when you uploaded your certificates.
-                  You can now generate AI-powered descriptions and career suggestions based on them.
+                  Add course names that weren't from certificates to include them in the AI analysis.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex gap-2">
+                    <Input 
+                        placeholder="e.g., Advanced JavaScript"
+                        value={manualCourseInput}
+                        onChange={(e) => setManualCourseInput(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleAddManualCourse() }}
+                        disabled={isAddingManualCourse}
+                    />
+                    <Button onClick={handleAddManualCourse} disabled={isAddingManualCourse || !manualCourseInput.trim()}>
+                        {isAddingManualCourse && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Add
+                    </Button>
+                </div>
+                {manualCourses.length > 0 && (
+                    <div className="mt-4 space-y-2">
+                        <h4 className="text-sm font-medium text-muted-foreground">Manually Added Courses:</h4>
+                        <div className="flex flex-wrap gap-2">
+                            {manualCourses.map(course => (
+                                <div key={course} className="flex items-center gap-1.5 pl-3 pr-1 py-1 text-sm bg-secondary text-secondary-foreground rounded-full">
+                                    <span>{course}</span>
+                                    <Button 
+                                        variant="ghost" 
+                                        size="icon" 
+                                        className="h-5 w-5 rounded-full hover:bg-destructive/20" 
+                                        onClick={() => handleDeleteManualCourse(course)}
+                                        disabled={!!isDeletingManualCourse}
+                                        >
+                                        {isDeletingManualCourse === course 
+                                            ? <Loader2 className="h-3 w-3 animate-spin"/> 
+                                            : <X className="h-3 w-3"/>
+                                        }
+                                    </Button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="mb-8">
+              <CardHeader>
+                <CardTitle>Your Consolidated Course List</CardTitle>
+                <CardDescription>
+                  This list includes courses from your certificates and any you've added manually. Use this list to generate suggestions.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -271,7 +384,7 @@ function AiFeaturePageContent() {
                         ))}
                     </div>
                 ) : (
-                    <p className="text-muted-foreground italic">No course names have been extracted yet. Upload some certificates to get started.</p>
+                    <p className="text-muted-foreground italic">No course names have been identified yet. Upload some certificates or add one manually.</p>
                 )}
               </CardContent>
               <CardFooter>
