@@ -14,8 +14,6 @@ interface AuthContextType {
   userProfile: UserProfile | null;
   loading: boolean;
   userId: string | null;
-  isAwaiting2FA: boolean;
-  setIsAwaiting2FA: (isAwaiting: boolean) => void;
   refreshUserProfile: () => void;
 }
 
@@ -24,39 +22,16 @@ export const AuthContext = createContext<AuthContextType>({
   userProfile: null,
   loading: true,
   userId: null,
-  isAwaiting2FA: false,
-  setIsAwaiting2FA: () => {},
   refreshUserProfile: () => {},
 });
 
 const USERS_COLLECTION = 'users';
-const AWAITING_2FA_SESSION_KEY = 'certintel-awaiting-2fa';
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
-
-  // Initialize state from sessionStorage to persist across refreshes
-  const [isAwaiting2FA, _setIsAwaiting2FA] = useState(() => {
-    if (typeof window === 'undefined') {
-      return false;
-    }
-    return window.sessionStorage.getItem(AWAITING_2FA_SESSION_KEY) === 'true';
-  });
-
-  // Create a stable setter that updates both React state and sessionStorage
-  const setIsAwaiting2FA = useCallback((isAwaiting: boolean) => {
-    _setIsAwaiting2FA(isAwaiting);
-    if (typeof window !== 'undefined') {
-      if (isAwaiting) {
-        window.sessionStorage.setItem(AWAITING_2FA_SESSION_KEY, 'true');
-      } else {
-        window.sessionStorage.removeItem(AWAITING_2FA_SESSION_KEY);
-      }
-    }
-  }, []);
 
   const refreshUserProfile = useCallback(() => {
     console.log("AuthContext: refreshUserProfile called. (Currently a no-op due to real-time listener, but can be enhanced if needed).");
@@ -91,9 +66,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           }
         );
       } else {
-        // No user is logged in. Reset user-specific state.
-        // DO NOT reset isAwaiting2FA here, as this can cause a race condition on refresh.
-        // It should only be cleared on explicit actions (logout, successful 2FA).
+        // No user is logged in. Reset all user-specific state.
         setUser(null);
         setUserId(null);
         setUserProfile(null);
@@ -119,7 +92,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }
 
   return (
-    <AuthContext.Provider value={{ user, userProfile, loading, userId, isAwaiting2FA, setIsAwaiting2FA, refreshUserProfile }}>
+    <AuthContext.Provider value={{ user, userProfile, loading, userId, refreshUserProfile }}>
       {children}
     </AuthContext.Provider>
   );

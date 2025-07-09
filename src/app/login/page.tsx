@@ -5,9 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import { useAuth } from '@/hooks/useAuth';
 import { useState } from 'react';
+import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import type { AuthError, User } from 'firebase/auth';
 import AppLogo from '@/components/common/AppLogo';
@@ -22,32 +21,25 @@ import { signIn } from '@/lib/firebase/auth';
 import { SignInSchema, type SignInFormValues } from '@/types/auth';
 
 
-const OtpSchema = z.object({
-  otp: z.string().length(6, 'Your verification code must be 6 digits.'),
-});
-type OtpFormValues = z.infer<typeof OtpSchema>;
-
 export default function LoginPage() {
   const router = useRouter();
-  const { loading, setIsAwaiting2FA, user } = useAuth();
+  const { loading } = useAuth();
   const { toast } = useToast();
 
-  const [step, setStep] = useState<'credentials' | 'otp'>('credentials');
   const [isProcessing, setIsProcessing] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
+  
+  // New state to manage the UI flow on a single page
+  const [showOtpInput, setShowOtpInput] = useState(false);
+  const [userEmailForOtp, setUserEmailForOtp] = useState<string>('');
+  const [otpValue, setOtpValue] = useState('');
 
-  const credentialForm = useForm<SignInFormValues>({
+  const form = useForm<SignInFormValues>({
     resolver: zodResolver(SignInSchema),
     defaultValues: { email: '', password: '' },
   });
-
-  const otpForm = useForm<OtpFormValues>({
-    resolver: zodResolver(OtpSchema),
-    defaultValues: { otp: '' },
-  });
-
-  const handleLogin = async (values: SignInFormValues) => {
+  
+  const handlePasswordLogin = async (values: SignInFormValues) => {
     setIsProcessing(true);
     setLoginError(null);
 
@@ -61,6 +53,7 @@ export default function LoginPage() {
           errorMessage = 'Invalid email or password.';
         }
         setLoginError(errorMessage);
+        setIsProcessing(false);
         return;
       }
 
@@ -70,14 +63,12 @@ export default function LoginPage() {
       if (userProfile?.isTwoFactorEnabled) {
         toast({
           title: 'Verification Required',
-          description: 'Your account has 2FA enabled. Please check your email.',
+          description: 'Your account has 2FA enabled. Please check your email for a code.',
         });
-        setUserEmail(loggedInUser.email);
-        setIsAwaiting2FA(true); // Set global 2FA pending state
+        setUserEmailForOtp(loggedInUser.email!);
         await initiateLoginOtp({ email: loggedInUser.email! });
-        setStep('otp');
+        setShowOtpInput(true); // Show OTP field on the same page
       } else {
-        setIsAwaiting2FA(false); // Ensure 2FA state is false for non-2FA users
         toast({
           title: 'Login Successful',
           description: 'Welcome back!',
@@ -94,12 +85,15 @@ export default function LoginPage() {
     } catch (e: any) {
         setLoginError(e.message || "An unexpected error occurred during login.");
     } finally {
-        setIsProcessing(false);
+        if (!showOtpInput) { // Only stop processing if not waiting for OTP
+            setIsProcessing(false);
+        }
     }
   };
 
-  const handleOtpSubmit = async (values: OtpFormValues) => {
-    if (!userEmail) {
+  const handleOtpSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userEmailForOtp) {
         setLoginError('An error occurred. Please try logging in again.');
         return;
     }
@@ -110,7 +104,7 @@ export default function LoginPage() {
         const response = await fetch('/api/auth/verify-login-otp', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: userEmail, otp: values.otp }),
+            body: JSON.stringify({ email: userEmailForOtp, otp: otpValue }),
         });
         const result = await response.json();
 
@@ -118,31 +112,31 @@ export default function LoginPage() {
             throw new Error(result.message || 'Failed to verify code.');
         }
 
-        setIsAwaiting2FA(false); // 2FA complete, set global state to false
-
         toast({
             title: 'Login Successful',
             description: 'Welcome back!',
         });
         
-        // Fire-and-forget notification now that 2FA is complete
-        user?.getIdToken().then(token => {
-            fetch('/api/auth/login-notify', {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` }
-            }).catch(err => console.error("Failed to send login notification:", err));
-        });
+        // At this point, the user is fully authenticated. We can get the final user object.
+        const currentUser = (await import('@/lib/firebase/auth')).auth.currentUser;
+        if(currentUser) {
+            currentUser.getIdToken().then(token => {
+                fetch('/api/auth/login-notify', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` }
+                }).catch(err => console.error("Failed to send login notification:", err));
+            });
+        }
 
         router.push('/');
 
     } catch (error: any) {
         setLoginError(error.message);
-        otpForm.reset();
+        setOtpValue('');
     } finally {
         setIsProcessing(false);
     }
   };
-
 
   if (loading) {
      return (
@@ -160,102 +154,96 @@ export default function LoginPage() {
         </Link>
       </div>
 
-        <Card className="w-full max-w-md shadow-xl">
-            {step === 'credentials' && (
-                <>
-                <CardHeader>
-                    <CardTitle className="text-3xl font-headline">Welcome Back!</CardTitle>
-                    <CardDescription>Sign in to access your CertIntel.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <Form {...credentialForm}>
-                    <form onSubmit={credentialForm.handleSubmit(handleLogin)} className="space-y-6">
-                        <FormField
-                        control={credentialForm.control}
-                        name="email"
-                        render={({ field }) => (
-                            <FormItem>
-                            <FormLabel>Email</FormLabel>
-                            <FormControl>
-                                <Input placeholder="you@example.com" {...field} type="email" />
-                            </FormControl>
-                            <FormMessage />
-                            </FormItem>
-                        )}
-                        />
-                        <FormField
-                        control={credentialForm.control}
-                        name="password"
-                        render={({ field }) => (
-                            <FormItem>
-                            <FormLabel>Password</FormLabel>
-                            <FormControl>
-                                <Input placeholder="••••••••" {...field} type="password" />
-                            </FormControl>
-                            <FormMessage />
-                            </FormItem>
-                        )}
-                        />
-                        {loginError && <p className="text-sm font-medium text-destructive">{loginError}</p>}
-                        <Button type="submit" className="w-full" disabled={isProcessing}>
-                        {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Login
-                        </Button>
-                    </form>
-                    </Form>
-                </CardContent>
-                </>
-            )}
+      <Card className="w-full max-w-md shadow-xl">
+        <CardHeader>
+          <CardTitle className="text-3xl font-headline">{showOtpInput ? 'Two-Factor Authentication' : 'Welcome Back!'}</CardTitle>
+          <CardDescription>
+            {showOtpInput 
+              ? <>A verification code has been sent to <strong>{userEmailForOtp}</strong>. Please enter it below.</>
+              : 'Sign in to access your CertIntel dashboard.'
+            }
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {!showOtpInput ? (
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(handlePasswordLogin)} className="space-y-6">
+                <FormField
+                  control={form.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email</FormLabel>
+                      <FormControl>
+                        <Input placeholder="you@gmail.com" {...field} type="email" disabled={isProcessing}/>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Password</FormLabel>
+                      <FormControl>
+                        <Input placeholder="••••••••" {...field} type="password" disabled={isProcessing}/>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                {loginError && <p className="text-sm font-medium text-destructive">{loginError}</p>}
+                <Button type="submit" className="w-full" disabled={isProcessing}>
+                  {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Login
+                </Button>
+              </form>
+            </Form>
+          ) : (
+            <form onSubmit={handleOtpSubmit} className="space-y-6">
+                <FormItem>
+                    <FormLabel>Verification Code</FormLabel>
+                    <FormControl>
+                    <Input 
+                        placeholder="123456" 
+                        value={otpValue}
+                        onChange={(e) => setOtpValue(e.target.value)}
+                        type="text" 
+                        maxLength={6} 
+                        autoFocus 
+                        disabled={isProcessing}
+                    />
+                    </FormControl>
+                    <FormMessage />
+                </FormItem>
+                {loginError && <p className="text-sm font-medium text-destructive">{loginError}</p>}
+                <Button type="submit" className="w-full" disabled={isProcessing || otpValue.length !== 6}>
+                    {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Verify & Sign In
+                </Button>
+                 <Button variant="link" className="w-full h-auto p-0 text-sm" onClick={() => {setShowOtpInput(false); setLoginError(null); form.reset();}}>
+                    Use a different account
+                </Button>
+            </form>
+          )}
+        </CardContent>
+      </Card>
 
-            {step === 'otp' && (
-                <>
-                <CardHeader>
-                    <CardTitle className="text-3xl font-headline">Two-Factor Authentication</CardTitle>
-                    <CardDescription>
-                        A verification code has been sent to <strong>{userEmail}</strong>. Please enter it below to continue.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <Form {...otpForm}>
-                        <form onSubmit={otpForm.handleSubmit(handleOtpSubmit)} className="space-y-6">
-                            <FormField
-                                control={otpForm.control}
-                                name="otp"
-                                render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Verification Code</FormLabel>
-                                    <FormControl>
-                                    <Input placeholder="123456" {...field} type="text" maxLength={6} autoFocus />
-                                    </FormControl>
-                                    <FormMessage />
-                                </FormItem>
-                                )}
-                            />
-                            {loginError && <p className="text-sm font-medium text-destructive">{loginError}</p>}
-                            <Button type="submit" className="w-full" disabled={isProcessing}>
-                                {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                Verify & Sign In
-                            </Button>
-                        </form>
-                    </Form>
-                </CardContent>
-                </>
-            )}
-        </Card>
-
-      {step === 'credentials' && (
+      {!showOtpInput && (
         <>
-        <div className="mt-4 text-center text-sm">
-            <Link href="/forgot-password" passHref className="text-muted-foreground hover:text-primary hover:underline">
-                Forgot password?
-            </Link>
-        </div>
-        <p className="mt-6 text-center text-sm text-muted-foreground">
-            Don&apos;t have an account?{' '}
-            <Link href="/register" className="font-medium text-primary hover:underline">
-              Register here
-            </Link>
-        </p>
+          <div className="mt-4 text-center text-sm">
+              <Link href="/forgot-password" passHref className="text-muted-foreground hover:text-primary hover:underline">
+                  Forgot password?
+              </Link>
+          </div>
+          <p className="mt-6 text-center text-sm text-muted-foreground">
+              Don&apos;t have an account?{' '}
+              <Link href="/register" className="font-medium text-primary hover:underline">
+                Register here
+              </Link>
+          </p>
         </>
       )}
     </div>

@@ -17,7 +17,7 @@ import { useState, useEffect } from 'react';
 import { getStudentLinkRequestsForAdminRealtime } from '@/lib/services/userService';
 
 export default function SiteHeader() {
-  const { user, userProfile, isAwaiting2FA } = useAuth(); // Added isAwaiting2FA
+  const { user, userProfile } = useAuth();
   const [isDashboardTooltipOpen, setIsDashboardTooltipOpen] = useState(false);
   const [hasPendingRequests, setHasPendingRequests] = useState(false);
 
@@ -36,7 +36,7 @@ export default function SiteHeader() {
 
   // Effect to listen for pending link requests for the admin
   useEffect(() => {
-    if (user && userProfile?.role === 'admin' && !isAwaiting2FA) { // Only listen if fully authenticated
+    if (user && userProfile?.role === 'admin') {
       const unsubscribe = getStudentLinkRequestsForAdminRealtime(
         user.uid,
         (requests) => {
@@ -49,7 +49,7 @@ export default function SiteHeader() {
       );
       return () => unsubscribe();
     }
-  }, [user, userProfile, isAwaiting2FA]);
+  }, [user, userProfile]);
 
 
   return (
@@ -64,7 +64,7 @@ export default function SiteHeader() {
           </Link>
           
           <div className="flex items-center gap-2">
-            {user && !isAwaiting2FA ? ( // Condition to check if user is fully authenticated
+            {user ? (
               <>
                 {userProfile?.role === 'admin' && (
                   <>
@@ -104,9 +104,6 @@ export default function SiteHeader() {
                 )}
                 <ProfileDropdown />
               </>
-            ) : user && isAwaiting2FA ? (
-              // Optionally show something specific while awaiting 2FA, or nothing
-              null
             ) : (
                <Button asChild variant="outline">
                   <Link href="/login">Login / Register</Link>
