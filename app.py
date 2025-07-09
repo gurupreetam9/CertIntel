@@ -35,8 +35,8 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 app_logger.info("Flask app instance created with CORS enabled for all origins.")
 
-MONGODB_URI="mongodb+srv://gurupreetambodapati:MTXH7oEVPg3sJdg2@cluster0.fpsg1.mongodb.net/"
-DB_NAME="imageverse_db"
+MONGODB_URI=os.environ.get("MONGODB_URI")
+DB_NAME=os.environ.get("DB_NAME")
 
 if not MONGODB_URI:
     app.logger.critical("MONGODB_URI is not set. Please set it in your .env file or environment variables.")
