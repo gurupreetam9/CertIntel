@@ -8,7 +8,9 @@ export interface UserProfile {
   uid: string;
   email: string | null;
   role: UserRole;
-  displayName?: string | null; // For students, this will be their entered name
+  displayName?: string | null;
+  isPublicProfileEnabled?: boolean;
+  isTwoFactorEnabled?: boolean; // For enabling/disabling 2FA
   
   // Admin specific
   adminUniqueId?: string; // Shareable ID for admins
@@ -35,11 +37,11 @@ export interface StudentLinkRequest {
   studentUserId: string;
   studentEmail: string;
   studentName: string;
-  studentRollNo?: string;
+  studentRollNo?: string | null;
   adminUniqueIdTargeted: string; // The unique ID of the admin the student entered
   adminFirebaseId?: string; // Firebase UID of the admin (once validated)
-  status: Extract<LinkRequestStatus, 'pending' | 'accepted' | 'rejected'>; // More specific status for requests
+  status: Extract<LinkRequestStatus, 'pending' | 'accepted' | 'rejected' | 'cancelled' | 'revoked_by_admin'>;
   requestedAt: Timestamp;
   resolvedAt?: Timestamp;
-  resolvedBy?: string; // Admin's UID who resolved it
+  resolvedBy?: string;
 }

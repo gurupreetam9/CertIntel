@@ -10,13 +10,7 @@ import { ai } from '@/ai/genkit';
 import { z } from 'zod';
 import { sendEmail } from '@/lib/emailUtils'; // Import the centralized email utility
 import { getAdminAuth } from '@/lib/firebase/adminConfig'; // Import Firebase Admin Auth
-
-// HACK: In-memory store for OTPs. NOT SUITABLE FOR PRODUCTION.
-// In a real app, use a database (e.g., Firestore, Redis) for OTP storage.
-if (!(globalThis as any).otpStore) {
-  (globalThis as any).otpStore = {};
-}
-const otpStore: Record<string, { otp: string; expiresAt: number }> = (globalThis as any).otpStore;
+import { setOtp } from '@/lib/otpStore'; // Import centralized store helper
 
 const InitiateEmailOtpInputSchema = z.object({
   email: z.string().email({ message: 'Invalid email address.' }),
@@ -62,10 +56,11 @@ const initiateEmailOtpFlow = ai.defineFlow(
 
     // Proceed with OTP generation and sending only if email is not found (i.e., available)
     const otp = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit OTP
-    const expiresAt = Date.now() + 5 * 60 * 1000; // OTP expires in 5 minutes
+    
+    // Use the centralized store helper - now an async operation
+    await setOtp(email, otp, 5); // 5 minute TTL
 
-    otpStore[email] = { otp, expiresAt };
-    console.log(`initiateEmailOtpFlow: OTP for ${email} is ${otp}. Stored in memory.`);
+    console.log(`initiateEmailOtpFlow: Registration OTP for ${email} is ${otp}. Stored in Firestore.`);
 
     const emailSubject = 'Your CertIntel OTP Code';
     const emailText = `Your OTP code for CertIntel is: ${otp}. This code will expire in 5 minutes.`;
@@ -86,7 +81,7 @@ const initiateEmailOtpFlow = ai.defineFlow(
       return { success: true, message: successMessage };
     } else {
       // Log the OTP to console as a fallback if email sending fails for any reason
-      console.log(`[OTP FALLBACK - Email send failed] OTP for ${email}: ${otp} (Expires at: ${new Date(expiresAt).toLocaleTimeString()})`);
+      console.log(`[OTP FALLBACK - Email send failed] OTP for ${email}: ${otp}`);
       return { 
         success: false, 
         message: `${emailResult.message} OTP (for testing if not sent): ${otp}`
@@ -94,4 +89,3 @@ const initiateEmailOtpFlow = ai.defineFlow(
     }
   }
 );
-

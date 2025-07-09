@@ -3,7 +3,7 @@
 
 import Image from 'next/image';
 import { Card, CardContent, CardDescription } from '@/components/ui/card';
-import { ImageIcon, Loader2, Eye, Trash2, ExternalLink, Download, FileText, Bot, Sparkles } from 'lucide-react';
+import { ImageIcon, Loader2, Eye, Trash2, ExternalLink, Download, FileText, Bot, Sparkles, Pencil, Lock, Unlock } from 'lucide-react';
 import { useState, useCallback } from 'react';
 import ViewImageModal from './ViewImageModal';
 import {
@@ -16,8 +16,20 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogHeader,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
 
 export interface UserImage {
   fileId: string;
@@ -25,16 +37,18 @@ export interface UserImage {
   uploadDate: string;
   contentType: string;
   originalName: string;
+  courseName?: string;
   dataAiHint?: string;
   size: number;
   userId?: string;
+  visibility?: 'public' | 'private';
 }
 
 interface ImageGridProps {
   images: UserImage[];
   isLoading: boolean;
   error: string | null;
-  onImageDeleted: () => void;
+  onImageDeleted?: () => void;
   currentUserId: string | null;
 }
 
@@ -54,13 +68,25 @@ const blobToDataUri = (blob: Blob): Promise<string> => {
 
 
 export default function ImageGrid({ images, isLoading, error, onImageDeleted, currentUserId }: ImageGridProps) {
+  const { toast } = useToast();
+  const { user, userId: loggedInUserId } = useAuth();
+
   const [selectedImageForView, setSelectedImageForView] = useState<UserImage | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  
   const [imageToDelete, setImageToDelete] = useState<UserImage | null>(null);
   const [isConfirmDeleteDialogOpen, setIsConfirmDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const { toast } = useToast();
+
+  const [imageToEdit, setImageToEdit] = useState<UserImage | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isUpdatingName, setIsUpdatingName] = useState(false);
+  const [newName, setNewName] = useState('');
+  
   const [generatingDescriptionFor, setGeneratingDescriptionFor] = useState<string | null>(null);
+  const [togglingVisibilityFor, setTogglingVisibilityFor] = useState<string | null>(null);
+
+  const canEdit = loggedInUserId === currentUserId;
 
   const openViewModal = (image: UserImage) => {
     setSelectedImageForView(image);
@@ -80,6 +106,91 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
   const closeDeleteConfirmDialog = () => {
     setImageToDelete(null);
     setIsConfirmDeleteDialogOpen(false);
+  };
+
+  const openEditModal = (image: UserImage) => {
+    setImageToEdit(image);
+    setNewName(image.originalName);
+    setIsEditModalOpen(true);
+  };
+
+  const closeEditModal = () => {
+    setIsEditModalOpen(false);
+    setImageToEdit(null);
+    setNewName('');
+  };
+
+  const handleUpdateName = async () => {
+    if (!imageToEdit || !newName.trim() || !user) return;
+    setIsUpdatingName(true);
+    try {
+        const idToken = await user.getIdToken();
+        const response = await fetch(`/api/images/${imageToEdit.fileId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${idToken}`,
+            },
+            body: JSON.stringify({ newName: newName.trim() }),
+        });
+
+        const result = await response.json();
+        if (!response.ok) {
+            throw new Error(result.message || 'Failed to update file name.');
+        }
+
+        toast({
+            title: 'Name Updated',
+            description: `"${imageToEdit.originalName}" was renamed to "${newName.trim()}".`,
+        });
+        onImageDeleted?.();
+        closeEditModal();
+    } catch (err: any) {
+        toast({
+            title: 'Update Failed',
+            description: err.message,
+            variant: 'destructive',
+        });
+    } finally {
+        setIsUpdatingName(false);
+    }
+  };
+
+  const handleToggleVisibility = async (image: UserImage) => {
+    if (!user) return;
+    setTogglingVisibilityFor(image.fileId);
+    const newVisibility = image.visibility === 'private' ? 'public' : 'private';
+
+    try {
+      const idToken = await user.getIdToken();
+      const response = await fetch(`/api/images/${image.fileId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ visibility: newVisibility }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to update visibility.');
+      }
+
+      toast({
+        title: 'Visibility Updated',
+        description: `"${image.originalName}" is now ${newVisibility}.`,
+      });
+      onImageDeleted?.(); // This just refreshes the grid
+    } catch (err: any) {
+      toast({
+        title: 'Update Failed',
+        description: err.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setTogglingVisibilityFor(null);
+    }
   };
 
   const handleImageLinkOpen = (fileId: string) => {
@@ -105,7 +216,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
         title: 'File Deleted',
         description: `"${imageToDelete.originalName}" has been successfully deleted.`,
       });
-      onImageDeleted();
+      onImageDeleted?.();
     } catch (err: any) {
       toast({
         title: 'Error Deleting File',
@@ -196,16 +307,23 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
 
   return (
     <>
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
         {images.map((image) => {
           const imageSrc = `/api/images/${image.fileId}`;
           const isPdf = image.contentType === 'application/pdf';
           const imageFitClass = 'object-contain'; 
+          const isPrivate = image.visibility === 'private';
 
           return (
             <Card key={image.fileId} className="overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 group relative flex flex-col">
               <CardContent className="p-0 cursor-pointer flex-shrink-0" onClick={() => openViewModal(image)}>
                 <div className="aspect-square w-full relative flex items-center justify-center">
+                  {isPrivate && (
+                    <div className="absolute inset-0 bg-black/30 backdrop-blur-sm z-10 flex flex-col items-center justify-center text-white p-2">
+                        <Lock className="w-8 h-8"/>
+                        <p className="text-xs font-semibold mt-1">Private</p>
+                    </div>
+                  )}
                   {isPdf ? (
                      <FileText className="w-1/2 h-1/2 text-muted-foreground" />
                   ) : (
@@ -225,28 +343,53 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
                   )}
                 </div>
               </CardContent>
-              <div className="absolute top-2 right-2 flex flex-col space-y-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-10">
+              <div className="absolute top-2 right-2 flex flex-col space-y-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-20">
                 <Button variant="ghost" size="icon" className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white" onClick={(e) => { e.stopPropagation(); openViewModal(image);}} title="View File">
                   <Eye className="h-4 w-4" />
                 </Button>
+                {canEdit && (
+                  <Button variant="ghost" size="icon" className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white" onClick={(e) => { e.stopPropagation(); openEditModal(image);}} title="Edit Name">
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                )}
+                {canEdit && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white"
+                    onClick={(e) => { e.stopPropagation(); handleToggleVisibility(image); }}
+                    title={isPrivate ? 'Make Public' : 'Make Private'}
+                    disabled={togglingVisibilityFor === image.fileId}
+                  >
+                    {togglingVisibilityFor === image.fileId ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : isPrivate ? (
+                      <Lock className="h-4 w-4" />
+                    ) : (
+                      <Unlock className="h-4 w-4" />
+                    )}
+                  </Button>
+                )}
                 <Button variant="ghost" size="icon" className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white" onClick={(e) => { e.stopPropagation(); handleImageLinkOpen(image.fileId); }} title="Open File in New Tab">
                   <ExternalLink className="h-4 w-4" />
                 </Button>
-                <Button
-                  asChild
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white"
-                  title="Download File"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <a
-                    href={`/api/images/${image.fileId}`}
-                    download={image.originalName || image.filename}
+                {canEdit && onImageDeleted && (
+                  <Button
+                    asChild
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 bg-black/40 hover:bg-black/60 text-white"
+                    title="Download File"
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    <Download className="h-4 w-4" />
-                  </a>
-                </Button>
+                    <a
+                      href={`/api/images/${image.fileId}`}
+                      download={image.originalName || image.filename}
+                    >
+                      <Download className="h-4 w-4" />
+                    </a>
+                  </Button>
+                )}
                  {!isPdf && (
                     <Button 
                         variant="ghost" 
@@ -259,13 +402,15 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
                         {generatingDescriptionFor === image.fileId ? <Loader2 className="h-4 w-4 animate-spin"/> : <Bot className="h-4 w-4" />}
                     </Button>
                 )}
-                <Button variant="ghost" size="icon" className="h-8 w-8 bg-destructive/70 hover:bg-destructive/90 text-white" onClick={(e) => { e.stopPropagation(); openDeleteConfirmDialog(image);}} title="Delete File">
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                {canEdit && onImageDeleted && (
+                  <Button variant="ghost" size="icon" className="h-8 w-8 bg-destructive/70 hover:bg-destructive/90 text-white" onClick={(e) => { e.stopPropagation(); openDeleteConfirmDialog(image);}} title="Delete File">
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
               </div>
               <div className="p-3 mt-auto border-t bg-card">
                  <p className="text-sm font-medium truncate text-card-foreground mb-1" title={image.originalName}>{image.originalName}</p>
-                 {/* Removed AI description rendering from here */}
+                 {image.courseName && <p className="text-xs text-primary truncate" title={image.courseName}><Sparkles className="inline-block w-3 h-3 mr-1" />{image.courseName}</p>}
               </div>
             </Card>
           );
@@ -278,6 +423,36 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
           onClose={closeViewModal}
           image={selectedImageForView}
         />
+      )}
+
+      {isEditModalOpen && imageToEdit && (
+        <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Edit Certificate Name</DialogTitle>
+                    <DialogDescription>
+                        Enter a new name for the file: &quot;{imageToEdit.originalName}&quot;.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="py-4">
+                    <Label htmlFor="newName">New Name</Label>
+                    <Input
+                        id="newName"
+                        value={newName}
+                        onChange={(e) => setNewName(e.target.value)}
+                        placeholder="Enter new certificate name"
+                        autoFocus
+                    />
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={closeEditModal} disabled={isUpdatingName}>Cancel</Button>
+                    <Button onClick={handleUpdateName} disabled={isUpdatingName || !newName.trim()}>
+                        {isUpdatingName && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Save Changes
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
       )}
 
       {imageToDelete && (

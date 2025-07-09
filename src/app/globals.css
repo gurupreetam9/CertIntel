@@ -9,55 +9,55 @@ body {
 
 @layer base {
   :root {
-    --background: 45 20% 95%; /* Light beige: #F8F7F3 */
-    --foreground: 40 10% 15%; /* Dark brown/grey: #2B2925 */
+    /* Updated theme to match App Requirements */
+    --background: 45 20% 95%; /* HSL(45, 20%, 95%) - Light beige (#F8F7F3) */
+    --foreground: 24 10% 25%; /* Dark Brown for text */
 
-    --card: 45 20% 98%; /* Slightly lighter beige: #FCFBF9 */
-    --card-foreground: 40 10% 15%; /* Dark brown/grey: #2B2925 */
+    --card: 0 0% 100%; /* White */
+    --card-foreground: 24 10% 25%;
 
-    --popover: 45 20% 98%; /* Slightly lighter beige: #FCFBF9 */
-    --popover-foreground: 40 10% 15%; /* Dark brown/grey: #2B2925 */
+    --popover: 0 0% 100%;
+    --popover-foreground: 24 10% 25%;
 
-    --primary: 45 90% 50%; /* Gold: #FACC15 */
-    --primary-foreground: 40 10% 15%; /* Dark brown/grey: #2B2925 */
+    --primary: 45 90% 50%; /* HSL(45, 90%, 50%) - Gold (#FACC15) */
+    --primary-foreground: 24 10% 15%; /* Darker brown for contrast on Gold */
 
-    --secondary: 45 20% 90%; /* Lighter beige variant for secondary elements */
-    --secondary-foreground: 40 10% 15%; /* Dark brown/grey: #2B2925 */
+    --secondary: 45 20% 90%; /* Slightly darker beige */
+    --secondary-foreground: 24 10% 25%;
 
-    --muted: 45 20% 85%; /* Muted beige variant */
-    --muted-foreground: 40 10% 35%; /* Slightly lighter dark brown/grey */
+    --muted: 45 20% 90%;
+    --muted-foreground: 24 10% 45%;
 
-    --accent: 15 90% 50%; /* Vivid Orange: #FA5715 */
-    --accent-foreground: 0 0% 100%; /* White for text on orange */
+    --accent: 15 90% 50%; /* HSL(15, 90%, 50%) - Vivid orange (#FA5715) */
+    --accent-foreground: 0 0% 100%; /* White for text on Orange */
 
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 45 20% 88%; /* Beige border: #EBE8E2 */
-    --input: 45 20% 88%; /* Beige input background: #EBE8E2 */
-    --ring: 15 90% 50%; /* Vivid Orange for rings: #FA5715 */
+    --border: 45 20% 85%;
+    --input: 45 20% 85%;
+    --ring: 45 90% 50%; /* Gold for focus ring */
 
-    --radius: 0.5rem;
+    --radius: 0.75rem;
 
-    /* Chart colors (can be adjusted or expanded later if charts are used) */
-    --chart-1: 45 90% 50%; /* Gold */
-    --chart-2: 15 90% 50%; /* Orange */
-    --chart-3: 197 37% 24%;
-    --chart-4: 43 74% 66%;
-    --chart-5: 27 87% 67%;
+    /* Chart colors - Using a vibrant, distinct palette */
+    --chart-1: var(--primary);  /* stores 45 90% 50% */
+    --chart-2: var(--accent);   /* stores 15 90% 50% */    
+    --chart-3: 200 80% 55%; /* A nice Blue */
+    --chart-4: 120 70% 45%; /* Green */
+    --chart-5: 260 80% 65%; /* Purple */
 
-    /* Sidebar specific colors (keeping existing structure, adjusting to theme if needed) */
-    --sidebar-background: 45 20% 92%; /* Slightly darker beige for sidebar */
-    --sidebar-foreground: 40 10% 15%;
-    --sidebar-primary: 45 90% 50%; /* Gold */
-    --sidebar-primary-foreground: 40 10% 15%;
-    --sidebar-accent: 15 90% 50%; /* Orange */
+    /* Sidebar specific colors - Dark theme to complement the main content */
+    --sidebar-background: 220 15% 15%; /* Very dark, slightly cool gray/charcoal */
+    --sidebar-foreground: 220 10% 75%; /* Light gray for text */
+    --sidebar-primary: hsl(var(--primary)); /* Gold for active/highlighted items */
+    --sidebar-primary-foreground: 24 10% 10%; /* Dark text on gold highlight */
+    --sidebar-accent: 220 15% 25%; /* Slightly lighter charcoal for hover */
     --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 45 20% 85%;
-    --sidebar-ring: 15 90% 50%;
+    --sidebar-border: 220 15% 25%;
+    --sidebar-ring: hsl(var(--ring));
   }
 
-  /* Removed .dark class variables */
 }
 
 @layer base {

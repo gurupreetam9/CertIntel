@@ -9,13 +9,14 @@ import { z } from 'zod';
 import { useEffect, useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import AppLogo from '@/components/common/AppLogo';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, User, Shield, ArrowRight, CheckSquare, Square } from 'lucide-react';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Checkbox } from "@/components/ui/checkbox";
 import { initiateEmailOtp, type InitiateEmailOtpOutput } from '@/ai/flows/initiate-email-otp';
 import { verifyEmailOtpAndRegister, type VerifyEmailOtpAndRegisterOutput } from '@/ai/flows/verify-email-otp-and-register';
 import type { UserRole } from '@/lib/models/user';
@@ -40,14 +41,15 @@ const StudentDetailsSchema = z.object({
   rollNo: z.string().max(50, 'Roll number is too long.').optional(),
   teacherId: z.string().max(50, 'Teacher ID is too long.').optional(),
   password: z.string().min(6, { message: 'Password must be at least 6 characters.' }),
-  otp: z.string().length(6, { message: 'OTP must be 6 digits.' }), // OTP needed for student final step
+  otp: z.string().length(6, { message: 'OTP must be 6 digits.' }),
+  isTwoFactorEnabled: z.boolean().default(false).optional(),
 });
 type StudentDetailsFormValues = z.infer<typeof StudentDetailsSchema>;
 
 const AdminDetailsSchema = z.object({
-  // Email is already captured
   password: z.string().min(6, { message: 'Password must be at least 6 characters.' }),
-  otp: z.string().length(6, { message: 'OTP must be 6 digits.' }), // OTP needed for admin final step
+  otp: z.string().length(6, { message: 'OTP must be 6 digits.' }),
+  isTwoFactorEnabled: z.boolean().default(false).optional(),
 });
 type AdminDetailsFormValues = z.infer<typeof AdminDetailsSchema>;
 
@@ -57,14 +59,13 @@ export default function RegisterPage() {
   const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
   
-  const [step, setStep] = useState(1); // 1: Role, 2: Email, 3: OTP (for admin/student), 4: Details + Password
+  const [step, setStep] = useState(1);
   const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
   const [email, setEmail] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [showTeacherIdField, setShowTeacherIdField] = useState(false);
   
-  // State for OTP Resend logic
   const [isResending, setIsResending] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [resendAttempts, setResendAttempts] = useState(0);
@@ -75,8 +76,8 @@ export default function RegisterPage() {
 
   const roleForm = useForm<RoleSelectionFormValues>({ resolver: zodResolver(RoleSelectionSchema) });
   const emailForm = useForm<EmailFormValues>({ resolver: zodResolver(EmailSchema), defaultValues: { email: '' } });
-  const studentDetailsForm = useForm<StudentDetailsFormValues>({ resolver: zodResolver(StudentDetailsSchema), defaultValues: { name: '', rollNo: '', teacherId: '', password: '', otp: ''} });
-  const adminDetailsForm = useForm<AdminDetailsFormValues>({ resolver: zodResolver(AdminDetailsSchema), defaultValues: { password: '', otp: ''} });
+  const studentDetailsForm = useForm<StudentDetailsFormValues>({ resolver: zodResolver(StudentDetailsSchema), defaultValues: { name: '', rollNo: '', teacherId: '', password: '', otp: '', isTwoFactorEnabled: false } });
+  const adminDetailsForm = useForm<AdminDetailsFormValues>({ resolver: zodResolver(AdminDetailsSchema), defaultValues: { password: '', otp: '', isTwoFactorEnabled: false } });
 
   useEffect(() => {
     if (!authLoading && user) {
@@ -84,7 +85,6 @@ export default function RegisterPage() {
     }
   }, [user, authLoading, router]);
   
-  // Cleanup timer on component unmount
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -93,14 +93,13 @@ export default function RegisterPage() {
 
   const handleRoleSelection = (values: RoleSelectionFormValues) => {
     setSelectedRole(values.role);
-    setStep(2); // Move to email step
+    setStep(2);
     setServerError(null);
   };
 
   const handleEmailSubmitAndSendOtp = async (values: EmailFormValues) => {
     setIsSubmitting(true);
     setServerError(null);
-    // Reset resend logic for new email submission
     setResendAttempts(0);
     if (timerRef.current) clearInterval(timerRef.current);
     setResendCooldown(0);
@@ -113,9 +112,8 @@ export default function RegisterPage() {
           description: result.message + (process.env.NODE_ENV === 'development' ? " Check server console for OTP." : ""),
         });
         setEmail(values.email);
-        setStep(3); // Move to OTP + Details + Password step
+        setStep(3);
 
-        // Start cooldown timer on first successful send
         setResendCooldown(cooldownDuration);
         timerRef.current = setInterval(() => {
             setResendCooldown(prev => {
@@ -151,7 +149,6 @@ export default function RegisterPage() {
     if (result.success) {
         toast({ title: 'New OTP Sent', description: result.message });
         
-        // Start cooldown timer on resend
         setResendCooldown(cooldownDuration);
         timerRef.current = setInterval(() => {
             setResendCooldown(prev => {
@@ -165,7 +162,6 @@ export default function RegisterPage() {
 
     } else {
         toast({ title: 'Failed to Resend', description: result.message, variant: 'destructive' });
-        // Revert attempt count if resend failed
         setResendAttempts(prev => prev - 1);
     }
     setIsResending(false);
@@ -184,6 +180,7 @@ export default function RegisterPage() {
       otp: values.otp,
       password: values.password,
       role: selectedRole,
+      isTwoFactorEnabled: values.isTwoFactorEnabled,
     };
 
     let payload;
@@ -208,7 +205,7 @@ export default function RegisterPage() {
           description: result.message + (result.adminUniqueIdGenerated ? ` Your Admin ID: ${result.adminUniqueIdGenerated}` : ''),
           duration: result.adminUniqueIdGenerated ? 10000 : 5000,
         });
-        router.push('/'); // Firebase auth state change should also trigger redirect
+        router.push('/');
       } else {
         setServerError(result.message);
         toast({ title: 'Registration Failed', description: result.message, variant: 'destructive' });
@@ -237,7 +234,6 @@ export default function RegisterPage() {
         <Link href="/" aria-label="CertIntel Home"> <AppLogo size={40} /> </Link>
       </div>
       <Card className="w-full max-w-md shadow-xl">
-        {/* Step 1: Role Selection */}
         {step === 1 && (
           <>
             <CardHeader>
@@ -289,7 +285,6 @@ export default function RegisterPage() {
           </>
         )}
 
-        {/* Step 2: Email Input */}
         {step === 2 && selectedRole && (
           <>
             <CardHeader>
@@ -333,7 +328,6 @@ export default function RegisterPage() {
           </>
         )}
         
-        {/* Step 3: OTP, Details & Password */}
         {step === 3 && selectedRole && email && (
           <>
             <CardHeader>
@@ -420,6 +414,28 @@ export default function RegisterPage() {
                         <FormMessage />
                       </FormItem>
                     )} />
+                    <FormField
+                      control={studentDetailsForm.control}
+                      name="isTwoFactorEnabled"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-3">
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                            />
+                          </FormControl>
+                          <div className="space-y-1 leading-none">
+                            <FormLabel>
+                              Enable Two-Factor Authentication
+                            </FormLabel>
+                            <FormDescription className="text-xs">
+                              Secure your account with an authenticator app (recommended).
+                            </FormDescription>
+                          </div>
+                        </FormItem>
+                      )}
+                    />
                     {serverError && <p className="text-sm font-medium text-destructive">{serverError}</p>}
                      <div className="flex flex-col sm:flex-row gap-2 pt-2">
                         <Button 
@@ -478,6 +494,28 @@ export default function RegisterPage() {
                         <FormMessage />
                       </FormItem>
                     )} />
+                    <FormField
+                      control={adminDetailsForm.control}
+                      name="isTwoFactorEnabled"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-3">
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                            />
+                          </FormControl>
+                          <div className="space-y-1 leading-none">
+                            <FormLabel>
+                              Enable Two-Factor Authentication
+                            </FormLabel>
+                            <FormDescription className="text-xs">
+                              Secure your account with an authenticator app (recommended).
+                            </FormDescription>
+                          </div>
+                        </FormItem>
+                      )}
+                    />
                     {serverError && <p className="text-sm font-medium text-destructive">{serverError}</p>}
                      <div className="flex flex-col sm:flex-row gap-2">
                         <Button 

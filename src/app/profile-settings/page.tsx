@@ -6,7 +6,7 @@ import { useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, Save, KeyRound, UserCircle, Copy, Link2, Link2Off, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Loader2, Save, KeyRound, UserCircle, Copy, Link2, Link2Off, AlertTriangle, Trash2, Globe, Shield } from 'lucide-react';
 
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { Button } from '@/components/ui/button';
@@ -25,7 +25,10 @@ import {
 } from '@/lib/services/userService';
 import type { UserProfile } from '@/lib/models/user';
 import { doc, getDoc } from 'firebase/firestore';
-import { firestore, auth as firebaseAuth } from '@/lib/firebase/config'; // Import firebaseAuth for direct SDK access
+import { firestore, auth as firebaseAuth } from '@/lib/firebase/config';
+import { initiateAccountDeletion } from '@/ai/flows/initiate-account-deletion';
+import { Switch } from '@/components/ui/switch';
+
 
 const profileFormSchema = z.object({
   displayName: z.string().min(1, 'Display name cannot be empty.').max(50, 'Display name is too long.'),
@@ -43,12 +46,17 @@ function ProfileSettingsPageContent() {
   const { toast } = useToast();
 
   const [isSavingProfile, setIsSavingProfile] = useState(false);
-  const [isSendingReset, setIsSendingReset] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState(''); 
   
   const [isSubmittingLinkRequest, setIsSubmittingLinkRequest] = useState(false);
   const [isRemovingLink, setIsRemovingLink] = useState(false);
   const [linkedAdminName, setLinkedAdminName] = useState<string | null>(null);
+  
+  const [isUpdatingPublicProfile, setIsUpdatingPublicProfile] = useState(false);
+  const [isUpdating2FA, setIsUpdating2FA] = useState(false);
+  const publicProfileUrl = user ? `${process.env.NEXT_PUBLIC_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : '')}/profile/${user.uid}` : '';
+
 
   const profileForm = useForm<ProfileFormValues>({
     resolver: zodResolver(profileFormSchema),
@@ -119,19 +127,58 @@ function ProfileSettingsPageContent() {
 
   const handlePasswordReset = async () => {
     if (!user?.email) {
-      toast({ title: 'Error', description: 'No email address found for password reset.', variant: 'destructive' });
+      toast({ title: 'Error', description: 'User email not found. Cannot send reset link.', variant: 'destructive' });
       return;
     }
-    setIsSendingReset(true);
     const result = await sendPasswordReset(user.email);
-    toast({
-      title: result.success ? 'Password Reset Email Sent' : 'Request Failed',
-      description: result.message,
-      variant: result.success ? 'default' : 'destructive',
-      duration: 7000,
-    });
-    setIsSendingReset(false);
+    if (result.success) {
+      toast({
+        title: 'Check Your Email',
+        description: result.message,
+        duration: 7000,
+      });
+    } else {
+      toast({
+        title: 'Request Failed',
+        description: result.message,
+        variant: 'destructive',
+      });
+    }
   };
+
+  const handleInitiateDeletion = async () => {
+    if (!user?.email || !user.uid) {
+        toast({ title: 'Error', description: 'Cannot initiate deletion without a valid user session.', variant: 'destructive' });
+        return;
+    }
+    setIsDeleting(true);
+    try {
+        const baseUrl = window.location.origin;
+        const result = await initiateAccountDeletion({ email: user.email, userId: user.uid, baseUrl });
+        if (result.success) {
+            toast({
+                title: 'Deletion Email Sent',
+                description: result.message,
+                duration: 10000,
+            });
+        } else {
+            toast({
+                title: 'Request Failed',
+                description: result.message,
+                variant: 'destructive',
+            });
+        }
+    } catch (error: any) {
+        toast({
+            title: 'Error',
+            description: error.message || 'An unexpected error occurred.',
+            variant: 'destructive',
+        });
+    } finally {
+        setIsDeleting(false);
+    }
+  };
+
 
   const copyAdminId = () => {
     if (userProfile?.adminUniqueId) {
@@ -142,19 +189,15 @@ function ProfileSettingsPageContent() {
   };
 
   const handleRequestLink: SubmitHandler<AdminLinkFormValues> = async (data) => {
-    // ===== VERY IMPORTANT LOGGING - CHECK BROWSER CONSOLE =====
     console.log("%c[CLIENT] ProfileSettingsPage: handleRequestLink - Function ENTRY. Button Clicked.", "color: blue; font-weight: bold; font-size: 1.2em;");
     console.log("[CLIENT] ProfileSettingsPage: handleRequestLink - Form data submitted:", JSON.parse(JSON.stringify(data)));
 
-    const sdkCurrentUser = firebaseAuth.currentUser; // Direct check of Firebase SDK's current user
+    const sdkCurrentUser = firebaseAuth.currentUser;
     const sdkCurrentUID = sdkCurrentUser?.uid;
     const sdkCurrentUserEmail = sdkCurrentUser?.email;
-
-    // Log state from useAuth() hook (which comes from AuthContext)
+    
     console.log(`[CLIENT] ProfileSettingsPage: handleRequestLink - Context User (useAuth): UID=${user?.uid}, Email=${user?.email}`);
     console.log("[CLIENT] ProfileSettingsPage: handleRequestLink - Context UserProfile (useAuth):", userProfile ? JSON.parse(JSON.stringify(userProfile)) : "null/undefined");
-    
-    // Log state directly from Firebase SDK
     console.log(`[CLIENT] ProfileSettingsPage: handleRequestLink - Firebase SDK State: UID=${sdkCurrentUID}, Email=${sdkCurrentUserEmail}`);
     
     if (!user || !user.uid || !user.email || !userProfile) {
@@ -181,7 +224,6 @@ function ProfileSettingsPageContent() {
 
     setIsSubmittingLinkRequest(true);
     try {
-      // Ensure studentUserId passed to the service is from the authenticated user context (user.uid)
       const result = await studentRequestLinkWithAdmin(
         user.uid, 
         user.email,
@@ -222,7 +264,7 @@ function ProfileSettingsPageContent() {
 
     setIsRemovingLink(true);
     try {
-      const result = await studentRemoveAdminLink(user.uid); // Pass authenticated user's UID
+      const result = await studentRemoveAdminLink(user.uid);
       console.log(`[CLIENT] ProfileSettingsPage: handleRemoveLink - studentRemoveAdminLink service call result:`, result);
       if (result.success) {
         toast({ title: "Link Removed", description: "You are no longer linked with the admin." });
@@ -236,6 +278,35 @@ function ProfileSettingsPageContent() {
     } finally {
       setIsRemovingLink(false);
     }
+  };
+
+  const handleTogglePublicProfile = async (isEnabled: boolean) => {
+    if (!user) return;
+    setIsUpdatingPublicProfile(true);
+
+    const result = await updateUserProfileDocument(user.uid, { isPublicProfileEnabled: isEnabled });
+
+    if (result.success) {
+      toast({ title: 'Public Profile Updated', description: `Your showcase profile is now ${isEnabled ? 'enabled' : 'disabled'}.` });
+      refreshUserProfile();
+    } else {
+      toast({ title: 'Update Failed', description: result.message || "Could not update public profile setting.", variant: 'destructive' });
+    }
+    setIsUpdatingPublicProfile(false);
+  };
+  
+  const handleToggle2FA = async (isEnabled: boolean) => {
+    if (!user) return;
+    setIsUpdating2FA(true);
+    const result = await updateUserProfileDocument(user.uid, { isTwoFactorEnabled: isEnabled });
+
+    if (result.success) {
+      toast({ title: 'Security Setting Updated', description: `Two-Factor Authentication is now ${isEnabled ? 'enabled' : 'disabled'}.` });
+      refreshUserProfile();
+    } else {
+      toast({ title: 'Update Failed', description: result.message || "Could not update 2FA setting.", variant: 'destructive' });
+    }
+    setIsUpdating2FA(false);
   };
 
 
@@ -425,25 +496,96 @@ function ProfileSettingsPageContent() {
           </Card>
         )}
 
+        {userProfile?.role === 'student' && (
+          <Card id="public-profile">
+            <CardHeader>
+              <CardTitle className="text-xl font-headline flex items-center"><Globe className="mr-2" /> Public Showcase Profile</CardTitle>
+              <CardDescription>Create a public URL to showcase your public certificates to others.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between p-3 border rounded-md bg-background hover:bg-muted/50 transition-colors">
+                <Label htmlFor="public-profile-switch" className="flex flex-col gap-1 cursor-pointer">
+                  <span>Enable Public Profile</span>
+                  <span className="text-xs font-normal text-muted-foreground">
+                    Allows anyone with the link to see your public certificates.
+                  </span>
+                </Label>
+                <Switch
+                  id="public-profile-switch"
+                  checked={!!userProfile.isPublicProfileEnabled}
+                  onCheckedChange={handleTogglePublicProfile}
+                  disabled={isUpdatingPublicProfile}
+                  aria-label="Toggle public profile"
+                />
+              </div>
+              {userProfile.isPublicProfileEnabled && (
+                <div className="space-y-2 pt-2">
+                  <Label htmlFor="public-url">Your Public Profile URL</Label>
+                  <div className="flex items-center gap-2">
+                    <Input id="public-url" type="text" value={publicProfileUrl} readOnly className="bg-muted/50" />
+                    <Button type="button" variant="outline" size="icon" onClick={() => navigator.clipboard.writeText(publicProfileUrl).then(() => toast({ title: 'URL Copied!' }))} title="Copy URL">
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
-        <Card id="account-settings">
+
+        <Card id="account-security">
           <CardHeader>
-            <CardTitle className="text-xl font-headline flex items-center"><KeyRound className="mr-2" /> Account Settings</CardTitle>
-            <CardDescription>Manage your account security.</CardDescription>
+            <CardTitle className="text-xl font-headline flex items-center"><Shield className="mr-2" /> Account Security</CardTitle>
+            <CardDescription>Manage your account security settings.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div>
+            <div className="flex items-center justify-between p-3 border rounded-md">
+                <Label htmlFor="2fa-switch" className="flex flex-col gap-1">
+                    <span>Two-Factor Authentication (2FA)</span>
+                    <span className="text-xs font-normal text-muted-foreground">
+                    Secure your account with an email verification code on login.
+                    </span>
+                </Label>
+                <Switch
+                    id="2fa-switch"
+                    checked={!!userProfile?.isTwoFactorEnabled}
+                    onCheckedChange={handleToggle2FA}
+                    disabled={isUpdating2FA}
+                    aria-label="Toggle Two-Factor Authentication"
+                />
+            </div>
+             <div>
               <h3 className="font-medium mb-2">Password Reset</h3>
               <p className="text-sm text-muted-foreground mb-3">
                 If you wish to change your password, click the button below to send a password reset link to your email address.
               </p>
-              <Button variant="outline" onClick={handlePasswordReset} disabled={isSendingReset}>
-                {isSendingReset ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <KeyRound className="mr-2 h-4 w-4" />}
+              <Button variant="outline" onClick={handlePasswordReset}>
+                <KeyRound className="mr-2 h-4 w-4" />
                 Send Password Reset Email
               </Button>
             </div>
           </CardContent>
         </Card>
+        
+        <Card id="delete-account" className="border-destructive">
+            <CardHeader>
+                <CardTitle className="text-xl font-headline flex items-center text-destructive"><Trash2 className="mr-2" /> Delete Account</CardTitle>
+                <CardDescription className="text-destructive/90">Permanently delete your account and all associated data.</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <p className="text-sm text-muted-foreground mb-4">
+                    Once you request account deletion, we will send a confirmation link to your email address. This link is valid for 15 minutes.
+                    <br/>
+                    <strong className="font-semibold">This action is irreversible.</strong> All of your certificates and personal data will be permanently removed.
+                </p>
+                <Button variant="destructive" onClick={handleInitiateDeletion} disabled={isDeleting}>
+                    {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                    Request Account Deletion
+                </Button>
+            </CardContent>
+        </Card>
+
       </div>
     </div>
   );

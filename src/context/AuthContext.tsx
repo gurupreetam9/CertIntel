@@ -14,7 +14,9 @@ interface AuthContextType {
   userProfile: UserProfile | null;
   loading: boolean;
   userId: string | null;
-  refreshUserProfile: () => void; // Kept for potential explicit refreshes
+  isAwaiting2FA: boolean;
+  setIsAwaiting2FA: (isAwaiting: boolean) => void;
+  refreshUserProfile: () => void;
 }
 
 export const AuthContext = createContext<AuthContextType>({
@@ -22,6 +24,8 @@ export const AuthContext = createContext<AuthContextType>({
   userProfile: null,
   loading: true,
   userId: null,
+  isAwaiting2FA: false,
+  setIsAwaiting2FA: () => {},
   refreshUserProfile: () => {},
 });
 
@@ -32,13 +36,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
+  const [isAwaiting2FA, setIsAwaiting2FA] = useState(false);
   
-  // profileRefreshKey and its related effect are removed as onSnapshot handles real-time updates.
-  // The refreshUserProfile function is kept but might be a no-op or re-evaluated later if specific manual refresh logic is needed.
   const refreshUserProfile = useCallback(() => {
     console.log("AuthContext: refreshUserProfile called. (Currently a no-op due to real-time listener, but can be enhanced if needed).");
-    // If a manual re-fetch bypassing the listener cache is ever needed, logic could go here.
-    // For now, the listener should keep things up-to-date.
   }, []);
 
   useEffect(() => {
@@ -49,19 +50,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const authUnsubscribe = firebaseOnAuthStateChanged(async (firebaseUser) => {
       console.log("AuthContext: onAuthStateChanged triggered. Firebase user UID:", firebaseUser ? firebaseUser.uid : 'null');
       
-      // Clean up previous profile listener before setting new user or new listener
       if (profileListenerUnsubscribe) {
         console.log("AuthContext: Unsubscribing from previous profile listener for UID:", user?.uid);
         profileListenerUnsubscribe();
         profileListenerUnsubscribe = undefined;
       }
       
-      setUser(firebaseUser); // Set Firebase user
-      setUserId(firebaseUser ? firebaseUser.uid : null); // Set userId
-      setUserProfile(null); // Reset profile initially on auth change
+      setUser(firebaseUser);
+      setUserId(firebaseUser ? firebaseUser.uid : null);
+      setUserProfile(null); 
 
       if (firebaseUser) {
-        setLoading(true); // Set loading true before attaching new listener
+        setLoading(true); 
         const userDocRef = doc(firestore, USERS_COLLECTION, firebaseUser.uid);
         console.log("AuthContext: Subscribing to profile snapshots for UID:", firebaseUser.uid);
 
@@ -75,19 +75,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               setUserProfile(null);
               console.warn("AuthContext: User profile NOT FOUND in Firestore (onSnapshot for UID:", firebaseUser.uid, ")");
             }
-            setLoading(false); // Profile data (or lack thereof) received
+            // Don't set loading to false here if 2FA is pending
+            if (!isAwaiting2FA) {
+              setLoading(false);
+            }
           },
           (error) => {
             console.error("AuthContext: Error listening to user profile (onSnapshot) for UID:", firebaseUser.uid, error);
             setUserProfile(null);
             setLoading(false);
+            setIsAwaiting2FA(false);
           }
         );
       } else {
-        // No user, so not loading, ensure profile is null
         setUserProfile(null);
         setLoading(false);
-        console.log("AuthContext: No Firebase user. Loading false, profile null.");
+        setIsAwaiting2FA(false); // Reset 2FA state on logout
+        console.log("AuthContext: No Firebase user. Loading false, profile null, 2FA state reset.");
       }
     });
 
@@ -98,10 +102,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         profileListenerUnsubscribe();
       }
     };
-  }, []); // Empty dependency array: runs once on mount, cleans up on unmount
+  }, []); // isAwaiting2FA is intentionally omitted to avoid re-triggering auth listeners on its change
 
-  // This global loader is for the very initial app shell loading.
-  if (loading && user === undefined) { // More specific condition: only show global loader if user state is truly unknown initially
+  if (loading && user === undefined) { 
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-16 w-16 animate-spin text-primary" />
@@ -111,7 +114,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }
 
   return (
-    <AuthContext.Provider value={{ user, userProfile, loading, userId, refreshUserProfile }}>
+    <AuthContext.Provider value={{ user, userProfile, loading, userId, isAwaiting2FA, setIsAwaiting2FA, refreshUserProfile }}>
       {children}
     </AuthContext.Provider>
   );

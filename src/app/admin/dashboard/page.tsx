@@ -192,7 +192,7 @@ function AdminDashboardPageContent() {
               <Button asChild variant="outline" size="icon" aria-label="Back to Home">
                   <Link href="/"><ArrowLeft className="h-5 w-5" /></Link>
               </Button>
-              <h1 className="text-3xl font-bold font-headline">Admin Dashboard</h1>
+              <h1 className="text-2xl sm:text-3xl font-bold font-headline">Admin Dashboard</h1>
           </div>
         </div>
         
@@ -268,26 +268,34 @@ function AdminDashboardPageContent() {
               ) : acceptedStudents.length === 0 ? (
                 <p className="text-muted-foreground italic">You have not accepted any students yet.</p>
               ) : (
-                <ul className="space-y-3">
+                <ul className="space-y-4">
                   {acceptedStudents.map(student => (
-                    <li key={student.uid} className="p-3 border rounded-md bg-background/50 shadow-sm">
-                      <p className="font-semibold">{student.displayName}</p>
-                      <p className="text-sm text-muted-foreground">Email: {student.email}</p>
-                      {student.rollNo && <p className="text-sm text-muted-foreground">Roll No: {student.rollNo}</p>}
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <Button size="sm" variant="outline" asChild>
-                          <Link href={`/admin/student-certificates/${student.uid}`}> 
-                            <FileText className="mr-2 h-4 w-4"/> View Certificates
-                          </Link>
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => setStudentToRemove(student)}
-                          disabled={isProcessingRequest !== null || isRemovingStudent}
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" /> Remove
-                        </Button>
+                    <li key={student.uid} className="border rounded-lg p-3 sm:p-4 shadow-sm bg-card">
+                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                        <div className="flex-grow">
+                          <p className="text-lg font-semibold text-foreground">{student.displayName}</p>
+                          <div className="mt-1 space-y-0.5 text-sm text-muted-foreground">
+                            <p>Email: {student.email}</p>
+                            {student.rollNo && (<p>Roll No: {student.rollNo}</p>)}
+                          </div>
+                        </div>
+                        <div className="mt-2 flex-shrink-0 sm:mt-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                          <Button size="sm" variant="outline" asChild className="w-full sm:w-auto">
+                            <Link href={`/admin/student-certificates/${student.uid}`}>
+                              <FileText className="mr-2 h-4 w-4" />
+                              View Certificates
+                            </Link>
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => setStudentToRemove(student)}
+                            disabled={isProcessingRequest !== null || isRemovingStudent}
+                            className="w-full sm:w-auto"
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" /> Remove
+                          </Button>
+                        </div>
                       </div>
                     </li>
                   ))}

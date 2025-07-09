@@ -14,31 +14,43 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useState, useEffect } from 'react';
+import { getStudentLinkRequestsForAdminRealtime } from '@/lib/services/userService';
 
 export default function SiteHeader() {
-  const { user, userProfile } = useAuth();
+  const { user, userProfile, isAwaiting2FA } = useAuth(); // Added isAwaiting2FA
   const [isDashboardTooltipOpen, setIsDashboardTooltipOpen] = useState(false);
+  const [hasPendingRequests, setHasPendingRequests] = useState(false);
 
   // Effect to show tooltip on admin login
   useEffect(() => {
-    // Only run on the client where sessionStorage is available
     if (typeof window !== 'undefined' && user && userProfile?.role === 'admin') {
       const tooltipShown = sessionStorage.getItem('adminDashboardTooltipShown');
       if (!tooltipShown) {
-        // If the tooltip hasn't been shown in this session, show it.
         setIsDashboardTooltipOpen(true);
         sessionStorage.setItem('adminDashboardTooltipShown', 'true');
-
-        // Hide it after 5 seconds
-        const timer = setTimeout(() => {
-          setIsDashboardTooltipOpen(false);
-        }, 5000);
-
-        // Cleanup timer on component unmount or if dependencies change
+        const timer = setTimeout(() => setIsDashboardTooltipOpen(false), 5000);
         return () => clearTimeout(timer);
       }
     }
   }, [user, userProfile]);
+
+  // Effect to listen for pending link requests for the admin
+  useEffect(() => {
+    if (user && userProfile?.role === 'admin' && !isAwaiting2FA) { // Only listen if fully authenticated
+      const unsubscribe = getStudentLinkRequestsForAdminRealtime(
+        user.uid,
+        (requests) => {
+          setHasPendingRequests(requests.length > 0);
+        },
+        (error) => {
+          console.error("SiteHeader: Error fetching pending requests for notification:", error);
+          setHasPendingRequests(false);
+        }
+      );
+      return () => unsubscribe();
+    }
+  }, [user, userProfile, isAwaiting2FA]);
+
 
   return (
     <TooltipProvider>
@@ -52,31 +64,54 @@ export default function SiteHeader() {
           </Link>
           
           <div className="flex items-center gap-2">
-            {user && userProfile?.role === 'admin' && (
+            {user && !isAwaiting2FA ? ( // Condition to check if user is fully authenticated
               <>
-                {/* Button for medium screens and up */}
-                <Button variant="ghost" asChild size="sm" className="hidden md:flex">
-                  <Link href="/admin/dashboard">
-                    <LayoutDashboard className="mr-2 h-4 w-4" />
-                    Admin Dashboard
-                  </Link>
-                </Button>
-                {/* Icon-only button for mobile screens with Tooltip */}
-                <Tooltip open={isDashboardTooltipOpen} onOpenChange={setIsDashboardTooltipOpen}>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" asChild size="icon" className="md:hidden">
-                      <Link href="/admin/dashboard" aria-label="Admin Dashboard">
-                        <LayoutDashboard className="h-5 w-5" />
+                {userProfile?.role === 'admin' && (
+                  <>
+                    {/* Button for medium screens and up */}
+                    <Button variant="ghost" asChild size="sm" className="hidden md:flex relative">
+                      <Link href="/admin/dashboard">
+                        <LayoutDashboard className="mr-2 h-4 w-4" />
+                        Admin Dashboard
+                        {hasPendingRequests && (
+                          <span className="absolute top-1 right-1 flex h-3 w-3">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-3 w-3 bg-accent"></span>
+                          </span>
+                        )}
                       </Link>
                     </Button>
-                  </TooltipTrigger>
-                  <TooltipContent className="bg-primary text-primary-foreground border-transparent">
-                    <p>Admin Dashboard</p>
-                  </TooltipContent>
-                </Tooltip>
+                    {/* Icon-only button for mobile screens with Tooltip */}
+                    <Tooltip open={isDashboardTooltipOpen} onOpenChange={setIsDashboardTooltipOpen}>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" asChild size="icon" className="md:hidden relative">
+                          <Link href="/admin/dashboard" aria-label="Admin Dashboard">
+                            <LayoutDashboard className="h-5 w-5" />
+                            {hasPendingRequests && (
+                              <span className="absolute top-1 right-1 flex h-3 w-3">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-3 w-3 bg-accent"></span>
+                              </span>
+                            )}
+                          </Link>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent className="bg-primary text-primary-foreground border-transparent">
+                        <p>Admin Dashboard {hasPendingRequests && <span className="text-accent-foreground/80">(New Requests)</span>}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </>
+                )}
+                <ProfileDropdown />
               </>
+            ) : user && isAwaiting2FA ? (
+              // Optionally show something specific while awaiting 2FA, or nothing
+              null
+            ) : (
+               <Button asChild variant="outline">
+                  <Link href="/login">Login / Register</Link>
+               </Button>
             )}
-            {user && <ProfileDropdown />}
           </div>
         </div>
       </header>

@@ -5,6 +5,8 @@ import { FieldValue } from 'firebase-admin/firestore';
 import type { StudentLinkRequest, UserProfile } from '@/lib/models/user';
 import { sendEmail } from '@/lib/emailUtils';
 
+export const runtime = 'nodejs';
+
 const USERS_COLLECTION = 'users';
 const STUDENT_LINK_REQUESTS_COLLECTION = 'studentLinkRequests';
 
