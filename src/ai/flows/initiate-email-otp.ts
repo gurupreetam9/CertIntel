@@ -35,7 +35,16 @@ const initiateEmailOtpFlow = ai.defineFlow(
     outputSchema: InitiateEmailOtpOutputSchema,
   },
   async ({ email }) => {
-    const adminAuth = getAdminAuth(); // Get the admin auth instance
+    let adminAuth;
+    try {
+      adminAuth = getAdminAuth(); // Get the admin auth instance
+    } catch(initError: any) {
+        console.error(`initiateEmailOtpFlow: CRITICAL - Failed to get Firebase Admin Auth instance. This usually means GOOGLE_APPLICATION_CREDENTIALS are not set correctly.`, initError);
+        return { 
+          success: false, 
+          message: `Server configuration error: Firebase Admin services not available. Please check the server logs for details about GOOGLE_APPLICATION_CREDENTIALS.` 
+        };
+    }
 
     try {
       console.log(`initiateEmailOtpFlow: Checking if email ${email} already exists in Firebase Auth.`);
