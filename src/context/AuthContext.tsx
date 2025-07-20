@@ -3,7 +3,7 @@
 
 import type { User } from 'firebase/auth';
 import { createContext, useState, useEffect, type ReactNode, useCallback } from 'react';
-import { onAuthStateChanged as firebaseOnAuthStateChanged } from '@/lib/firebase/auth';
+import { onAuthStateChanged as firebaseOnAuthStateChanged, signOut } from '@/lib/firebase/auth';
 import { firestore } from '@/lib/firebase/config';
 import { doc, onSnapshot, type Unsubscribe } from 'firebase/firestore';
 import type { UserProfile } from '@/lib/models/user';
@@ -53,7 +53,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const userDocRef = doc(firestore, USERS_COLLECTION, firebaseUser.uid);
         profileListenerUnsubscribe = onSnapshot(userDocRef, 
           (docSnap) => {
-            setUserProfile(docSnap.exists() ? docSnap.data() as UserProfile : null);
+            if (docSnap.exists()) {
+              setUserProfile(docSnap.data() as UserProfile);
+            } else {
+              // This is the critical part: Profile doesn't exist.
+              // This can happen if the account was deleted from another device.
+              // Force a sign-out on this client to clear the stale auth session.
+              console.warn(`AuthContext: User is authenticated (UID: ${firebaseUser.uid}) but their Firestore profile document does not exist. Forcing sign-out.`);
+              setUserProfile(null);
+              signOut(); // This will trigger the `onAuthStateChanged` listener again, cleaning up state.
+            }
             setLoading(false);
           },
           (error) => {

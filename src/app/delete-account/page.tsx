@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Loader2, ShieldCheck, AlertTriangle, Trash2 } from 'lucide-react';
 import AppLogo from '@/components/common/AppLogo';
 import Link from 'next/link';
+import { signOut } from '@/lib/firebase/auth'; // Import the signOut function
 
 function DeleteAccountPageContent() {
   const router = useRouter();
@@ -40,6 +41,9 @@ function DeleteAccountPageContent() {
       }
       setStatus('success');
       setMessage(result.message);
+
+      // CRITICAL FIX: Force client-side logout to clear local auth state
+      await signOut();
 
       setTimeout(() => {
         router.push('/login');
