@@ -21,7 +21,7 @@ const deletionTokenStore: Record<string, { userId: string; email: string; expire
 const InitiateAccountDeletionInputSchema = z.object({
   email: z.string().email(),
   userId: z.string(),
-  baseUrl: z.string().url().describe('The base URL of the application, e.g., "https://example.com"'),
+  baseUrl: z.string().url().describe('The base URL of the application, e.g., "https://cert-intel.vercel.app"'),
 });
 export type InitiateAccountDeletionInput = z.infer<typeof InitiateAccountDeletionInputSchema>;
 
