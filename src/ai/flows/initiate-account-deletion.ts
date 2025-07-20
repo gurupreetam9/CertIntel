@@ -2,7 +2,7 @@
 'use server';
 /**
  * @fileOverview Flow to initiate the account deletion process by sending a secure link.
- * - initiateAccountDeletion: Generates a token, stores it, and emails a deletion link.
+ * - initiateAccountDeletion: Generates a token, stores it in Firestore, and emails a deletion link.
  * - InitiateAccountDeletionInput: Input type.
  * - InitiateAccountDeletionOutput: Output type.
  */
@@ -11,12 +11,10 @@ import { z } from 'zod';
 import { sendEmail } from '@/lib/emailUtils';
 import { v4 as uuidv4 } from 'uuid';
 
-// HACK: In-memory store for deletion tokens. NOT SUITABLE FOR PRODUCTION.
-// In a real app, use a database (e.g., Firestore, Redis) with TTL support.
-if (!(globalThis as any).deletionTokenStore) {
-  (globalThis as any).deletionTokenStore = {};
-}
-const deletionTokenStore: Record<string, { userId: string; email: string; expiresAt: number }> = (globalThis as any).deletionTokenStore;
+import { getAdminFirestore } from '@/lib/firebase/adminConfig';
+import { Timestamp } from 'firebase-admin/firestore';
+
+const DELETION_TOKENS_COLLECTION = 'deletionTokens';
 
 const InitiateAccountDeletionInputSchema = z.object({
   email: z.string().email(),
@@ -42,11 +40,20 @@ const initiateAccountDeletionFlow = ai.defineFlow(
     outputSchema: InitiateAccountDeletionOutputSchema,
   },
   async ({ email, userId, baseUrl }) => {
+    const adminFirestore = getAdminFirestore();
     const token = uuidv4();
-    const expiresAt = Date.now() + 15 * 60 * 1000; // Token expires in 15 minutes
+    // Set expiration in 15 minutes
+    const expiresAt = Timestamp.fromMillis(Date.now() + 15 * 60 * 1000); 
 
-    deletionTokenStore[token] = { userId, email, expiresAt };
-    console.log(`initiateAccountDeletionFlow: Deletion token for ${email} (UID: ${userId}) is ${token}. Stored in memory.`);
+    // Store the token in Firestore instead of in-memory
+    const tokenDocRef = adminFirestore.collection(DELETION_TOKENS_COLLECTION).doc(token);
+    await tokenDocRef.set({
+        userId,
+        email,
+        expiresAt,
+    });
+
+    console.log(`initiateAccountDeletionFlow: Deletion token for ${email} (UID: ${userId}) is ${token}. Stored in Firestore.`);
 
     const deletionUrl = `${baseUrl}/delete-account?token=${token}`;
     console.log(`initiateAccountDeletionFlow: Using provided base URL to create deletion link: ${deletionUrl}`);
