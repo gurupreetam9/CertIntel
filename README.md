@@ -148,3 +148,10 @@ This will start the Genkit development server, typically on port 4000, allowing 
 *   **Genkit Production Deployment**: Configure Genkit flows for a production environment.
 *   **OTP Storage**: Replace in-memory OTP store with a persistent database solution for production.
 *   **Scalability**: Review and optimize for scalability as user base grows.
+
+
+
+## License
+
+This project is licensed under the PolyForm Noncommercial License 1.0.0.
+Commercial use is not permitted without permission.
