@@ -9,7 +9,7 @@
 import { ai } from '@/ai/genkit';
 import { z } from 'zod';
 import { sendEmail } from '@/lib/emailUtils'; // Import the centralized email utility
-import { getAdminFirestore } from '@/lib/firebase/adminConfig'; // Import Firebase Admin Firestore
+import { getAdminFirestore, getAdminAuth } from '@/lib/firebase/adminConfig'; // Import Firebase Admin Firestore
 import { setOtp } from '@/lib/otpStore'; // Import centralized store helper
 
 const InitiateEmailOtpInputSchema = z.object({
@@ -53,9 +53,30 @@ const initiateEmailOtpFlow = ai.defineFlow(
       const querySnapshot = await q.get();
 
       if (!querySnapshot.empty) {
-        // If the query is not empty, it means the user exists.
-        console.log(`initiateEmailOtpFlow: Email ${email} is already registered (found in Firestore).`);
-        return { success: false, message: 'This email is already registered. Please login or use a different email.' };
+        // If the query is not empty, it means the user exists in Firestore.
+        // Let's check if the user also exists in Firebase Auth.
+        let authUserExists = true;
+        try {
+            const adminAuth = getAdminAuth();
+            await adminAuth.getUserByEmail(email);
+        } catch (authError: any) {
+            if (authError.code === 'auth/user-not-found') {
+                authUserExists = false;
+            } else {
+                console.error(`initiateEmailOtpFlow: Error checking Auth for ${email}:`, authError);
+                return { success: false, message: 'An error occurred while checking email availability. Please try again.' };
+            }
+        }
+
+        if (authUserExists) {
+            console.log(`initiateEmailOtpFlow: Email ${email} is already registered (found in Firestore and Auth).`);
+            return { success: false, message: 'This email is already registered. Please login or use a different email.' };
+        } else {
+            console.log(`initiateEmailOtpFlow: Email ${email} found in Firestore but NOT in Auth (orphaned). Deleting orphaned profile.`);
+            // Delete the orphaned Firestore document
+            await querySnapshot.docs[0].ref.delete();
+            // Proceed to OTP generation
+        }
       }
 
       // If we are here, the email is not in our Firestore 'users' collection, so it's available.

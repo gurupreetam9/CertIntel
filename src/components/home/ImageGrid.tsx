@@ -4,6 +4,8 @@
 import Image from 'next/image';
 import { Card, CardContent, CardDescription } from '@/components/ui/card';
 import { ImageIcon, Loader2, Eye, Trash2, ExternalLink, Download, FileText, Bot, Sparkles, Pencil, Lock, Unlock } from 'lucide-react';
+import ErrorCard from '@/components/common/ErrorCard';
+import { getUserFriendlyError } from '@/lib/errorUtils';
 import { useState, useCallback } from 'react';
 import ViewImageModal from './ViewImageModal';
 import {
@@ -148,7 +150,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
     } catch (err: any) {
         toast({
             title: 'Update Failed',
-            description: err.message,
+            description: getUserFriendlyError(err),
             variant: 'destructive',
         });
     } finally {
@@ -185,7 +187,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
     } catch (err: any) {
       toast({
         title: 'Update Failed',
-        description: err.message,
+        description: getUserFriendlyError(err),
         variant: 'destructive',
       });
     } finally {
@@ -220,7 +222,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
     } catch (err: any) {
       toast({
         title: 'Error Deleting File',
-        description: err.message || 'An unexpected error occurred.',
+        description: getUserFriendlyError(err),
         variant: 'destructive',
       });
     } finally {
@@ -268,7 +270,7 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
 
     } catch (err: any) {
         console.error("Error requesting AI description:", err);
-        toast({ title: 'AI Description Failed', description: err.message, variant: 'destructive' });
+        toast({ title: 'AI Description Failed', description: getUserFriendlyError(err), variant: 'destructive' });
     } finally {
         setGeneratingDescriptionFor(null);
     }
@@ -287,10 +289,8 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
 
   if (error) {
     return (
-      <div className="flex h-full flex-col items-center justify-center text-center py-4 sm:py-8 md:py-12 text-destructive">
-        <FileText className="w-12 h-12 sm:w-16 sm:h-16 mb-4" />
-        <h2 className="text-xl sm:text-2xl font-headline mb-2">Error Loading Certificates</h2>
-        <p className="text-sm sm:text-base">{error}</p>
+      <div className="py-4 sm:py-8 md:py-12">
+        <ErrorCard message={error} />
       </div>
     );
   }
