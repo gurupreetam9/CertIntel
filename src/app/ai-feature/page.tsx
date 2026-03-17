@@ -4,8 +4,10 @@
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Loader2, Sparkles, ExternalLink, AlertTriangle, Info, BrainCircuit, RefreshCw, FileText, FileWarning, Edit, X } from 'lucide-react';
+import ErrorCard from '@/components/common/ErrorCard';
+import { getUserFriendlyError } from '@/lib/errorUtils';
 import Link from 'next/link';
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -72,6 +74,11 @@ function AiFeaturePageContent() {
   // New state for generation buttons
   const [generatingAction, setGeneratingAction] = useState<string | null>(null); // 'all', 'new', or course name
 
+  // Background generation polling
+  const [isPollingForResults, setIsPollingForResults] = useState(false);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const GENERATION_FLAG_KEY = `certintel_generating_${userId}`;
+
 
   const triggerRefresh = useCallback(() => setRefreshKey(k => k + 1), []);
 
@@ -112,12 +119,23 @@ function AiFeaturePageContent() {
       if (suggestionsResponse.ok) {
           const suggestionsData: SuggestionsPhaseResult = await suggestionsResponse.json();
           setSuggestionsResult(suggestionsData);
-          toast({ title: "Latest AI Suggestions Loaded", description: "Your previously generated insights are ready.", duration: 3000 });
+          // If we were waiting for background generation, we found the results — stop polling
+          if (localStorage.getItem(GENERATION_FLAG_KEY)) {
+            localStorage.removeItem(GENERATION_FLAG_KEY);
+            setIsPollingForResults(false);
+            toast({ title: "AI Suggestions Ready!", description: "Your background generation has completed.", duration: 4000 });
+          } else {
+            toast({ title: "Latest AI Suggestions Loaded", description: "Your previously generated insights are ready.", duration: 3000 });
+          }
       } else {
         if (suggestionsResponse.status !== 404) {
             console.warn(`Could not fetch latest suggestions, status: ${suggestionsResponse.status}`);
         }
         setSuggestionsResult(null);
+        // Check if generation is running in the background
+        if (localStorage.getItem(GENERATION_FLAG_KEY)) {
+          setIsPollingForResults(true);
+        }
       }
 
       // Handle manual courses
@@ -129,14 +147,48 @@ function AiFeaturePageContent() {
       }
 
     } catch (err: any) {
-      setError(err.message);
-      toast({ title: "Error Loading Page Data", description: err.message, variant: 'destructive' });
+      const friendlyMsg = getUserFriendlyError(err);
+      setError(friendlyMsg);
+      toast({ title: "Error Loading Page Data", description: friendlyMsg, variant: 'destructive' });
       setSuggestionsResult(null);
       setManualCourses([]);
     } finally {
       setIsLoading(false);
     }
   }, [userId, user, flaskServerBaseUrl, toast]);
+
+  // Polling effect: re-fetch suggestions every 5s while background generation is running
+  useEffect(() => {
+    if (isPollingForResults && userId) {
+      pollingIntervalRef.current = setInterval(async () => {
+        try {
+          const res = await fetch(`${flaskServerBaseUrl}/api/latest-processed-results?userId=${userId}`, {
+            headers: { 'ngrok-skip-browser-warning': 'true' }
+          });
+          if (res.ok) {
+            const data: SuggestionsPhaseResult = await res.json();
+            setSuggestionsResult(data);
+            setIsPollingForResults(false);
+            localStorage.removeItem(GENERATION_FLAG_KEY);
+            toast({ title: "AI Suggestions Ready!", description: "Your background generation has completed.", duration: 4000 });
+          }
+        } catch {
+          // Silently retry on next interval
+        }
+      }, 5000);
+
+      // Safety timeout: stop polling after 2 minutes
+      const timeout = setTimeout(() => {
+        setIsPollingForResults(false);
+        localStorage.removeItem(GENERATION_FLAG_KEY);
+      }, 120000);
+
+      return () => {
+        if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
+        clearTimeout(timeout);
+      };
+    }
+  }, [isPollingForResults, userId, flaskServerBaseUrl, GENERATION_FLAG_KEY, toast]);
 
   useEffect(() => {
     fetchInitialData();
@@ -186,6 +238,8 @@ function AiFeaturePageContent() {
     if (!userId) return;
     setGeneratingAction(actionIdentifier);
     setError(null);
+    // Mark that generation is in progress (survives navigation)
+    localStorage.setItem(GENERATION_FLAG_KEY, Date.now().toString());
 
     if (coursesToFetch.length === 0) {
       toast({ title: 'No Courses', description: 'No course names available to get suggestions for.', variant: 'destructive' });
@@ -216,6 +270,8 @@ function AiFeaturePageContent() {
       if (!response.ok || data.error) throw new Error(data.error || `Server error: ${response.status}`);
       
       setSuggestionsResult(data);
+      localStorage.removeItem(GENERATION_FLAG_KEY);
+      setIsPollingForResults(false);
       toast({ title: 'Suggestions Generated', description: `AI insights are ready for your courses.` });
       
       if (data.llm_error_summary) {
@@ -223,8 +279,11 @@ function AiFeaturePageContent() {
       }
 
     } catch (err: any) {
-      setError(err.message || 'Failed to generate suggestions.');
-      toast({ title: 'Suggestion Generation Failed', description: err.message, variant: 'destructive' });
+      const friendlyMsg = getUserFriendlyError(err);
+      setError(friendlyMsg);
+      localStorage.removeItem(GENERATION_FLAG_KEY);
+      setIsPollingForResults(false);
+      toast({ title: 'Suggestion Generation Failed', description: friendlyMsg, variant: 'destructive' });
     } finally {
       setGeneratingAction(null);
     }
@@ -247,7 +306,7 @@ function AiFeaturePageContent() {
       triggerRefresh();
       setIsEditModalOpen(false);
     } catch (err: any) {
-      toast({ title: "Update Failed", description: err.message, variant: "destructive" });
+      toast({ title: "Update Failed", description: getUserFriendlyError(err), variant: "destructive" });
     } finally {
       setIsUpdatingName(false);
     }
@@ -270,7 +329,7 @@ function AiFeaturePageContent() {
         setManualCourseInput('');
 
     } catch (err: any) {
-        toast({ title: "Error", description: err.message, variant: "destructive" });
+        toast({ title: "Could Not Add Course", description: getUserFriendlyError(err), variant: "destructive" });
     } finally {
         setIsAddingManualCourse(false);
     }
@@ -292,7 +351,7 @@ function AiFeaturePageContent() {
         setManualCourses(prev => prev.filter(c => c !== courseName));
 
     } catch (err: any) {
-        toast({ title: "Error", description: err.message, variant: "destructive" });
+        toast({ title: "Could Not Delete Course", description: getUserFriendlyError(err), variant: "destructive" });
     } finally {
         setIsDeletingManualCourse(null);
     }
@@ -325,9 +384,22 @@ function AiFeaturePageContent() {
         )}
 
         {!isLoading && error && (
-            <Card className="mb-6 border-destructive bg-destructive/10">
-                <CardHeader><CardTitle className="text-destructive flex items-center"><AlertTriangle className="mr-2 h-5 w-5" /> Error Encountered</CardTitle></CardHeader>
-                <CardContent><p>{error}</p></CardContent>
+            <ErrorCard
+              message={error}
+              onRetry={fetchInitialData}
+              className="mb-6"
+            />
+        )}
+
+        {!isLoading && isPollingForResults && (
+            <Card className="mb-6 border-primary/30 bg-primary/5">
+                <CardContent className="pt-6 flex items-center gap-4">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary shrink-0" />
+                    <div>
+                        <p className="font-semibold text-foreground">Your AI suggestions are being generated...</p>
+                        <p className="text-sm text-muted-foreground">This may take a moment. You can navigate away — we'll have them ready when you come back.</p>
+                    </div>
+                </CardContent>
             </Card>
         )}
 

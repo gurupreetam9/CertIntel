@@ -57,7 +57,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               setUserProfile(docSnap.data() as UserProfile);
             } else {
               // This is the critical part: Profile doesn't exist.
-              // This can happen if the account was deleted from another device.
+              // This can happen if the account was deleted from another device
+              // OR if the user just registered and the backend API hasn't 
+              // finished creating the profile document yet.
+              const creationTimeStr = firebaseUser.metadata.creationTime;
+              if (creationTimeStr) {
+                  const creationTime = new Date(creationTimeStr).getTime();
+                  const ageMs = Date.now() - creationTime;
+                  // Allow up to 2 minutes for profile creation during signup
+                  if (ageMs < 2 * 60 * 1000) {
+                      console.log(`AuthContext: Profile for new user ${firebaseUser.uid} not yet ready. Waiting...`);
+                      setUserProfile(null);
+                      return;
+                  }
+              }
+
               // Force a sign-out on this client to clear the stale auth session.
               console.warn(`AuthContext: User is authenticated (UID: ${firebaseUser.uid}) but their Firestore profile document does not exist. Forcing sign-out.`);
               setUserProfile(null);

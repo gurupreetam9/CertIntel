@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AlertCircle, Bot, Camera, CheckCircle, FileText, FileUp, ImagePlus, Loader2, Trash2, UploadCloud } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
+import { getUserFriendlyError } from '@/lib/errorUtils';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 interface UploadedFileEntry {
@@ -144,7 +145,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
       ));
       toast({
         title: 'AI Description Failed',
-        description: error.message || 'Could not generate description for the image.',
+        description: getUserFriendlyError(error),
         variant: 'destructive',
       });
     } finally {
@@ -190,25 +191,9 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
         const responseText = await response.text();
 
         if (!response.ok) {
-          let errorMsg = `Upload failed. Server responded with status ${response.status}.`;
-          let reqIdFromServer = null;
-
-          try {
-            const parsedError = JSON.parse(responseText);
-            if (typeof parsedError === 'object' && parsedError !== null) {
-              errorMsg = parsedError.message || errorMsg;
-              reqIdFromServer = parsedError.reqId || null;
-              if (reqIdFromServer && !errorMsg.includes('Req ID:')) {
-                errorMsg += ` (Req ID: ${reqIdFromServer})`;
-              }
-            } else {
-                errorMsg = responseText.length < 100 ? responseText : `Server error ${response.status}. Invalid error format received.`;
-            }
-          } catch (e) {
-            console.warn(`ImageUploader: Server error response for ${fileEntry.file.name} was not valid JSON. Status: ${response.status}. Raw Response:`, responseText.substring(0,500));
-            errorMsg = responseText.length < 200 ? `Server error ${response.status}: ${responseText}` : `Server error ${response.status}. See console for details.`;
-          }
-          console.error(`ImageUploader: Upload failed for ${fileEntry.file.name}. Status: ${response.status}. Error:`, errorMsg);
+          // Log the technical details for debugging, but show the user a simple message
+          console.error(`ImageUploader: Upload failed for ${fileEntry.file.name}. Status: ${response.status}. Response:`, responseText.substring(0, 500));
+          const errorMsg = getUserFriendlyError(`Server error ${response.status}`);
           setSelectedFiles(prev => prev.map(f => f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified ? { ...f, status: 'error', error: errorMsg, progress: 0 } : f));
           continue;
         }
@@ -234,7 +219,7 @@ export default function ImageUploader({ onUploadComplete, closeModal }: ImageUpl
 
       } catch (networkError: any) {
         console.error(`ImageUploader: Network error during upload for file: ${fileEntry.file.name}. Error:`, networkError.message, networkError);
-        const errorMessage = networkError.message || 'Upload failed due to a network issue.';
+        const errorMessage = getUserFriendlyError(networkError);
         setSelectedFiles(prev => prev.map(f => f.file.name + f.file.lastModified === fileEntry.file.name + fileEntry.file.lastModified ? { ...f, status: 'error', error: errorMessage, progress: 0 } : f));
       }
     }

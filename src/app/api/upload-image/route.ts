@@ -45,6 +45,6 @@ export async function POST(request: NextRequest) {
 
     } catch (error: any) {
         console.error(`API /api/upload-image (Req ID: ${reqId}, proxy): Error forwarding request to Flask. This might be a network issue (e.g., Flask server not running) or a DNS problem.`, error);
-        return NextResponse.json({ message: 'Error communicating with the processing server.', error: error.message }, { status: 502 }); // 502 Bad Gateway
+        return NextResponse.json({ message: 'Services are not available right now. Please try again later.' }, { status: 502 }); // 502 Bad Gateway
     }
 }

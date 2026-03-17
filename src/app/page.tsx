@@ -4,6 +4,8 @@
 import ProtectedPage from '@/components/auth/ProtectedPage';
 import { useAuth } from '@/hooks/useAuth';
 import { LayoutDashboard, Loader2, AlertCircle, Search, Download, FileText, BarChart2, PieChart as PieChartIcon, LineChart as LineChartIcon, ArrowUp, ArrowDown, View, Mail } from 'lucide-react';
+import ErrorCard from '@/components/common/ErrorCard';
+import { getUserFriendlyError } from '@/lib/errorUtils';
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -70,8 +72,9 @@ function StudentHomePageContent() {
         const data: UserImage[] = await response.json();
         setImages(data);
       } catch (err: any) {
-        setError(err.message);
-        toast({ title: 'Error Loading Images', description: err.message, variant: 'destructive' });
+        const friendlyMsg = getUserFriendlyError(err);
+        setError(friendlyMsg);
+        toast({ title: 'Error Loading Images', description: friendlyMsg, variant: 'destructive' });
       } finally {
         setIsLoadingImages(false);
       }
@@ -179,8 +182,9 @@ function AdminHomePageContent() {
                 setAllStudents(uniqueStudents);
 
             } catch (err: any) {
-                setError(err.message);
-                toast({ title: "Error Loading Dashboard", description: err.message, variant: "destructive" });
+                const friendlyMsg = getUserFriendlyError(err);
+                setError(friendlyMsg);
+                toast({ title: "Error Loading Dashboard", description: friendlyMsg, variant: "destructive" });
             } finally {
                 setIsLoading(false);
             }
@@ -353,7 +357,7 @@ function AdminHomePageContent() {
             toast({ title: 'Download Started', description: 'Your ZIP file is being prepared.' });
 
         } catch (err: any) {
-            toast({ title: 'Download Failed', description: err.message, variant: 'destructive' });
+            toast({ title: 'Download Failed', description: getUserFriendlyError(err), variant: 'destructive' });
         } finally {
             setIsDownloading(false);
         }
@@ -395,7 +399,7 @@ function AdminHomePageContent() {
             }
             toast({ title: 'Notifications Sent', description: result.message });
         } catch (err: any) {
-            toast({ title: 'Notification Error', description: err.message, variant: 'destructive' });
+            toast({ title: 'Notification Error', description: getUserFriendlyError(err), variant: 'destructive' });
         } finally {
             setIsNotifying(false);
         }
@@ -412,10 +416,11 @@ function AdminHomePageContent() {
     
     if (error) {
         return (
-            <div className="container mx-auto p-8 text-center">
-                <AlertCircle className="mx-auto h-16 w-16 text-destructive mb-4" />
-                <h2 className="text-2xl font-bold">Failed to Load Dashboard</h2>
-                <p className="text-muted-foreground mt-2">{error}</p>
+            <div className="container mx-auto p-8">
+                <ErrorCard
+                  message={error}
+                  onRetry={() => window.location.reload()}
+                />
             </div>
         );
     }
