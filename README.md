@@ -19,6 +19,27 @@
 **CertIntel** is a full-stack web application that helps students upload, organize, and analyze their certificates and course credentials. It features AI-powered OCR to extract certificate data, role-based access for students and admins/teachers, a student–admin linking workflow, and automated email notifications — all in a polished, responsive UI.
 
 ---
+ 
+## 📸 Screenshots
+ 
+<div align="center">
+  <table>
+    <tr>
+      <td align="center"><img src="./docs/im1.png" width="400"/><br/><sub>Login Screen</sub></td>
+      <td align="center"><img src="./docs/im2.png" width="400"/><br/><sub>Student Home — Certificate Grid</sub></td>
+    </tr>
+    <tr>
+      <td align="center"><img src="./docs/im3.png" width="400"/><br/><sub>PDF Upload Popup</sub></td>
+      <td align="center"><img src="./docs/im4.png" width="400"/><br/><sub>AI Course Recommendations</sub></td>
+    </tr>
+    <tr>
+      <td align="center"><img src="./docs/im5.png" width="400"/><br/><sub>AI Recommendations (continued)</sub></td>
+      <td align="center"><img src="./docs/im6.png" width="400"/><br/><sub>Admin Dashboard</sub></td>
+    </tr>
+  </table>
+</div>
+
+---
 
 ## ✨ Features
 
