@@ -7,10 +7,31 @@ import { Toaster } from '@/components/ui/toaster';
 import SiteHeader from '@/components/layout/SiteHeader';
 
 export const metadata: Metadata = {
-  title: 'CertIntel',
-  description: 'Extract insights and manage your certificates with AI.',
+  metadataBase: new URL('https://cert-intel.vercel.app'),
+  title: 'CertIntel - AI Certificate Analysis & Course Recommendation Platform',
+  description:
+    'CertIntel is an AI-powered certificate analysis platform that uses YOLOv8 OCR, NLP, and recommendation systems to extract course information and recommend personalized learning paths.',
+  keywords: [
+    'CertIntel',
+    'YOLOv8',
+    'OCR',
+    'Certificate Analysis',
+    'AI Recommendation System',
+    'Course Recommendation',
+    'NLP',
+    'Computer Vision',
+    'Learning Path Recommendation',
+    'AI Education Platform',
+  ],
+  openGraph: {
+    title: 'CertIntel',
+    description:
+      'AI-powered certificate analysis and recommendation platform using YOLOv8 OCR and NLP.',
+    url: 'https://cert-intel.vercel.app',
+    siteName: 'CertIntel',
+    type: 'website',
+  },
 };
-
 export default function RootLayout({
   children,
 }: Readonly<{
