@@ -1,48 +1,138 @@
+# 🎓 CertIntel
 
-# CertIntel
+<div align="center">
 
-This is a Next.js application scaffolded for CertIntel, featuring Firebase Authentication and Storage, with planned MongoDB integration for metadata and a Flask server for AI features. It also includes Genkit for AI flow management and Nodemailer for email notifications.
+**An AI-powered certificate management and intelligence platform for students and educators.**
 
-## Getting Started
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-cert--intel.vercel.app-blue?style=for-the-badge&logo=vercel)](https://cert-intel.vercel.app)
+[![License](https://img.shields.io/badge/License-PolyForm%20Noncommercial%201.0.0-orange?style=for-the-badge)](./LICENSE)
+[![Next.js](https://img.shields.io/badge/Next.js-15-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-88%25-3178c6?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
+[![Flask AI Server](https://img.shields.io/badge/🤗%20Hugging%20Face-Flask%20AI%20Server-ff6b35?style=for-the-badge)](https://huggingface.co/spaces/GuruPreetam/CertIntel-Flask-Server)
 
-### 1. Prerequisites
+</div>
 
-*   Node.js (v18 or later recommended)
-*   npm, yarn, or pnpm
+---
 
-### 2. Setup Environment Variables
+## 📖 Overview
 
-Create a `.env.local` file in the root of the project by copying the `.env` file (if you only have `.env.example`, copy that instead):
+**CertIntel** is a full-stack web application that helps students upload, organize, and analyze their certificates and course credentials. It features AI-powered OCR to extract certificate data, role-based access for students and admins/teachers, a student–admin linking workflow, and automated email notifications — all in a polished, responsive UI.
+
+---
+
+## ✨ Features
+
+### 🔐 Authentication & Roles
+- Multi-step registration with **email OTP verification**
+- Role-based access: **Student** and **Admin/Teacher**
+- Login, logout, and password reset flows
+
+### 👩‍🎓 Student Experience
+- Upload certificates as **images or PDFs** (PDFs auto-converted page-by-page)
+- View all uploaded certificates in a grid layout
+- Request to link with an admin using their unique shareable ID
+- Receive email notifications on link request approval or rejection
+
+### 🧑‍💼 Admin Dashboard
+- View and manage **pending student link requests** with real-time updates
+- Accept or reject link requests
+- Browse linked students' certificate collections
+
+### 🤖 AI Integration
+- **Certificate OCR** powered by the [CertIntel Flask Server](https://huggingface.co/spaces/GuruPreetam/CertIntel-Flask-Server) hosted on Hugging Face Spaces
+- **Course suggestions** powered by AI analysis of certificate content
+- **Genkit AI flows** for email OTP, registration, and image processing
+
+### 📧 Email Notifications
+- OTP emails during registration
+- Registration confirmation
+- Student notifications on admin link request outcomes
+
+### 🎨 UI & Design
+- Built with **Tailwind CSS** and **ShadCN UI**
+- Custom theme: Gold, Light Beige, and Vivid Orange
+- Fonts: *Poppins* (headlines) · *Open Sans* (body)
+- Fully responsive across device sizes
+
+---
+
+## 🛠️ Tech Stack
+
+| Layer | Technology |
+|---|---|
+| **Frontend** | Next.js 15, React 18, TypeScript, Tailwind CSS, ShadCN UI |
+| **Backend** | Next.js API Routes, Firebase Admin SDK |
+| **AI / OCR** | Python Flask ([Hugging Face Space](https://huggingface.co/spaces/GuruPreetam/CertIntel-Flask-Server)), Tesseract.js, Google Genkit, Cohere AI |
+| **Database** | MongoDB (GridFS for file storage), Firebase Firestore |
+| **Auth** | Firebase Authentication |
+| **Storage** | Firebase Storage, MongoDB GridFS |
+| **Email** | Nodemailer (Gmail) |
+| **Deployment** | Vercel (Next.js), Firebase App Hosting, Hugging Face Spaces (Flask) |
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- **Node.js** v18 or later
+- **npm**, **yarn**, or **pnpm**
+- A **Firebase** project with Auth, Firestore, and Storage enabled
+- A **MongoDB** cluster (local or Atlas)
+
+> **Flask AI Server:** The OCR and AI suggestion backend is hosted on Hugging Face Spaces — no local Python setup required. Just point `NEXT_PUBLIC_FLASK_SERVER_URL` at the Space URL. See the [CertIntel Flask Server Space](https://huggingface.co/spaces/GuruPreetam/CertIntel-Flask-Server) for details.
+
+---
+
+### 1. Clone the Repository
 
 ```bash
-cp .env .env.local 
-# or if .env doesn't exist and .env.example does:
-# cp .env.example .env.local
+git clone https://github.com/gurupreetam9/CertIntel.git
+cd CertIntel
 ```
 
-Then, fill in the required Firebase project configuration details, MongoDB URI, Flask URL, and Gmail credentials in `.env.local`:
+### 2. Set Up Environment Variables
 
-*   `NEXT_PUBLIC_FIREBASE_API_KEY`
-*   `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`
-*   `NEXT_PUBLIC_FIREBASE_PROJECT_ID`
-*   `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`
-*   `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`
-*   `NEXT_PUBLIC_FIREBASE_APP_ID`
-*   `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` (Optional, for Firebase Analytics)
-*   `MONGODB_URI` (Your MongoDB connection string)
-*   `MONGODB_DB_NAME` (Your MongoDB database name, e.g., `imageverse_db`)
-*   `NEXT_PUBLIC_FLASK_SERVER_URL` (Your Python Flask server endpoint for the AI feature, e.g., `http://localhost:5000`)
-*   `GOOGLE_APPLICATION_CREDENTIALS` (For Firebase Admin SDK: path to your service account JSON file for local dev, or the JSON content itself. Often auto-configured in App Hosting.)
-*   `GMAIL_EMAIL_ADDRESS` (Your Gmail address for sending OTP and notification emails)
-*   `GMAIL_APP_PASSWORD` (Your Gmail App Password if 2FA is enabled, otherwise your regular password - App Password highly recommended)
+Copy the example env file and fill in your credentials:
 
-**Note on `GOOGLE_APPLICATION_CREDENTIALS`**:
-For local development, this should typically be the absolute path to your Firebase service account key JSON file.
-Example: `GOOGLE_APPLICATION_CREDENTIALS="/Users/yourname/secrets/my-firebase-project-firebase-adminsdk.json"`
-Alternatively, the `adminConfig.ts` file has logic to parse this variable if it contains the JSON content directly (e.g., `GOOGLE_APPLICATION_CREDENTIALS='{"type": "service_account", ...}'`), though providing a file path is more standard for this variable.
-In Firebase App Hosting or Google Cloud environments, Application Default Credentials might be used automatically if this variable is not set.
+```bash
+cp .env .env.local
+# or
+cp .env.example .env.local
+```
 
-### 3. Install Dependencies
+Open `.env.local` and fill in:
+
+```env
+# Firebase (Client)
+NEXT_PUBLIC_FIREBASE_API_KEY=
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
+NEXT_PUBLIC_FIREBASE_APP_ID=
+NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=        # Optional
+
+# Firebase (Admin SDK)
+GOOGLE_APPLICATION_CREDENTIALS=            # Path to your service account JSON
+
+# MongoDB
+MONGODB_URI=
+MONGODB_DB_NAME=certintel_db
+
+# Flask AI Server (hosted on Hugging Face Spaces)
+NEXT_PUBLIC_FLASK_SERVER_URL=https://gurupreetam-certintel-flask-server.hf.space
+
+# Email (Gmail)
+GMAIL_EMAIL_ADDRESS=
+GMAIL_APP_PASSWORD=
+```
+
+> **Tip on `GOOGLE_APPLICATION_CREDENTIALS`:** For local development, set this to the absolute path of your Firebase service account JSON file. In Firebase App Hosting or GCP environments, Application Default Credentials are used automatically.
+
+---
+
+### 3. Install Node Dependencies
 
 ```bash
 npm install
@@ -52,106 +142,125 @@ yarn install
 pnpm install
 ```
 
-### 4. Run the Development Server
+### 4. Run the Development Servers
 
+**Next.js frontend** (runs on port 9005):
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
 ```
 
-Open [http://localhost:9005](http://localhost:9005) (or the port specified in your `package.json` dev script) with your browser to see the result.
-
-### 5. Genkit Development (Optional)
-
-If you are working with Genkit AI flows:
+**Genkit AI flows** (optional, for AI flow development):
 ```bash
 npm run genkit:dev
-# or for watching changes
+# or watch mode
 npm run genkit:watch
 ```
-This will start the Genkit development server, typically on port 4000, allowing you to inspect and test your flows.
 
-## Project Structure
+Open [http://localhost:9005](http://localhost:9005) in your browser.
 
-*   `src/app/`: Contains all the routes and UI for the application (App Router).
-    *   `src/app/page.tsx`: The main home page for authenticated users.
-    *   `src/app/login/page.tsx`: User login page.
-    *   `src/app/register/page.tsx`: User registration page (multi-step with role selection, OTP email verification).
-    *   `src/app/forgot-password/page.tsx`: Password reset page.
-    *   `src/app/profile-settings/page.tsx`: User profile management, including linking with Admin for students.
-    *   `src/app/admin/dashboard/page.tsx`: Admin dashboard for managing student link requests and viewing linked students.
-    *   `src/app/admin/student-certificates/[studentId]/page.tsx`: Page for admins to view a specific student's certificates.
-    *   `src/app/ai-feature/page.tsx`: Page for AI integration (certificate processing, course suggestions via Flask).
-    *   `src/app/api/`: API routes (e.g., for image upload, metadata, Genkit flows).
-*   `src/components/`: Reusable UI components.
-    *   `src/components/auth/`: Authentication related components (AuthForm, ProtectedPage).
-    *   `src/components/home/`: Components specific to the home page (ImageGrid, UploadFAB, AiFAB, Modals).
-    *   `src/components/layout/`: Layout components like SiteHeader.
-    *   `src/components/common/`: General purpose components like AppLogo.
-    *   `src/components/ui/`: ShadCN UI components.
-*   `src/lib/`: Utility functions and libraries.
-    *   `src/lib/firebase/`: Firebase configuration (client & admin) and service functions.
-    *   `src/lib/mongodb.ts`: MongoDB connection utility.
-    *   `src/lib/services/`: Service layer functions (userService, emailUtils).
-    *   `src/lib/models/`: TypeScript type definitions for data models (user, etc.).
-*   `src/ai/`: Genkit AI flows and configuration.
-    *   `src/ai/flows/`: Specific AI flows (OTP, registration, image processing).
-    *   `src/ai/genkit.ts`: Genkit global configuration.
-    *   `src/ai/dev.ts`: Genkit development server entry point.
-*   `src/context/`: React Context providers (AuthContext).
-*   `src/hooks/`: Custom React hooks (useAuth, useToast, useTheme, useMobile).
-*   `src/types/`: TypeScript type definitions (auth types).
-*   `public/`: Static assets.
-*   `app.py`: Python Flask server for OCR and AI suggestions (run separately).
-*   `certificate_processor.py`: Python module used by `app.py`.
+> **Flask AI Server:** No local Python setup needed. The OCR and AI backend is hosted on [Hugging Face Spaces](https://huggingface.co/spaces/GuruPreetam/CertIntel-Flask-Server) — just make sure `NEXT_PUBLIC_FLASK_SERVER_URL` is set correctly in your `.env.local`.
 
-## Key Features Implemented
+---
 
-*   **User Authentication**: Login, multi-step Registration (Role selection, Email OTP verification, details), Logout, Password Reset.
-*   **Role-Based Access**: Differentiates between 'student' and 'admin' roles.
-*   **Profile Management**: Users can update their display name. Students can manage their link with an Admin/Teacher. Admins have a unique shareable ID.
-*   **Admin Dashboard**: Admins can view pending student link requests (real-time updates), accept/reject them, and view their linked students' certificates.
-*   **Student-Admin Linking**: Students can request to link with an admin using the admin's unique ID. Admins approve/reject these requests.
-*   **Image/PDF Upload**:
-    *   Central "+" icon (Floating Action Button) for uploading images/PDFs.
-    *   Uploads files to MongoDB GridFS via Next.js backend. PDFs are converted to images page-by-page by a Flask server.
-    *   Upload progress indication.
-*   **Image Display**: User-uploaded images/certificates displayed in a grid on the home page. Admins can view linked students' certificates.
-*   **AI Integration (via Flask & Genkit)**:
-    *   `/ai-feature` page interacts with Flask server for certificate OCR and course suggestions.
-    *   Genkit flows for email OTP, registration, and potentially image description/tagging.
-*   **Email Notifications**:
-    *   OTP emails for registration.
-    *   Registration confirmation emails.
-    *   Emails to students when their link request to an admin is accepted or rejected.
-*   **Styling**:
-    *   Uses Tailwind CSS and ShadCN UI components.
-    *   Custom theme based on Gold, Light Beige, Vivid Orange.
-    *   Custom fonts: 'Poppins' for headlines, 'Open Sans' for body text.
-*   **Responsive Design**: Basic responsiveness for various screen sizes.
+## 📁 Project Structure
 
-## Further Development
+```
+CertIntel/
+├── src/
+│   ├── app/                        # Next.js App Router pages & API routes
+│   │   ├── page.tsx                # Home page (authenticated)
+│   │   ├── login/                  # Login page
+│   │   ├── register/               # Multi-step registration
+│   │   ├── forgot-password/        # Password reset
+│   │   ├── profile-settings/       # User profile management
+│   │   ├── admin/dashboard/        # Admin dashboard
+│   │   ├── admin/student-certificates/[studentId]/
+│   │   ├── ai-feature/             # AI certificate processing page
+│   │   └── api/                    # Backend API routes
+│   ├── components/
+│   │   ├── auth/                   # AuthForm, ProtectedPage
+│   │   ├── home/                   # ImageGrid, UploadFAB, AiFAB, Modals
+│   │   ├── layout/                 # SiteHeader
+│   │   ├── common/                 # AppLogo and shared components
+│   │   └── ui/                     # ShadCN UI components
+│   ├── lib/
+│   │   ├── firebase/               # Firebase client & admin config
+│   │   ├── mongodb.ts              # MongoDB connection
+│   │   ├── services/               # userService, emailUtils
+│   │   └── models/                 # TypeScript data models
+│   ├── ai/
+│   │   ├── flows/                  # Genkit AI flows (OTP, registration, image)
+│   │   ├── genkit.ts               # Genkit global config
+│   │   └── dev.ts                  # Genkit dev server entry point
+│   ├── context/                    # React Contexts (AuthContext)
+│   ├── hooks/                      # useAuth, useToast, useTheme, useMobile
+│   └── types/                      # TypeScript type definitions
+├── app.py                          # Python Flask server (OCR & AI suggestions)
+├── certificate_processor.py        # Certificate processing module
+├── firestore.rules                 # Firestore security rules
+├── next.config.ts
+├── tailwind.config.ts
+└── tsconfig.json
+```
 
-*   **Image Editor**: Implement crop and resize functionality in upload modal (currently a placeholder).
-*   **MongoDB Integration (Advanced)**:
-    *   Refine database schemas for user_course_processing_results, manual_course_names.
-    *   Secure API endpoints for managing this data.
-*   **Advanced Mobile Upload**: Refine Camera vs. File Manager prompt on mobile for better UX.
-*   **Desktop Folder Upload**: Implement or provide clear instructions for folder uploads on desktop.
-*   **Error Handling and UI Feedback**: Enhance error handling and user feedback across the application, especially for network and API interactions.
-*   **Testing**: Add unit, integration, and end-to-end tests.
-*   **Security**: Thoroughly review Firestore security rules for production. Harden API endpoints.
-*   **Production Email Service**: For production, consider a more robust email sending service than Gmail via Nodemailer (e.g., SendGrid, Mailgun).
-*   **Genkit Production Deployment**: Configure Genkit flows for a production environment.
-*   **OTP Storage**: Replace in-memory OTP store with a persistent database solution for production.
-*   **Scalability**: Review and optimize for scalability as user base grows.
+---
 
+## 📜 Available Scripts
 
+| Command | Description |
+|---|---|
+| `npm run dev` | Start Next.js dev server on port 9005 |
+| `npm run build` | Build for production |
+| `npm run start` | Start production server |
+| `npm run lint` | Run ESLint |
+| `npm run typecheck` | TypeScript type check (no emit) |
+| `npm run genkit:dev` | Start Genkit dev server |
+| `npm run genkit:watch` | Start Genkit with file watching |
 
-## License
+---
 
-This project is licensed under the PolyForm Noncommercial License 1.0.0.
-Commercial use is not permitted without permission.
+## 🗺️ Roadmap
+
+- [ ] **Image Editor** — Crop and resize functionality in upload modal
+- [ ] **Advanced MongoDB schemas** — Refine `user_course_processing_results` and `manual_course_names`
+- [ ] **Mobile camera upload** — Improved camera vs. file manager UX on mobile
+- [ ] **Desktop folder upload** — Batch upload support
+- [ ] **Robust error handling** — Enhanced feedback for network and API failures
+- [ ] **Testing** — Unit, integration, and end-to-end test coverage
+- [ ] **Production email service** — Migrate from Gmail/Nodemailer to SendGrid or Mailgun
+- [ ] **Production Genkit deployment** — Configure flows for production environments
+- [ ] **Persistent OTP storage** — Replace in-memory OTP store with a database-backed solution
+- [ ] **Security hardening** — Full Firestore rules audit and API endpoint hardening
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please open an issue first to discuss what you'd like to change, then submit a pull request.
+
+1. Fork the repository
+2. Create your feature branch: `git checkout -b feature/your-feature`
+3. Commit your changes: `git commit -m 'Add some feature'`
+4. Push to the branch: `git push origin feature/your-feature`
+5. Open a pull request
+
+---
+
+## 📄 License
+
+This project is licensed under the **PolyForm Noncommercial License 1.0.0**.
+Commercial use is **not permitted** without explicit permission from the author.
+
+See the [LICENSE](./LICENSE) file for details.
+
+---
+
+## 👤 Author
+
+**Gurupreetam** · [@gurupreetam9](https://github.com/gurupreetam9)
+
+---
+
+<div align="center">
+  <sub>Built with ❤️ using Next.js, Firebase, MongoDB, and AI</sub>
+</div>
