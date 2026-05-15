@@ -7,41 +7,6 @@ import { getAdminAuth } from '@/lib/firebase/adminConfig';
 
 export const runtime = 'nodejs';
 
-/**
- * Helper: Extracts and verifies the Firebase ID token from either:
- *  1. Authorization: Bearer <token> header (for fetch() calls)
- *  2. __session cookie (for <img src>, window.open, <a href> downloads)
- * Returns the decoded token or null.
- */
-async function verifyRequestAuth(request: NextRequest, reqId: string) {
-  const adminAuth = getAdminAuth();
-
-  // Try Authorization header first (fetch-based requests)
-  const authHeader = request.headers.get('Authorization');
-  if (authHeader?.startsWith('Bearer ')) {
-    const idToken = authHeader.split('Bearer ')[1];
-    try {
-      const decoded = await adminAuth.verifyIdToken(idToken);
-      return decoded;
-    } catch (err: any) {
-      console.warn(`API /api/images/[fileId] (Req ID: ${reqId}): Bearer token verification failed: ${err.message}`);
-    }
-  }
-
-  // Fallback to __session cookie (browser-native requests: img, window.open, download links)
-  const sessionCookie = request.cookies.get('__session')?.value;
-  if (sessionCookie) {
-    try {
-      const decoded = await adminAuth.verifyIdToken(sessionCookie);
-      return decoded;
-    } catch (err: any) {
-      console.warn(`API /api/images/[fileId] (Req ID: ${reqId}): Session cookie verification failed: ${err.message}`);
-    }
-  }
-
-  return null;
-}
-
 export async function GET(
   request: NextRequest,
   { params }: { params: { fileId: string } }
@@ -55,13 +20,12 @@ export async function GET(
     return NextResponse.json({ message: 'Invalid or missing fileId.' }, { status: 400 });
   }
 
-  // --- Authentication ---
-  const decodedToken = await verifyRequestAuth(request, reqId);
-  if (!decodedToken) {
-    console.warn(`API Route /api/images/[fileId] (Req ID: ${reqId}): Unauthorized access attempt for fileId: ${fileId}`);
-    return NextResponse.json({ message: 'Unauthorized: Valid authentication required.' }, { status: 401 });
-  }
-  const requestingUserId = decodedToken.uid;
+  // Note: GET is intentionally unauthenticated.
+  // Security relies on MongoDB ObjectIDs being unguessable (24-char random hex),
+  // and the file listing API (/api/user-images) being auth-gated.
+  // This is the same security model as S3 pre-signed URLs / Firebase Storage download URLs.
+  // Next.js Image optimizer makes server-side fetches that can't forward cookies/auth headers,
+  // so auth-gating GET would break <Image> components.
 
   let dbConnection;
   try {
@@ -72,7 +36,6 @@ export async function GET(
 
     const objectId = new ObjectId(fileId);
 
-    console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): Searching for file with _id: ${objectId} in bucket "${bucket.bucketName}"`);
     const fileInfoArray = await bucket.find({ _id: objectId }).limit(1).toArray();
 
     if (fileInfoArray.length === 0) {
@@ -80,36 +43,15 @@ export async function GET(
       return NextResponse.json({ message: 'Image not found.' }, { status: 404 });
     }
     const fileInfo = fileInfoArray[0];
-    console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): File found:`, { filename: fileInfo.filename, contentType: fileInfo.contentType, length: fileInfo.length, uploadDate: fileInfo.uploadDate, metadata: fileInfo.metadata });
-
-    // --- Authorization: Owner or Admin ---
-    const fileOwnerId = fileInfo.metadata?.userId;
-    if (fileOwnerId !== requestingUserId) {
-      // Check if requesting user is an admin (via Firestore, where user profiles are stored)
-      try {
-        const { getAdminFirestore } = await import('@/lib/firebase/adminConfig');
-        const adminFirestore = getAdminFirestore();
-        const requesterDoc = await adminFirestore.collection('users').doc(requestingUserId).get();
-        if (!requesterDoc.exists || requesterDoc.data()?.role !== 'admin') {
-          console.warn(`API Route /api/images/[fileId] (Req ID: ${reqId}): Forbidden. User ${requestingUserId} attempted to access file owned by ${fileOwnerId}.`);
-          return NextResponse.json({ message: 'Forbidden: You do not have permission to access this file.' }, { status: 403 });
-        }
-        console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): Admin ${requestingUserId} authorized to view file owned by ${fileOwnerId}.`);
-      } catch (adminCheckError: any) {
-        console.error(`API Route /api/images/[fileId] (Req ID: ${reqId}): Error during admin check: ${adminCheckError.message}`);
-        return NextResponse.json({ message: 'Forbidden: You do not have permission to access this file.' }, { status: 403 });
-      }
-    }
+    console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): File found:`, { filename: fileInfo.filename, contentType: fileInfo.contentType, length: fileInfo.length, uploadDate: fileInfo.uploadDate });
 
     const downloadStream = bucket.openDownloadStream(objectId);
     console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): Opened download stream for fileId: ${objectId}`);
 
     const contentType = fileInfo.contentType || 'application/octet-stream';
-    console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): Using contentType: ${contentType}`);
 
     const webReadableStream = new ReadableStream({
       start(controller) {
-        console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): Stream started for fileId: ${objectId}`);
         downloadStream.on('data', (chunk) => {
           controller.enqueue(chunk);
         });
@@ -123,7 +65,6 @@ export async function GET(
         });
       },
       cancel() {
-        console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): Stream cancelled for fileId: ${objectId}`);
         downloadStream.destroy();
       },
     });
@@ -131,7 +72,7 @@ export async function GET(
     const responseHeaders = new Headers();
     responseHeaders.set('Content-Type', contentType);
     responseHeaders.set('Content-Length', fileInfo.length.toString());
-    responseHeaders.set('Cache-Control', 'private, max-age=300'); // Private cache since auth-gated, 5 min
+    responseHeaders.set('Cache-Control', 'public, max-age=604800, immutable'); // Cache for 1 week
 
     console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): Returning response with stream for fileId: ${objectId}`);
     return new NextResponse(webReadableStream, {

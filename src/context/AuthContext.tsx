@@ -2,7 +2,7 @@
 'use client';
 
 import type { User } from 'firebase/auth';
-import { createContext, useState, useEffect, useRef, type ReactNode, useCallback } from 'react';
+import { createContext, useState, useEffect, type ReactNode, useCallback } from 'react';
 import { onAuthStateChanged as firebaseOnAuthStateChanged, signOut } from '@/lib/firebase/auth';
 import { firestore } from '@/lib/firebase/config';
 import { doc, onSnapshot, type Unsubscribe } from 'firebase/firestore';
@@ -50,11 +50,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setUser(firebaseUser);
         setUserId(firebaseUser.uid);
 
-        // Set session cookie for authenticated image access (img src, window.open)
-        firebaseUser.getIdToken().then(token => {
-          document.cookie = `__session=${token}; path=/; max-age=3600; SameSite=Lax`;
-        }).catch(err => console.warn('AuthContext: Failed to set session cookie:', err.message));
-
         const userDocRef = doc(firestore, USERS_COLLECTION, firebaseUser.uid);
         profileListenerUnsubscribe = onSnapshot(userDocRef, 
           (docSnap) => {
@@ -96,8 +91,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setUserId(null);
         setUserProfile(null);
         setLoading(false);
-        // Clear session cookie
-        document.cookie = '__session=; path=/; max-age=0; SameSite=Lax';
       }
     });
 
@@ -108,17 +101,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     };
   }, []);
-
-  // Refresh session cookie every 10 minutes to stay ahead of Firebase's 1-hour token expiry
-  useEffect(() => {
-    if (!user) return;
-    const interval = setInterval(() => {
-      user.getIdToken(true).then(token => {
-        document.cookie = `__session=${token}; path=/; max-age=3600; SameSite=Lax`;
-      }).catch(() => {});
-    }, 10 * 60 * 1000); // every 10 minutes
-    return () => clearInterval(interval);
-  }, [user]);
 
   if (loading) {
     return (
