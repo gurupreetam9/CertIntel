@@ -1,11 +1,27 @@
 
 import type { Metadata } from 'next';
+import { Open_Sans, Poppins } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '@/context/AuthContext';
 import { ThemeProvider } from '@/hooks/themeContextManager.tsx'; // Explicitly import .tsx
 import { Toaster } from '@/components/ui/toaster';
 import SiteHeader from '@/components/layout/SiteHeader';
 import SiteFooter from '@/components/layout/SiteFooter';
+
+const openSans = Open_Sans({
+  subsets: ['latin'],
+  weight: ['400', '500', '700'],
+  style: ['normal', 'italic'],
+  display: 'swap',
+  variable: '--font-open-sans',
+});
+
+const poppins = Poppins({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  display: 'swap',
+  variable: '--font-poppins',
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://cert-intel.vercel.app'),
@@ -39,12 +55,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,400;0,500;0,700;1,400;1,500;1,700&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet" />
-      </head>
+    <html lang="en" className={`${openSans.variable} ${poppins.variable}`} suppressHydrationWarning>
       <body className="font-body antialiased">
         <AuthProvider>
           <ThemeProvider>

@@ -16,16 +16,40 @@ const nextConfig: NextConfig = {
         port: '',
         pathname: '/**',
       },
-      // If you need to load images from other *.cloudworkstations.dev hostnames
-      // (not the one serving your app), you can keep a general entry.
-      // However, for images served by your app's own /api/images/... route,
-      // no entry is needed here.
-      // Example:
-      // {
-      //   protocol: 'https',
-      //   hostname: '*.another-cws-domain.com', 
-      // },
     ],
+  },
+  // Performance: Add caching and security headers
+  async headers() {
+    return [
+      {
+        // Cache static assets (JS, CSS, fonts, images) for 1 year
+        source: '/:all*(svg|jpg|jpeg|png|gif|ico|webp|avif|woff|woff2|ttf|otf)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+      {
+        // Security headers for all routes
+        source: '/:path*',
+        headers: [
+          {
+            key: 'X-DNS-Prefetch-Control',
+            value: 'on',
+          },
+          {
+            key: 'X-Content-Type-Options',
+            value: 'nosniff',
+          },
+          {
+            key: 'Referrer-Policy',
+            value: 'origin-when-cross-origin',
+          },
+        ],
+      },
+    ];
   },
   webpack: (config, { isServer }) => {
     // Enable WebAssembly and Top-Level Await
@@ -63,3 +87,4 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
+
