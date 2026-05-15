@@ -18,8 +18,8 @@ export default {
     },
     extend: {
       fontFamily: {
-        body: ['var(--font-open-sans)', 'Open Sans', 'sans-serif'],
-        headline: ['var(--font-poppins)', 'Poppins', 'sans-serif'],
+        body: ['Open Sans', 'sans-serif'],
+        headline: ['Poppins', 'sans-serif'],
         code: ['monospace', 'monospace'],
       },
       colors: {

@@ -4,7 +4,7 @@
 @tailwind utilities;
 
 body {
-  font-family: var(--font-open-sans), 'Open Sans', sans-serif;
+  font-family: var(--font-body), serif; /* Default to body font */
 }
 
 @layer base {

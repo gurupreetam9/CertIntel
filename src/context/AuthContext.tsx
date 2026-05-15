@@ -7,6 +7,7 @@ import { onAuthStateChanged as firebaseOnAuthStateChanged, signOut } from '@/lib
 import { firestore } from '@/lib/firebase/config';
 import { doc, onSnapshot, type Unsubscribe } from 'firebase/firestore';
 import type { UserProfile } from '@/lib/models/user';
+import { Loader2 } from 'lucide-react';
 
 interface AuthContextType {
   user: User | null;
@@ -101,13 +102,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
   }, []);
 
-  // Always render children immediately - don't block the entire app with a spinner.
-  // Public pages (login, blog, about) should render instantly.
-  // Protected pages use the ProtectedPage component which handles loading state.
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Loader2 className="h-16 w-16 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   return (
     <AuthContext.Provider value={{ user, userProfile, loading, userId, refreshUserProfile }}>
       {children}
     </AuthContext.Provider>
   );
 };
-
