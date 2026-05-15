@@ -5,6 +5,7 @@ import { AuthProvider } from '@/context/AuthContext';
 import { ThemeProvider } from '@/hooks/themeContextManager.tsx'; // Explicitly import .tsx
 import { Toaster } from '@/components/ui/toaster';
 import SiteHeader from '@/components/layout/SiteHeader';
+import SiteFooter from '@/components/layout/SiteFooter';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://cert-intel.vercel.app'),
@@ -50,6 +51,7 @@ export default function RootLayout({
             <div className="flex flex-col min-h-screen">
               <SiteHeader />
               <main className="flex-1">{children}</main>
+              <SiteFooter />
             </div>
             <Toaster />
           </ThemeProvider>

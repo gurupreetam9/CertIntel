@@ -66,6 +66,14 @@ export default function SiteHeader() {
           </Link>
           
           <div className="flex items-center gap-2">
+            <nav className="hidden sm:flex items-center gap-1 mr-2">
+              <Button variant="ghost" asChild size="sm">
+                <Link href="/about">About</Link>
+              </Button>
+              <Button variant="ghost" asChild size="sm">
+                <Link href="/blog">Blog</Link>
+              </Button>
+            </nav>
             {showUserUI ? (
               <>
                 {userProfile?.role === 'admin' && (
