@@ -200,12 +200,16 @@ export default function ImageGrid({ images, isLoading, error, onImageDeleted, cu
   };
 
   const handleDeleteImage = async () => {
-    if (!imageToDelete || !currentUserId) return;
+    if (!imageToDelete || !user) return;
 
     setIsDeleting(true);
     try {
-      const response = await fetch(`/api/images/${imageToDelete.fileId}?userId=${currentUserId}`, {
+      const idToken = await user.getIdToken();
+      const response = await fetch(`/api/images/${imageToDelete.fileId}`, {
         method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${idToken}`,
+        },
       });
 
       const responseBody = await response.json().catch(() => ({ message: 'Failed to parse delete response from server.'}));

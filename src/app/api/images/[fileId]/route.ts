@@ -7,6 +7,41 @@ import { getAdminAuth } from '@/lib/firebase/adminConfig';
 
 export const runtime = 'nodejs';
 
+/**
+ * Helper: Extracts and verifies the Firebase ID token from either:
+ *  1. Authorization: Bearer <token> header (for fetch() calls)
+ *  2. __session cookie (for <img src>, window.open, <a href> downloads)
+ * Returns the decoded token or null.
+ */
+async function verifyRequestAuth(request: NextRequest, reqId: string) {
+  const adminAuth = getAdminAuth();
+
+  // Try Authorization header first (fetch-based requests)
+  const authHeader = request.headers.get('Authorization');
+  if (authHeader?.startsWith('Bearer ')) {
+    const idToken = authHeader.split('Bearer ')[1];
+    try {
+      const decoded = await adminAuth.verifyIdToken(idToken);
+      return decoded;
+    } catch (err: any) {
+      console.warn(`API /api/images/[fileId] (Req ID: ${reqId}): Bearer token verification failed: ${err.message}`);
+    }
+  }
+
+  // Fallback to __session cookie (browser-native requests: img, window.open, download links)
+  const sessionCookie = request.cookies.get('__session')?.value;
+  if (sessionCookie) {
+    try {
+      const decoded = await adminAuth.verifyIdToken(sessionCookie);
+      return decoded;
+    } catch (err: any) {
+      console.warn(`API /api/images/[fileId] (Req ID: ${reqId}): Session cookie verification failed: ${err.message}`);
+    }
+  }
+
+  return null;
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { fileId: string } }
@@ -19,6 +54,14 @@ export async function GET(
     console.warn(`API Route /api/images/[fileId] (Req ID: ${reqId}): Invalid or missing fileId: ${fileId}`);
     return NextResponse.json({ message: 'Invalid or missing fileId.' }, { status: 400 });
   }
+
+  // --- Authentication ---
+  const decodedToken = await verifyRequestAuth(request, reqId);
+  if (!decodedToken) {
+    console.warn(`API Route /api/images/[fileId] (Req ID: ${reqId}): Unauthorized access attempt for fileId: ${fileId}`);
+    return NextResponse.json({ message: 'Unauthorized: Valid authentication required.' }, { status: 401 });
+  }
+  const requestingUserId = decodedToken.uid;
 
   let dbConnection;
   try {
@@ -39,6 +82,25 @@ export async function GET(
     const fileInfo = fileInfoArray[0];
     console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): File found:`, { filename: fileInfo.filename, contentType: fileInfo.contentType, length: fileInfo.length, uploadDate: fileInfo.uploadDate, metadata: fileInfo.metadata });
 
+    // --- Authorization: Owner or Admin ---
+    const fileOwnerId = fileInfo.metadata?.userId;
+    if (fileOwnerId !== requestingUserId) {
+      // Check if requesting user is an admin (via Firestore, where user profiles are stored)
+      try {
+        const { getAdminFirestore } = await import('@/lib/firebase/adminConfig');
+        const adminFirestore = getAdminFirestore();
+        const requesterDoc = await adminFirestore.collection('users').doc(requestingUserId).get();
+        if (!requesterDoc.exists || requesterDoc.data()?.role !== 'admin') {
+          console.warn(`API Route /api/images/[fileId] (Req ID: ${reqId}): Forbidden. User ${requestingUserId} attempted to access file owned by ${fileOwnerId}.`);
+          return NextResponse.json({ message: 'Forbidden: You do not have permission to access this file.' }, { status: 403 });
+        }
+        console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): Admin ${requestingUserId} authorized to view file owned by ${fileOwnerId}.`);
+      } catch (adminCheckError: any) {
+        console.error(`API Route /api/images/[fileId] (Req ID: ${reqId}): Error during admin check: ${adminCheckError.message}`);
+        return NextResponse.json({ message: 'Forbidden: You do not have permission to access this file.' }, { status: 403 });
+      }
+    }
+
     const downloadStream = bucket.openDownloadStream(objectId);
     console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): Opened download stream for fileId: ${objectId}`);
 
@@ -49,7 +111,6 @@ export async function GET(
       start(controller) {
         console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): Stream started for fileId: ${objectId}`);
         downloadStream.on('data', (chunk) => {
-          // console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): Stream data chunk received (length: ${chunk.length}) for fileId: ${objectId}`);
           controller.enqueue(chunk);
         });
         downloadStream.on('end', () => {
@@ -70,7 +131,7 @@ export async function GET(
     const responseHeaders = new Headers();
     responseHeaders.set('Content-Type', contentType);
     responseHeaders.set('Content-Length', fileInfo.length.toString());
-    responseHeaders.set('Cache-Control', 'public, max-age=604800, immutable'); // Cache for 1 week
+    responseHeaders.set('Cache-Control', 'private, max-age=300'); // Private cache since auth-gated, 5 min
 
     console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): Returning response with stream for fileId: ${objectId}`);
     return new NextResponse(webReadableStream, {
@@ -106,14 +167,23 @@ export async function DELETE(
   const reqId = Math.random().toString(36).substring(2, 9);
   console.log(`API Route /api/images/[fileId] (Req ID: ${reqId}): DELETE request received for fileId: ${fileId}`);
 
-  // In a real app, you'd get userId from a verified Firebase ID token in the Authorization header.
-  // For now, we'll expect it as a query parameter for simplicity in this prototype.
-  const userIdFromRequest = request.nextUrl.searchParams.get('userId');
-
-  if (!userIdFromRequest) {
-    console.warn(`API Route /api/images/[fileId] (Req ID: ${reqId}): Missing userId query parameter for DELETE.`);
-    return NextResponse.json({ message: 'Unauthorized: Missing user identification.' }, { status: 401 });
+  // --- Authentication via Bearer token ---
+  const adminAuth = getAdminAuth();
+  const authorizationHeader = request.headers.get('Authorization');
+  if (!authorizationHeader || !authorizationHeader.startsWith('Bearer ')) {
+    return NextResponse.json({ message: 'Unauthorized: Missing or invalid ID token.' }, { status: 401 });
   }
+  const idToken = authorizationHeader.split('Bearer ')[1];
+
+  let decodedToken;
+  try {
+    decodedToken = await adminAuth.verifyIdToken(idToken);
+  } catch (error: any) {
+    console.error(`API Route /api/images/[fileId] DELETE (Req ID: ${reqId}): AUTH FAIL - ID Token verification failed:`, { message: error.message, code: error.code });
+    return NextResponse.json({ message: 'Unauthorized: Invalid ID token.', errorKey: 'INVALID_ID_TOKEN' }, { status: 401 });
+  }
+
+  const userId = decodedToken.uid;
 
   if (!fileId || !ObjectId.isValid(fileId)) {
     console.warn(`API Route /api/images/[fileId] (Req ID: ${reqId}): Invalid fileId for DELETE: ${fileId}`);
@@ -136,8 +206,8 @@ export async function DELETE(
     }
 
     // Authorization check: Ensure the user deleting owns the file
-    if (fileMetadata.metadata?.userId !== userIdFromRequest) {
-      console.warn(`API Route /api/images/[fileId] (Req ID: ${reqId}): Unauthorized DELETE attempt. User ${userIdFromRequest} tried to delete file ${fileId} owned by ${fileMetadata.metadata?.userId}.`);
+    if (fileMetadata.metadata?.userId !== userId) {
+      console.warn(`API Route /api/images/[fileId] (Req ID: ${reqId}): Unauthorized DELETE attempt. User ${userId} tried to delete file ${fileId} owned by ${fileMetadata.metadata?.userId}.`);
       return NextResponse.json({ message: 'Unauthorized: You do not have permission to delete this file.' }, { status: 403 });
     }
 
